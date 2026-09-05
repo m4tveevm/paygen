@@ -2,6 +2,26 @@
 
 Status: COMPLETE
 
+## Native onboarding and integration bundles
+
+The approved follow-up is implemented in
+[PR #2](https://github.com/m4tveevm/paygen/pull/2). Its implementation commit
+`66847cb8f35bb25ce1045b2fff772706db67f387` passed the full
+[completion run](https://github.com/m4tveevm/paygen/actions/runs/33959385178).
+
+Delivered: bounded full-spec import, guided explicit profiles, PDF backend seam,
+query/header mappings, exact JSON amounts, conservative retry/reconciliation,
+portable MD/HTML, complete examples, effective OpenAPI, Bruno and a local adapter
+application. Three full native contracts have independent replay cases;
+Russian examples include Raiffeisen, T-Bank and a Tochka source-unavailable review.
+
+All three Ruby versions passed 1,017 examples. Seven profiles passed CLI smoke;
+Bruno passed 56 loopback requests and 88 assertions. Audits, six documentation
+pages and both OCI checks passed. NATIVE_ONBOARDING_PLAN.md records scope and
+remaining product boundaries; VERIFICATION.md records exact evidence.
+
+## Initial reference implementation
+
 The initial full reference implementation and all completion gates passed for commit
 `c4097a085ff9cd4fd5491ec2248bcf96dc5a7a4c` in
 [CI run 33954587927](https://github.com/m4tveevm/paygen/actions/runs/33954587927).
