@@ -1,9 +1,20 @@
 # Paygen
 
-Generate deterministic Ruby payout integrations from OpenAPI 3.0/3.1 and explicit
-semantic profiles. No LLM or hosted AI is used by the shipped application.
+Paygen generates Ruby payout integrations from OpenAPI 3.0/3.1 and a configuration
+profile. It produces an adapter, integration documentation and test examples,
+then checks the adapter against a local provider simulator.
+
+The profile defines the decisions an API schema cannot reliably supply: which
+operation sends money, how amounts and recipients are represented, which statuses
+confirm settlement, and how retries and callbacks work.
+
+## Quickstart
+
+Install Ruby 3.3 or later, then run from a fresh checkout:
 
 ```bash
+git clone https://github.com/m4tveevm/paygen.git
+cd paygen
 gem install bundler -v 4.0.20
 bundle install
 bundle exec bin/paygen init fixtures/novapay/openapi.yaml --output tmp/novapay
@@ -12,109 +23,83 @@ bundle exec bin/paygen diff tmp/novapay --check
 bundle exec bin/paygen verify tmp/novapay --seed 42
 ```
 
-Requires Ruby >=3.3. Documentation uses Node 22 and npm 11.9.0. Reference image: `ruby:4.0.6-slim`.
+The bundled NovaPay example includes its configuration and contract corrections.
+`diff` reports `"changed": false`; `verify` reports `"success": true` and
+`"failed": 0`. Its checks cover creation, status polling, repeated requests,
+timeouts, rate limits, cancellation and signed callbacks.
 
-Outputs: a `Provider::BaseService` subclass, `INTEGRATION.md`, `fixtures.json`, `effective-openapi.json`,
-effective configuration, diagnostics and provenance. The real backend base class
-is not published with the case; `spec/support/provider_harness.rb` is the
-reference seam, and runtime outcomes are structured hashes.
+`init` requires a new output directory. Reuse an existing project by starting with
+`generate`, or choose another directory for a new example.
 
-## Project workflow
+## Use the generated integration
 
-```text
-source/          pinned OpenAPI
-overlays/        ordered Overlay 1.1 corrections
-integration.yml explicit semantic configuration
-workflows/       Arazzo descriptions
-recipes/         selected default rules
-extensions/      trusted user-owned Ruby hooks
-scenarios/       offline payout scenarios
-generated/       Paygen-owned files
-paygen.lock      input and generated-file hashes
+| Output in `tmp/novapay/generated/` | Purpose |
+| --- | --- |
+| `novapay_service.rb` | Adapter subclassing `Provider::BaseService` |
+| `INTEGRATION.md` | Endpoints, setup, mappings and request examples |
+| `fixtures.json` | Request, response and callback examples |
+| `effective-openapi.json` | Contract after applying corrections |
+| `config.json`, `diagnostics.json`, `provenance.json` | Effective settings, validation results and the source of each setting |
+
+Export a portable HTML guide and a Bruno collection, then start the local demo:
+
+```bash
+bundle exec bin/paygen docs tmp/novapay --format html --output tmp/novapay-docs
+bundle exec bin/paygen collection tmp/novapay --format bruno --output tmp/novapay-bruno
+bundle exec bin/paygen demo tmp/novapay --port 9293
 ```
 
-Input contracts are untrusted data. YAML cannot execute Ruby. Safe refs, bounded
-parsing, HTTPS DNS pinning and project path checks protect ingestion. Generated
-edits cause a drift error; extension files are preserved. `generate --draft`
-produces diagnostics when semantic blockers prevent executable output.
+Open `tmp/novapay-docs/index.html` in a browser. In Bruno, open
+`tmp/novapay-bruno`, select the `local` environment and run the collection in
+order. The demo invokes the generated adapter, checks its requests in the provider
+simulator, and processes signed callbacks. It listens on `127.0.0.1` and uses
+synthetic credentials and payment data.
 
-```text
-paygen inspect INPUT [--profile FILE] [--format text|json] [--strict]
-paygen init INPUT --output PROJECT [--profile FILE]
-paygen configure PROJECT [--answers FILE] [--set KEY=VALUE]
-paygen generate PROJECT [--draft] [--set KEY=VALUE] [--save-profile FILE] [--watch]
-paygen diff PROJECT [--check]
-paygen update PROJECT NEW_INPUT
-paygen explain PROJECT FACT_PATH
-paygen patch add|replace|remove|copy PROJECT TARGET [--value JSON] [--from JSONPATH]
-paygen recipe list|show|add|remove
-paygen serve PROJECT [--scenario NAME] [--seed N] [--port 9292]
-paygen demo PROJECT [--scenario NAME] [--seed N] [--port 9293]
-paygen docs PROJECT --format html|md --output DIR
-paygen collection PROJECT --format bruno --output DIR
-paygen verify PROJECT [--target http://127.0.0.1:9292] [--scenario-pack NAME] [--seed N]
-paygen export PROJECT --standalone --output DIR
-paygen architecture-check PROJECT
-paygen doctor
+HTML and collection generation require only Ruby. Node is needed for the optional
+Bruno CLI and the Paygen manual's site build. Export directories must be new.
+
+## Configure another API
+
+```bash
+bundle exec bin/paygen init provider.yaml --output tmp/provider
+bundle exec bin/paygen configure tmp/provider
+bundle exec bin/paygen configure tmp/provider --answers profile.yml
+bundle exec bin/paygen generate tmp/provider
+bundle exec bin/paygen verify tmp/provider --seed 42
 ```
 
-Exit codes: 0 success, 1 failed check, 2 argument/project error, 3 invalid
-specification, 4 unresolved semantics, 5 security denial, 70 internal error.
-An exported standalone integration is detached from safe regeneration.
+`configure` lists candidate operations, source locations and unanswered questions.
+Resolve these in `integration.yml` or apply a profile before generating executable
+code. Change the source, profile or overlays to regenerate; put custom Ruby hooks
+in `extensions/`. Paygen detects manual changes to generated files.
 
-## Offline packs and runtime
+Examples include NovaPay, Stripe, Adyen, PayPal, Paystack and Raiffeisen SBP
+payouts. The [example catalog](fixtures/README.md) distinguishes full source
+contracts from focused fixtures. T-Bank and Tochka illustrate signing and workflow
+requirements that need additional integration work.
 
-NovaPay uses the original supplied contract plus explicit corrections. PayPal
-Standard Payouts, Stripe Connect Payouts and Adyen Transfers v4 are curated
-subsets with source and license provenance. See `fixtures/README.md`.
+## Documentation
 
-Full, unmodified native contracts now have independent offline examples for
-Paystack transfers, PayPal's single-item payout flow and Raiffeisen SBP payouts.
-Russian bank examples also include explicit T-Bank signing/workflow blockers
-and a Tochka payment-order review. See [native onboarding](docs/native-onboarding.md)
-and [Russian bank examples](docs/ru-bank-examples.md). An imported document is
-not automatically a configured or bank-approved integration.
+- [Seven-minute demo](docs/demo.md): commands and expected results for a walkthrough.
+- [CLI reference](docs/cli.md): configuration, generation and exports.
+- [Native API onboarding](docs/native-onboarding.md): profiles and the API corpus.
+- [Bruno demo](docs/bruno-demo.md) and [Russian bank examples](docs/ru-bank-examples.md).
+- [Architecture](docs/architecture.md), [supported scope](docs/scope.md) and [development](docs/development.md).
 
-`configure` reports role candidates with evidence and unresolved semantic
-questions. Explicit profiles supply settlement status, money units, recipient
-mapping and retry policy. Full sources retain their bounded reference graphs;
-only selected operations expand. Unsupported selected recursion is diagnosed.
+The prototype demonstrates generation and local adapter behavior. Connecting a
+real application also requires its `Provider::BaseService` hooks, durable state
+storage and provider sandbox verification. Generated integration guides can be
+distributed with the adapter; GitHub Pages is an optional host for the Paygen manual.
 
-The reference runtime supports exact decimal conversion, stable payout identities,
-ambiguous timeout results, explicit status transitions, callback verification and
-credential rotation. Production integrations must supply durable state storage and
-review their BaseService seam. PayPal's remote signature verification requires
-an application hook; offline fixtures never pretend an unverified webhook passed.
-
-The offline verifier exercises faults using real adapter calls. `--target` is
-restricted to an explicit loopback HTTP simulator and reports remote smoke
-coverage separately. No command in the default demo calls a live provider.
-
-`demo` exposes a local application that calls the generated adapter, validates
-its outgoing credentials in the simulator, and receives signed callbacks.
-`collection` exports a runnable Bruno collection for that application. `docs`
-exports portable Markdown or HTML with the effective specification and examples;
-neither generating HTML nor generating a collection needs Node or a hosted site.
-The project documentation under `docs/` and the generated integration guide serve
-different audiences. GitHub Pages is one optional publication destination.
-
-## Verification and documentation
+## Development
 
 ```bash
 bundle exec rspec
 script/smoke
-script/verify-complete
-npm install --global npm@11.9.0
-npm ci --ignore-scripts --engine-strict
-npm run docs:test
-npm run docs:build
-docker build -t paygen .
-docker run --rm paygen doctor
-docker build -f Dockerfile.docs -t paygen-docs .
-docker run --rm -p 8080:80 paygen-docs
 ```
 
-Ruby CI covers 3.3.12, 3.4.10 and 4.0.6. The Pages workflow is manual and has not
-been deployed. Current evidence and remaining gates live in `VERIFICATION.md`
-and `IMPLEMENTATION_STATUS.md`; do not equate a generated example with full plan
-completion or live-provider certification.
+See the [development guide](docs/development.md) for the complete checks,
+documentation build and containers.
+
+Paygen is licensed under [MIT](LICENSE). Third-party API snapshots keep their
+source and license information alongside the fixtures.

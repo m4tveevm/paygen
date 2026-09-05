@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main, dev/paygen-reference]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: evidence-ruby-${{ matrix.ruby }}
+          name: coverage-ruby-${{ matrix.ruby }}
           path: |
             Gemfile.lock
             coverage/
@@ -60,13 +60,11 @@ jobs:
           path: |
             package-lock.json
             npm-audit.json
-  completion:
+  integration:
     needs: [ruby, docs]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '4.0.6'
@@ -75,15 +73,12 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --global npm@11.9.0
-      - name: Complete verification gate
+      - name: Integration, documentation and container checks
         shell: bash
-        run: script/verify-complete | tee verification-complete.log
-      - name: Capture verified repository checkpoint
-        run: git bundle create paygen-verified.bundle --all
+        run: script/check | tee verification.log
       - uses: actions/upload-artifact@v4
         with:
-          name: completion-evidence
+          name: integration-results
           path: |
-            verification-complete.log
-            paygen-verified.bundle
+            verification.log
             tmp/bruno-verification/

@@ -1,21 +1,43 @@
 # Paygen
 
-Paygen generates Ruby payout integrations from OpenAPI 3.0/3.1 contracts and
-explicit semantic profiles. It generates a Provider::BaseService subclass,
-an integration guide, fixtures and fact provenance. No AI model is used at runtime.
+Paygen turns OpenAPI 3.0/3.1 contracts and explicit payout profiles into Ruby
+adapters, integration guides and test examples. A local simulator exercises the
+generated adapter, including retries, status transitions and callbacks.
 
-Start with the [five-minute demo](demo.md), then review
-[architecture and safety](architecture.md).
+Start with the [seven-minute demo](demo.md). It shows a complete workflow:
+configure an integration, generate it, verify its behavior, export documentation
+and run requests through Bruno or curl.
 
-Requirements: Ruby 3.3 or later and Bundler. The reference container uses Ruby
-4.0.6. Documentation uses Node 22 and pinned Diplodoc CLI.
+## Run an example
+
+Requires Ruby 3.3 or later. Run from the repository root; `tmp/novapay` must be a
+new directory.
 
 ```bash
+gem install bundler -v 4.0.20
 bundle install
-bundle exec bin/paygen doctor
-bundle exec bin/paygen init fixtures/novapay/openapi.yaml --output tmp/demo
-bundle exec bin/paygen generate tmp/demo
+bundle exec bin/paygen init fixtures/novapay/openapi.yaml --output tmp/novapay
+bundle exec bin/paygen generate tmp/novapay
+bundle exec bin/paygen verify tmp/novapay --seed 42
 ```
 
-Inspect generated output before connecting to your backend. The included
-reference harness is a test seam for the unpublished Provider::BaseService API.
+The generated directory contains the adapter, `INTEGRATION.md`, fixtures and the
+effective contract. The verifier should report `"success": true` and
+`"failed": 0`.
+
+## Find what you need
+
+| Task | Guide |
+| --- | --- |
+| Present a working integration | [Seven-minute demo](demo.md) |
+| Look up commands and output files | [CLI reference](cli.md) |
+| Configure an unfamiliar payment API | [Native API onboarding](native-onboarding.md) |
+| Test the adapter over HTTP | [Bruno demo](bruno-demo.md) |
+| Explore Russian payment APIs | [Russian bank examples](ru-bank-examples.md) |
+| Understand the generator and runtime | [Architecture](architecture.md) |
+| Check supported features and limitations | [Scope](scope.md) |
+| Run tests, build containers or publish the manual | [Development](development.md) |
+
+The manual describes Paygen. Each generated integration also has its own portable
+Markdown or HTML guide, effective OpenAPI and examples. These can be delivered
+with the adapter without publishing a website.

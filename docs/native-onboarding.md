@@ -1,12 +1,10 @@
-# Full native APIs and explicit integration decisions
+# Configure a provider
 
-Paygen retains the full source reference graph and expands selected operation
-contracts. This avoids duplicating every component into every operation. Input
-budgets remain 10 MiB, 100,000 nodes, 100 nesting levels, 1,000 expanded references
-and 32 files. Unsupported recursion in a selected schema produces a diagnostic.
-Legal recursion in unrelated schemas does not prevent import.
+Paygen imports OpenAPI 3.0/3.1 and retains shared references, expanding only
+selected operations. A profile defines payment semantics that the specification
+does not establish: direction, amount units, settlement states and signing rules.
 
-## Configure an unfamiliar provider
+## Create and configure a project
 
 ```bash
 bundle exec bin/paygen init provider.yaml --output /tmp/new-provider
@@ -15,25 +13,24 @@ bundle exec bin/paygen configure /tmp/new-provider --answers confirmed-profile.y
 bundle exec bin/paygen generate /tmp/new-provider
 ```
 
-The configuration report lists candidate operations and their evidence, selected
-parameters, source provenance and questions requiring a documented answer.
-Method names suggest candidates; they do not establish money direction,
-settlement, units or signing rules. Only OpenAPI inbound callback declarations
-are inferred as receivers. Plain `/callbacks` paths can be selected explicitly.
-Set an unwanted role to `null` to suppress inference or recipe defaults.
+The configuration report lists operation candidates, source pointers, parameters
+and unanswered questions. `--answers` applies a YAML/JSON profile;
+`--set operations.create=OPERATION_ID` changes a single setting. For an existing
+profile, pass `--profile FILE` to `init`.
 
-Profiles are YAML/JSON data. `--set operations.create=OPERATION_ID` is useful for
-small edits. `init --profile FILE` applies an already reviewed profile directly.
-Unknown statuses never approve a transfer. Partial profiles are editable;
-malformed configuration structures are rejected before they are saved.
+Only inbound OpenAPI callback declarations are inferred as callback receivers.
+An ordinary `/callbacks` path can be selected explicitly. Set an unwanted role
+to `null` to suppress inference or recipe defaults. Partial profiles can be saved;
+malformed structures are rejected. Generation requires all blocking questions
+to be resolved.
 
-## Native examples with independent HTTP expectations
+## Examples from full specifications
 
-| Example | Full source | Reviewed flow |
+| Example | Source size | Configured flow |
 | --- | --- | --- |
-| Paystack | 125 paths, 163 operations | Initiate and fetch a transfer to an existing recipient; OTP stays pending |
-| PayPal | 4 paths, 4 operations | Single-item payout batch; inspect the matching item, never approve from batch success alone |
-| Raiffeisen | 20 paths, including nested callbacks | Single-stage SBP payout without fiscalisation; exact ruble numbers and reconciliation before retry |
+| Paystack | 125 paths, 163 operations | Transfer to an existing recipient; OTP remains pending |
+| PayPal | 4 paths, 4 operations | Single-item payout batch; settlement follows the matching item |
+| Raiffeisen | 20 paths with nested callbacks | Single-stage SBP payout without fiscalisation; exact ruble amounts and reconciliation |
 
 ```bash
 bundle exec bin/paygen init fixtures/native-paystack/openapi.yaml \
@@ -45,20 +42,17 @@ bundle exec bin/paygen generate /tmp/paypal-native
 bundle exec rspec spec/native_packs_spec.rb spec/russian_banks_spec.rb
 ```
 
-These tests use independently authored HTTP expectations and documented
-responses. They exercise the generated adapter, including its real HTTP transport
-through WebMock for Paystack/PayPal. No source rewrite or contract overlay makes
-these examples pass. Licenses, source versions, SHA-256 and scope are stored
-beside each pack. See [Russian bank examples](ru-bank-examples.md) for the
-Raiffeisen flow and the T-Bank/Tochka counterexamples.
+These examples keep the source specifications unchanged and apply separate
+profiles. Tests check generated adapters against independently defined HTTP
+requests and responses. Paystack and PayPal exercise the HTTP transport through
+WebMock; bank tests use an injected transport. All run offline. Each pack records
+source, version, license and SHA-256. See
+[Russian bank examples](ru-bank-examples.md) for bank-specific scope.
 
-## Request parameters and retry policy
+## Request parameters
 
-Declare query/header mappings by location; legacy flat mappings apply to path
-parameters only. Required values and schemas are checked before HTTP. Primitive
-`simple` path/header values and `form` query values are supported, including
-primitive arrays. Cookies, objects, `deepObject`, `allowReserved` and unsupported
-serializations produce diagnostics.
+Map path, query and header parameters separately. Legacy flat mappings apply to
+path parameters only. Required values and schemas are checked before sending.
 
 ```yaml
 parameter_mapping:
@@ -73,59 +67,62 @@ parameter_mapping:
         value: UTF-8
 ```
 
-`decimal_number` emits an exact JSON number in major currency units, while
-`minor_units` emits integer minor units and `decimal_string` emits a decimal
-string. Application input remains an integer or decimal string; Float money is
-rejected.
+The adapter supports primitive `simple` path/header parameters and `form` query
+parameters, including primitive arrays. Cookies, objects, `deepObject`,
+`allowReserved` and other unsupported serializations produce diagnostics.
+
+`minor_units` emits an integer, `decimal_string` a decimal string, and
+`decimal_number` an exact JSON number in major currency units. Application input
+must be an integer or decimal string; floating-point money is rejected.
+
+## Retry policy
 
 Use `idempotency.strategy: reconcile_before_retry` when the provider's duplicate
-submission guarantee has not been established. With `header: null`, Paygen omits
-an undocumented idempotency header. A confirmed create is cached; an ambiguous
-attempt requires status reconciliation. Neither 404 nor an unknown status
-authorises another payout. Production recovery and coordination between workers
-require an injected durable state store.
+submission guarantee is unconfirmed. Set `header: null` to omit an idempotency
+header. A confirmed create is cached; an ambiguous attempt requires status
+reconciliation. Neither HTTP 404 nor an unknown status permits another payout.
+Multiple workers and restart recovery require a shared durable state store.
 
-## Corpus results and counterexamples
+## Import corpus
 
-The recorded benchmark contains **21 distinct API brands** selected for varied
-formats and payment flows. This is a deliberate diversity sample. It is not a
-statistically random sample or 21 working adapters.
+`fixtures/corpus/` records a snapshot of **21 API brands**, selected for varied
+formats and payment flows. **13 full contracts pass import**: PayPal, Adyen,
+Modern Treasury, Lithic, Paystack, Plaid, Yapily, ZBD, Circle, TransferZero,
+Nomupay, Raiffeisen and T-Bank. Import success is separate from having an
+executable payment profile.
 
-At the recorded snapshot, **13 of 21 full native contracts pass import**:
-PayPal, Adyen, Modern Treasury, Lithic, Paystack, Plaid, Yapily, ZBD, Circle,
-TransferZero, Nomupay, Raiffeisen and T-Bank. Explicit semantic profiles are still
-needed before code generation. The remaining import outcomes are:
-
-| Source | Recorded boundary |
+| Source | Recorded import result |
 | --- | --- |
 | Stripe | Parsed node budget exceeded |
-| Dwolla, Mollie, Razorpay | OpenAPI validation errors retained in the report |
-| Square | A missing reference target |
-| Currencycloud, Griffin | Swagger 2.0 requires a separate explicit conversion |
-| Rapyd | A non-finite numeric scalar is rejected |
+| Dwolla, Mollie, Razorpay | OpenAPI validation errors |
+| Square | Missing reference target |
+| Currencycloud, Griffin | Swagger 2.0 requires conversion |
+| Rapyd | Non-finite numeric scalar rejected |
 
-The machine-readable manifest and report live in `fixtures/corpus/`. Each source
-has a URL, byte count and SHA-256. After downloading those exact files into a
-cache, rerun without network access:
+The manifest pins URLs, byte counts and SHA-256 hashes. Download the exact files
+to a cache, then rerun the check offline:
 
 ```bash
 bundle exec ruby script/corpus /path/to/source-cache > corpus-result.json
 ```
 
-A changed or missing source is reported separately. The report measures import
-and semantic inspection. Adapter replay remains a separate test tier.
+Changed or missing files are reported separately. The sample also includes
+semantic counterexamples: recursive payment-order schemas in Modern Treasury,
+TransferZero's sandbox fake-payout action, Square's reconciliation API and
+T-Bank's certificate signing and confirmation requirements.
 
-Useful counterexamples include Modern Treasury's selected recursive payment
-order schemas, TransferZero's sandbox-only fake-payout action, Square's payout
-reconciliation surface, and T-Bank's signature and confirmation requirements.
-The two invalid Dwolla Header Reference Objects remain visible after fixing
-relative OAuth URLs; accepting a relative token URL does not make the rest of an
-invalid source valid.
+## Export documentation and test requests
 
-## Portable documentation and testing
+`generate` emits `INTEGRATION.md`, `fixtures.json`, the effective OpenAPI document
+and provenance alongside the service. Export a portable copy with:
 
-`generate` always emits Markdown, fixtures, effective OpenAPI and provenance.
-`docs --format html` creates a local browsable copy of the same integration,
-without Node. It can be archived or hosted by the receiving team. Publishing the
-Paygen manual on GitHub Pages is optional and independent of this output.
-See [Bruno adapter demo](bruno-demo.md) for a runnable HTTP collection.
+```bash
+bundle exec bin/paygen docs /tmp/new-provider --format html --output /tmp/provider-docs
+bundle exec bin/paygen collection /tmp/new-provider --format bruno --output /tmp/provider-bruno
+```
+
+Use `--format md` for Markdown documentation. Export destinations must be new and
+outside the project. HTML export requires no Node installation and can be viewed
+locally, archived or hosted. GitHub Pages publishes the Paygen manual independently
+of these per-integration files. See [the Bruno demo](bruno-demo.md) to run the
+exported requests.

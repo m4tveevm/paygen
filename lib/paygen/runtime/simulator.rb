@@ -283,12 +283,14 @@ module Paygen
         schema = response_schema(role, success_code(role, role == 'create' ? 201 : 200))
         data = sample_schema(schema)
         mapping = config.fetch('response', {}).merge(config.dig('response', 'roles', role) || {})
+        fields = [mapping.fetch('id', 'id'), mapping.fetch('status', 'status')]
         config.fetch('request_mapping', {}).each_key do |target|
           value = get_path(record['request'], target)
           target_schema = schema_at_path(schema, target)
           next if value.nil? || target.match?(/card_number|pan|secret|password/i) || !target_schema
           value = Integer(value, 10) if target_schema['type'] == 'integer' && value.is_a?(String) && value.match?(/\A-?\d+\z/)
           set_path(data, target, value)
+          fields << target
         end
         set_path(data, mapping.fetch('id', 'id'), record['id'])
         set_path(data, mapping.fetch('status', 'status'), record['status'])
@@ -301,10 +303,14 @@ module Paygen
             source = config.fetch('request_mapping', {}).find { |_key, rule| rule.is_a?(Hash) && rule['from'] == 'id' }
             set_path(item, mapping['item_external_id'], source ? get_path(record['request'], source.first) : '')
           end
+          item = response_sample(item, item_schema.fetch('items', {}),
+                                 [mapping['item_status'], mapping.fetch('item_id', 'id'), mapping['item_external_id']])
           set_path(data, mapping['items'], [item])
+          fields << mapping['items']
         end
         identity_fields(data, mapping)
-        data
+        fields += [mapping['account_field'] || config['account_field'], mapping['mode_field'] || config['mode_field']]
+        response_sample(data, schema, fields)
       end
 
       def identity_fields(data, mapping)
@@ -387,7 +393,8 @@ module Paygen
 
       def callback_event(record, status, sequence, secret:)
         callback = config.fetch('callback', {})
-        payload = sample_schema(config.dig('endpoints', 'callback', 'request_schema') || {})
+        schema = config.dig('endpoints', 'callback', 'request_schema') || {}
+        payload = sample_schema(schema)
         set_path(payload, callback.fetch('id', 'payout_id'), record['id'])
         set_path(payload, callback.fetch('status', 'status'), status)
         event = callback.fetch('events', {}).find { |_key, value| value == status }&.first ||
@@ -406,6 +413,11 @@ module Paygen
         end
         callback.fetch('constraints', {}).each { |path, value| set_path(payload, path, value) }
         identity_fields(payload, callback)
+        fields = [callback.fetch('id', 'payout_id'), callback.fetch('status', 'status'),
+                  callback['event'], callback['event_id'], callback['sequence'],
+                  callback['timestamp'], callback['external_id'],
+                  callback['account_field'] || config['account_field'], callback['mode_field'] || config['mode_field']]
+        payload = response_sample(payload, schema, fields + callback.fetch('constraints', {}).keys)
         raw = JSON.generate(payload)
         { 'payload' => payload, 'raw_body' => raw, 'headers' => sign(raw, secret || callback_secret, sequence) }
       end
@@ -487,6 +499,36 @@ module Paygen
         path_tokens(path).reduce(schema) do |node, token|
           break nil unless node.is_a?(Hash)
           token.match?(/\A\d+\z/) ? node['items'] : node.dig('properties', token)
+        end
+      end
+
+      # Keep contract-required data and values supplied by this scenario. Optional
+      # schema placeholders can otherwise imply an error or completion that never
+      # happened. Preserve the full sample when conditional constraints need it.
+      def response_sample(value, schema, fields)
+        candidate = compact_sample(value, schema, fields.compact.map { |field| path_tokens(field) })
+        sample_valid?(schema, candidate) ? candidate : value
+      end
+
+      def compact_sample(value, schema, paths)
+        return value unless schema.is_a?(Hash)
+        return value if paths.include?([]) || schema.key?('const') || schema.key?('enum')
+
+        case value
+        when Hash
+          required = Array(schema['required'])
+          value.each_with_object({}) do |(name, child), result|
+            selected = paths.select { |path| path.first == name }.map { |path| path.drop(1) }
+            next unless required.include?(name) || selected.any?
+
+            result[name] = compact_sample(child, schema.dig('properties', name) || {}, selected)
+          end
+        when Array
+          value.each_with_index.map do |child, index|
+            selected = paths.select { |path| path.first == index.to_s }.map { |path| path.drop(1) }
+            compact_sample(child, schema['items'] || {}, selected)
+          end
+        else value
         end
       end
 

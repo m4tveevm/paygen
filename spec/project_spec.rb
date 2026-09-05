@@ -14,6 +14,15 @@ RSpec.describe 'Project generation lifecycle' do
   end
   def generator = Paygen::Generator.new(project)
 
+  it 'loads Unicode and Ruby-looking configuration as literal data' do
+    require 'paygen/runtime/reference_provider'
+    description = "Русский текст\nPAYGEN_CONFIGURATION\n" + '#' + '{raise "configuration executed"}' + '\\d+\\path'
+    config = project.ir.config.merge('description' => description)
+    source = generator.send(:service, config)
+    klass = Paygen::Runtime::ReferenceProvider.load_service(source: source.b, class_name: config.fetch('class_name'))
+    expect(klass::PAYGEN_CONFIG).to eq(config)
+  end
+
   it 'retains internal refs until overlays correct their shared schema' do
     pinned = Paygen::Core::Input.read(project.path('source/openapi.json'))
     expect(pinned.dig('paths', '/payouts', 'post', 'requestBody', 'content', 'application/json', 'schema')).to have_key('$ref')
