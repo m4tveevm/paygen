@@ -236,7 +236,10 @@ module Paygen
                "Rotation credential names: #{cell(callback_credentials.keys.join(', '))}."]
       case signature['algorithm']
       when 'hmac-sha256'
-        lines << "Signed input: raw request bytes. Header value: #{cell(signature.fetch('prefix', ''))} + encoded HMAC-SHA256(secret, raw_body)."
+        prefix = signature.fetch('prefix', '')
+        expression = 'encoded HMAC-SHA256(secret, raw_body)'
+        expression = "#{cell(prefix)} + #{expression}" unless prefix.empty?
+        lines << "Signed input: raw request bytes. Header value: #{expression}."
       when 'stripe-v1'
         lines << "Signed input: ASCII(timestamp) + '.' + raw request bytes. Header shape: t=timestamp,v1=digest. Timestamp tolerance: #{cell(signature.fetch('tolerance', 300))} seconds."
       when 'provider_verification'

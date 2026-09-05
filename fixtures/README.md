@@ -1,59 +1,56 @@
-# Offline provider packs
+# Provider examples
 
-The original four packs combine a pinned contract, a standards-shaped correction overlay,
-an explicit semantic profile, synthetic responses and signed test webhooks.
-`provenance.json` records source ownership, version, reference commit, license
-and SHA-256 digests. All credentials in `fixtures.json` are public test strings.
+The packs contain pinned contracts, declarative profiles and synthetic test data.
+`provenance.json` records source ownership, version, license and SHA-256 hashes.
+Credentials in `fixtures.json` are public test strings. Tests run without provider
+accounts or live payments.
 
-| Pack | Boundary | Important behavior |
+## Focused contracts
+
+| Pack | Scope | Status behavior |
 | --- | --- | --- |
-| NovaPay | Supplied fictional SBP API | The original is unchanged; the overlay restricts recipients to SBP and requires the bank code. |
-| PayPal | One email recipient per Standard Payouts batch | Batch success only means processing completed. Resolve the matching sender item before approving. |
-| Stripe | Standard bank payout from an existing Connect account | `paid` may subsequently become `failed`; account and mode must match. |
-| Adyen | Transfers v4, outgoing bank transfer to an existing transfer instrument | `booked` remains pending settlement and may become `returned`. |
+| `novapay` | Supplied fictional SBP API; overlay requires SBP bank code | Completed payout becomes approved |
+| `paypal` | One email recipient per Standard Payouts batch | Resolve the matching item before approval |
+| `stripe` | Bank payout from an existing Connect account | `paid` can later become `failed`; account and mode must match |
+| `adyen` | Transfers v4 to an existing bank transfer instrument | `booked` stays pending and can become `returned` |
 
-The three real-provider contracts are deliberately restricted, authored
-representations. Their local `/webhooks/*` paths describe the integration's
-receiver, not a provider-hosted API endpoint. EUR/USD restrictions are choices
-of these packs, not claims about each provider's full currency support.
+PayPal, Stripe and Adyen use authored subsets of their official contracts.
+Local `/webhooks/*` paths describe the application's receiver. Currency
+restrictions belong to these profiles. Each pack includes an overlay, a profile,
+`fixtures.json`, `scenarios.yml` and an Arazzo create/status workflow.
 
-`fixtures.json` contains a decimal-string operation, test credentials, fixed
-clock, named HTTP responses, and webhook payload/raw bytes/header triples.
-`scenarios.yml` refers to those names and records the expected canonical states.
-The test suite builds the adapters through public project and generator APIs,
-uses an injected transport, and checks the exact request representation and
-callback behavior. No provider account or network access is required.
+Fixtures contain an operation with a decimal-string amount, fixed clock, named
+HTTP responses, and webhook payload/raw-body/header triples. Tests generate the
+service through public project APIs and check request representation, mapped
+results and callback handling against an injected transport.
 
-Each `workflows/payout.arazzo.yaml` is an Arazzo 1.1 create/status workflow,
-also embedded in its recipe for project initialization. Supply the effective
-OpenAPI document under the `provider` source name and the native request body
-from `fixtures.json` when replaying it. The workflow transports native provider
-amounts; the generated adapter owns application-to-provider amount conversion.
-Authentication belongs to the injected workflow transport. A successful workflow
-means that its HTTP checks passed, including when the returned payout state is
-`FAILED` or still `booked`; inspect the output before deciding settlement state.
+PayPal callbacks require an application-supplied verification hook, which rejects
+by default. The Adyen profile has no `approved` mapping: final settlement requires
+a separate reconciliation policy for the relevant rail and tracking events.
 
-The PayPal signature boundary requires an application-supplied verification
-hook. The default rejects callbacks. Tests substitute that boundary explicitly;
-they do not claim that synthetic messages have valid PayPal signatures.
+## Full native contracts and reviews
 
-The Adyen subset deliberately has no `approved` mapping. Booking alone cannot
-prove delivery. Applications that need final settlement confirmation must add
-and validate a reconciliation policy for the relevant bank rail and tracking
-events before extending this profile.
-
-## Full native contracts and bank reviews
-
-| Directory | Evidence |
+| Directory | Scope |
 | --- | --- |
-| `native-paystack` | Full 125-path OpenAPI, explicit transfer profile and independent HTTP request/response oracle |
-| `native-paypal` | Full payout API, single-item profile and independent batch/item failure oracle |
-| `raiffeisen_payouts` | Full bank OpenAPI, SBP profile, exact major-unit JSON numbers and reconciliation tests |
-| `tbank_payouts` | Full bank OpenAPI and explicit certificate-signing / two-step workflow blockers |
-| `tochka_payment_review` | Official-documentation review; native source was unavailable and is not counted as imported |
-| `corpus` | Digest-pinned manifest and import report for 21 API brands; 13 native imports pass |
+| `native-paystack` | Full 125-path OpenAPI, transfer profile and independent HTTP expectations |
+| `native-paypal` | Full payouts API, single-item profile and independent batch/item checks |
+| `raiffeisen_payouts` | Full OpenAPI, SBP profile, exact ruble amounts and reconciliation tests |
+| `tbank_payouts` | Full OpenAPI and certificate-signing/two-stage requirements; no executable profile |
+| `tochka_payment_review` | Official-documentation review; native specification unavailable |
+| `corpus` | Manifest and import results for 21 API brands, with 13 successful imports |
 
-Native positive cases use unchanged specifications with separate semantic
-profiles. Their assertions are authored independently of the generated simulator.
-`review.yml` files describe counterexamples; they are not executable integration
-profiles. A corpus import pass is separate from adapter generation and replay.
+Native examples keep the specifications unchanged and define payment behavior in
+separate profiles. Their HTTP expectations are independent of the simulator.
+`review.yml` documents unsupported scenarios; it is not an integration profile.
+An import result establishes structural compatibility, separate from adapter
+execution. See [provider configuration](../docs/native-onboarding.md) and
+[Russian bank examples](../docs/ru-bank-examples.md).
+
+## Replay an Arazzo workflow
+
+Supply the effective OpenAPI document under the `provider` source name and the
+native request body from `fixtures.json`. The workflow transport owns HTTP
+authentication; the generated adapter owns application-to-provider amount
+conversion. A successful workflow result means its HTTP checks passed: inspect
+the returned payout state before interpreting settlement. See
+[the workflow interface](../docs/architecture.md#overlay-and-arazzo-support).
