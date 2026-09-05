@@ -1,23 +1,22 @@
 # Implementation status
 
-Status: CONTINUE
+Status: COMPLETE
 
-The product implementation and independent architecture/security/coverage audits
-are complete on `dev/paygen-reference`. The frozen code passed 888 examples on
-Ruby 3.3.12, 3.4.10 and 4.0.6, plus all four CLI provider verifiers. Local Bundler
-Audit found no vulnerabilities (advisory database commit
-`bc85cccbbc0a7cf14818d34413c56b8141b83a45`).
+The full reference implementation and all completion gates passed for commit
+`c4097a085ff9cd4fd5491ec2248bcf96dc5a7a4c` in
+[CI run 33954587927](https://github.com/m4tveevm/paygen/actions/runs/33954587927).
 
-Documentation now passes strict Node 22 installation, four compatibility tests,
-three-page rendering and npm audit with zero vulnerabilities.
+Delivered: Ruby CLI and gem, OpenAPI/Overlay/Arazzo processing, deterministic
+generation and export, declarative profiles/recipes/hooks, four offline provider
+packs, payout runtime and simulator/verifier, security regressions, Node 22
+Diplodoc documentation, both OCI images and manual Pages workflow.
 
-Next: execute `script/verify-complete` on the committed final graph in CI with
-Ruby 4.0.6, Node 22/npm 11.9.0 and Docker. Check the final PASS record, both OCI
-smokes and the CI job status, then update this record and PR #1.
+All three Ruby versions passed 888 examples each; four documentation
+compatibility tests, dependency audits and both container checks passed.
+`script/verify-complete` emitted its final PASS record. Independent architecture,
+security, coverage and CI-gate reviews have no outstanding concrete P0/P1/P2.
 
-The root Ruby code is frozen; no completed implementation phase needs recreation.
-The initial session start and continuation count were not recorded; do not invent
-them. A newly started cloud run must record both under the automation prompts.
-
-No live payout or actual Pages deployment is required. No unexecuted gate is
-labelled complete.
+Evidence and coverage limits are recorded in VERIFICATION.md. The automation
+checklist is complete. PR #1 contains the reviewable implementation. Future
+backend integration and any deployment are separate application work under the
+scope recorded in the original plan.

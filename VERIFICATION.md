@@ -1,66 +1,65 @@
 # Verification evidence
 
-Status: CONTINUE — final combined CI and OCI gates pending.
+Status: COMPLETE
 
-## Executed Ruby and product checks
+Verified implementation and verification-script commit:
+`c4097a085ff9cd4fd5491ec2248bcf96dc5a7a4c`.
+[Full completion run](https://github.com/m4tveevm/paygen/actions/runs/33954587927)
+completed successfully. The completion job ran `script/verify-complete` with
+explicit Bash pipefail and emitted its final `PASS` JSON. The status/checklist
+commit after this run records evidence; it changes no application or test code.
 
-Implementation commit: `61ebcedb31fd76290fbce9b458a6533e991d2d62`.
-Bundler and lockfile integration commit: `0d3944d04b6b8e7140faace3be504d3f593a45ec`.
-[CI matrix run](https://github.com/m4tveevm/paygen/actions/runs/33953811838)
-proved 888 examples / 0 failures on each of Ruby 3.3.12, 3.4.10 and 4.0.6.
-Each version also passed `script/smoke`: deterministic double generation, clean
-diff, generated-service loading and four real adapter verifiers (NovaPay9,
-PayPal10, Stripe11, Adyen9 checks).
+## Executed gates
 
-The 888 examples include 703 pinned upstream RFC9535 compliance cases. They
-are not 888 independent payment scenarios. Root's frozen local Ruby3.3.12 run
-(seed19407) also passed all888, followed by Lint/Security (30files, no offenses)
-and the architecture/provenance audit. Recorded local coverage: 84.75%lines
-and65.31%branches; CLI child-process coverage is not merged by SimpleCov.
+| Gate | Result |
+| --- | --- |
+| Ruby 3.3.12, 3.4.10 and 4.0.6 | 888 examples, 0 failures on each version; syntax checks passed |
+| Four-provider CLI smoke on every Ruby | Init, double generation, clean diff, architecture checks and generated-service verification passed |
+| Offline adapter verifiers, seed 42 | NovaPay 9/9, PayPal 10/10, Stripe 11/11, Adyen 9/9 |
+| Lint/Security | 30 Ruby files, no offenses |
+| Ruby dependency audit | No vulnerabilities; both dependency lockfiles retained |
+| Node 22/npm 11.9.0 | Strict engine installation passed; npm audit found 0 vulnerabilities |
+| Documentation compatibility | 4 tests passed: parser contracts, URI decoding, Markdown rendering and XLIFF round trips |
+| Diplodoc | All three documentation pages built |
+| Ruby OCI | Image built and its executable doctor command passed |
+| Documentation OCI | Image built, nginx started and HTTP returned the Paygen page |
+| Architecture/provenance | Provider-neutral core, no unfinished/disabled mandatory tests, workflow YAML and recorded source hashes passed |
+
+The 888 Ruby examples include 703 pinned upstream RFC 9535 compliance cases.
+They are not 888 independent payment scenarios. Root's frozen local Ruby 3.3.12
+run (seed 19407) independently passed all 888. Recorded local coverage was
+84.75% of lines and 65.31% of branches; CLI child-process coverage is not merged
+by SimpleCov.
 
 Root independently built the gem, loaded a detached NovaPay export using its
-own exported runtime (9 verifier checks), and executed the Arazzo import/export
-/replay example extracted from documentation. The supplied NovaPay contract is
-byte-identical to the attachment, SHA256:
+own exported runtime (9 verifier checks), executed the Arazzo import/export/replay
+example extracted from documentation, and repeated the four Node compatibility
+tests and the three-page build on Node 22.22.0. A separate real Puma loopback
+verifier run passed create, stable retry and status lookup.
+
+The supplied NovaPay contract remains byte-identical to the attachment. SHA-256:
 `415f50ee36fb331dfab49ceed0e8ed3b0ebe16053d7e00dbabd32282f4396551`.
 
-## Independent audits
+## Independent audits and limits
 
-Architecture, security and coverage review found no remaining concrete P0/P1/P2
-in the inspected scope. Confirmed fixes cover forged lock traversal, arbitrary
-operation-method invocation, extension export, atomic generation, overlay
-symlinks, global mixed-extension overlay ordering, hidden generated-file drift,
-per-operation server routing and total HTTP deadlines. The reviewer separately
-ran project/runtime/security/CLI regressions:65 examples,0failures(seed39674).
+Architecture, security and coverage reviews found no remaining concrete
+P0/P1/P2 findings in the inspected scope. Confirmed fixes cover forged manifest
+traversal, arbitrary operation-method invocation, extension export, atomic
+generation, overlay symlinks, mixed-extension overlay ordering, hidden output
+drift, per-operation server routing and total HTTP deadlines. A reviewer
+separately passed 65 project/runtime/security/CLI regressions (seed 39674).
+The completion pipeline was also reviewed for failure propagation.
 
 Coverage limits remain in external nested Arazzo execution, some dependency/goto
 and payload-replacement branches, actual post-swap filesystem rollback, CLI
-watch, balance and HTTP-date retry parsing. They are not observed failures.
-Actual Puma loopback verification was executed separately from mocked tests.
+watch, balance and HTTP-date retry parsing. These are untested branches, not
+observed failures. Earlier CI runs that lacked the final PASS record are not
+accepted as completion evidence.
 
-## Documentation dependency verification
-
-Node 22.22.0 with npm 11.9.0 passed a fresh installation with strict engine
-checks. Both agent and root executed four compatibility regressions and built
-all three documentation pages. npm audit reported zero vulnerabilities, with
-no exclusions. Ruby Bundler Audit also reported no vulnerabilities using advisory
-database commit `bc85cccbbc0a7cf14818d34413c56b8141b83a45`.
-
-## Remaining completion gate
-
-Run `script/verify-complete` with the final committed dependency graph and record
-the exact successful CI run. It must pass Ruby tests, Lint/Security, Bundler Audit,
-four-provider smoke, architecture audit, npm audit, Diplodoc build, Ruby OCI
-startup and a served documentation OCI HTTP response. Earlier runs are not
-completion evidence: dependency findings and a pipeline that masked a failing
-exit were corrected. The final gate requires explicit Bash pipefail and the
-script's terminal PASS record, followed by a successful CI job.
-
-## Scope of the result
-
-Tests are offline and use a reference Provider::BaseService. Real backend
-integration, durable payout state, PayPal callback verification hook, live
-provider certification and production deployment require application work.
-Adyen booking intentionally does not imply final settlement. Standards execution
-limits are explicit in docs/architecture.md. No live payout or actual Pages
-deployment is part of this evidence.
+Tests use a reference Provider::BaseService and offline provider contracts.
+Real backend integration, durable payout state and PayPal's callback-verification
+hook remain application responsibilities. Adyen booking intentionally does not
+imply final settlement. Standards execution limits are explicit in
+docs/architecture.md. Live provider certification, PCI certification, production
+hosting and actual Pages deployment are outside this implementation's completion
+gate.
