@@ -398,15 +398,18 @@ module Paygen
         invalid('ARAZZO_RETRY_POLICY', 'Invalid repeatable operation URL')
       end
 
-      def reserve_workflow_write!(method, url, body, state, repeatable)
+      def reserve_workflow_write!(method, url, body, state, repeatable, write_identity:)
         return if READ_METHODS.include?(method)
 
-        key = Digest::SHA256.hexdigest(JSON.generate([method, url, body]))
-        if state['writes'].key?(key) && !repeatable
+        # Recomputed inputs can change the wire request without creating a new
+        # logical payment. Keep both identities: the step guard covers changed
+        # payloads and the wire guard covers identical writes from other steps.
+        keys = [['step', *write_identity], ['request', Digest::SHA256.hexdigest(JSON.generate([method, url, body]))]]
+        if keys.any? { |key| state['writes'].key?(key) } && !repeatable
           invalid('ARAZZO_RECONCILIATION_REQUIRED', 'This write already ran; use its existing output or reconcile outside the workflow')
         end
-        state['writes'][key] = true
-        key
+        keys.each { |key| state['writes'][key] = true }
+        keys
       end
 
       def check_retry_safety!(context)
@@ -487,7 +490,10 @@ module Paygen
           context['statusCode'] = nested['success'] ? 200 : 500
           success = nested['success']
         else
-          execute_http(step, parameters, context, state)
+          # The document identity survives new runners for external workflows;
+          # workflow/step names alone would collide across different documents.
+          write_identity = [@document.object_id, workflow.fetch('workflowId'), step.fetch('stepId')]
+          execute_http(step, parameters, context, state, write_identity: write_identity)
           success = context['statusCode'].positive?
         end
         success &&= criteria_met?(step.fetch('successCriteria', []), context)
@@ -572,7 +578,7 @@ module Paygen
         invalid('ARAZZO_INPUT_REF', 'Workflow input schema has an unresolved reference')
       end
 
-      def execute_http(step, parameters, context, state)
+      def execute_http(step, parameters, context, state, write_identity:)
         unsupported('AsyncAPI broker operations') if step.key?('action') || step.key?('channelPath')
         source, path, method, operation, path_item = operation_for(step)
         server = (operation['servers'] || path_item['servers'] || source['servers'] || []).first
@@ -644,12 +650,12 @@ module Paygen
         timeout = step.fetch('timeout', 30_000) / 1000.0
         Input.fail_security('ARAZZO_TIMEOUT', 'Step timeout must be between 1 ms and 60 seconds') unless timeout.positive? && timeout <= 60
         context['repeatableWrite'] = @repeatable_operations.include?([method.upcase, url])
-        write_key = reserve_workflow_write!(method.upcase, url, body, state, context['repeatableWrite'])
+        write_keys = reserve_workflow_write!(method.upcase, url, body, state, context['repeatableWrite'], write_identity: write_identity)
         response = Timeout.timeout(timeout) { @transport.request(method: method.upcase, url: url, headers: headers, body: body) }
         response = response.transform_keys(&:to_s)
         # Explicit authentication/rate-limit rejection allows another attempt;
         # every other write outcome remains reserved for the rest of this run.
-        state['writes'].delete(write_key) if write_key && [401, 429].include?(response['status'].to_i)
+        write_keys&.each { |key| state['writes'].delete(key) } if [401, 429].include?(response['status'].to_i)
         response_body = response['body']
         response_body = JSON.parse(response_body) if response_body.is_a?(String) && !response_body.empty?
         context['statusCode'] = response.fetch('status').to_i

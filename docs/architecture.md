@@ -175,7 +175,13 @@ recovery remain supported. Provider reconciliation and durable payment state
 belong to the application; the workflow executor does not infer safe write retries.
 
 A per-run ledger also prevents returning to a completed write after a later read
-fails. For an operation that the application explicitly knows is repeatable,
+fails. It records both the wire fingerprint and the source document/workflow/step
+identity. Refreshing a prerequisite, changing the payload or invoking the same
+nested workflow again does not permit a second payment from that write step.
+Different payments in one run require distinct write steps; a new top-level run
+starts a separate ledger.
+
+For an operation that the application explicitly knows is repeatable,
 such as token refresh, pass `repeatable_operations` to the Ruby constructor:
 `[{ method: 'POST', url: 'https://provider.example/v1/refresh' }]`. Entries match
 the exact HTTP method and absolute URL. This trusted application option cannot
