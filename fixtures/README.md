@@ -1,6 +1,6 @@
 # Offline provider packs
 
-Each pack combines a pinned contract, a standards-shaped correction overlay,
+The original four packs combine a pinned contract, a standards-shaped correction overlay,
 an explicit semantic profile, synthetic responses and signed test webhooks.
 `provenance.json` records source ownership, version, reference commit, license
 and SHA-256 digests. All credentials in `fixtures.json` are public test strings.
@@ -41,3 +41,19 @@ The Adyen subset deliberately has no `approved` mapping. Booking alone cannot
 prove delivery. Applications that need final settlement confirmation must add
 and validate a reconciliation policy for the relevant bank rail and tracking
 events before extending this profile.
+
+## Full native contracts and bank reviews
+
+| Directory | Evidence |
+| --- | --- |
+| `native-paystack` | Full 125-path OpenAPI, explicit transfer profile and independent HTTP request/response oracle |
+| `native-paypal` | Full payout API, single-item profile and independent batch/item failure oracle |
+| `raiffeisen_payouts` | Full bank OpenAPI, SBP profile, exact major-unit JSON numbers and reconciliation tests |
+| `tbank_payouts` | Full bank OpenAPI and explicit certificate-signing / two-step workflow blockers |
+| `tochka_payment_review` | Official-documentation review; native source was unavailable and is not counted as imported |
+| `corpus` | Digest-pinned manifest and import report for 21 API brands; 13 native imports pass |
+
+Native positive cases use unchanged specifications with separate semantic
+profiles. Their assertions are authored independently of the generated simulator.
+`review.yml` files describe counterexamples; they are not executable integration
+profiles. A corpus import pass is separate from adapter generation and replay.

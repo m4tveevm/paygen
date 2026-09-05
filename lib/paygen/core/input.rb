@@ -32,8 +32,7 @@ module Paygen
           source = path_or_url.to_s
           document = read(source, stdin: stdin)
           base_dir = source == '-' || source.match?(/\Ahttps?:/i) ? nil : File.dirname(File.realpath(source))
-          resolved = resolve(document, base_dir: base_dir)
-          validate!(resolved)
+          graph(document, base_dir: base_dir)
         rescue Errno::ENOENT, Errno::EACCES, Errno::EISDIR => e
           raise Error.new("Cannot read source: #{e.class}", code: 'INPUT_IO', exit_code: 2)
         end
@@ -72,9 +71,10 @@ module Paygen
           unless version.is_a?(String) && version.match?(/\A3\.[01]\.\d+\z/)
             fail_input('OAS_VERSION', 'Expected OpenAPI 3.0.x or 3.1.x')
           end
-          # JSONSchemer embeds the official OAS meta schemas. Its default ref
-          # resolver refuses network IO; all document refs were resolved above.
-          errors = Timeout.timeout(10) { JSONSchemer.openapi(document).validate.take(50) }
+          # Validate the reference graph itself, without multiplying every
+          # shared schema into every operation. JSONSchemer's default resolver
+          # refuses network IO. The graph pass checks document reference targets.
+          errors = Timeout.timeout(10) { JSONSchemer.openapi(validation_document(document)).validate.take(50) }
           unless errors.empty?
             details = errors.map { |e| { 'path' => e['data_pointer'], 'rule' => e['type'] } }
             raise Error.new('OpenAPI document is invalid', code: 'OAS_INVALID', exit_code: 3,
@@ -89,9 +89,29 @@ module Paygen
           Resolver.new(document, base_dir: base_dir).resolve
         end
 
+        # Retain local reference edges and legal recursive schemas during
+        # import. Generation expands only the selected operations, where cycles
+        # and dynamic references receive explicit unsupported diagnostics.
+        def graph(document, base_dir: nil)
+          bundled = Resolver.new(document, base_dir: base_dir, preserve_internal: true, graph: true).resolve
+          validate!(bundled)
+        end
+
+        # The fragment remains in the root document's pointer/anchor scope.
+        # Expansion has the same budgets and reference restrictions as resolve.
+        def resolve_fragment(document, value, base_dir: nil, schema_context: false)
+          Resolver.new(document, base_dir: base_dir).resolve(value, schema_context: schema_context)
+        end
+
+        # Follow a Reference Object chain while retaining the target's child
+        # schemas. Operation inventory should not expand unrelated definitions.
+        def dereference(document, value)
+          Resolver.new(document, base_dir: nil).dereference(value)
+        end
+
         # Keep root-document pointers so source overlays retain their intended
         # locations, while resolving external refs in their own document scope.
-        # Call resolve+validate! separately to validate cycles and target shapes.
+        # graph also validates retained targets and the OpenAPI document shape.
         def bundle(document, base_dir: nil)
           Resolver.new(document, base_dir: base_dir, preserve_internal: true).resolve
         end
@@ -198,6 +218,34 @@ module Paygen
 
         private
 
+        # OAS 3.1 section 4.7 permits relative OAuth URLs. The embedded 3.1
+        # document meta schema uses the stricter `uri` format for these fields.
+        # Resolve only these fields in a validation copy; do not change source,
+        # runtime endpoints, unrelated URI fields, or malformed URL diagnostics.
+        def validation_document(document)
+          return document unless document['openapi'].start_with?('3.1.')
+          schemes = document.dig('components', 'securitySchemes')
+          return document unless schemes.is_a?(Hash)
+          schemes = schemes.transform_values do |scheme|
+            next scheme unless scheme.is_a?(Hash) && scheme['type'] == 'oauth2' && scheme['flows'].is_a?(Hash)
+            scheme.merge('flows' => scheme['flows'].transform_values do |flow|
+              next flow unless flow.is_a?(Hash)
+              flow.to_h do |key, value|
+                [key, %w[authorizationUrl tokenUrl refreshUrl].include?(key) ? validation_url(value) : value]
+              end
+            end)
+          end
+          document.merge('components' => document['components'].merge('securitySchemes' => schemes))
+        end
+
+        def validation_url(value)
+          return value unless value.is_a?(String)
+          uri = URI.parse(value)
+          uri.relative? ? URI.join('https://openapi-validation.invalid/', value).to_s : value
+        rescue URI::Error
+          value
+        end
+
         def bounded_read(io)
           text = io.read(MAX_BYTES + 1) || ''
           fail_security('INPUT_SIZE', 'Input exceeds the 10 MiB limit') if text.bytesize > MAX_BYTES
@@ -258,17 +306,39 @@ module Paygen
       end
 
       class Resolver
-        def initialize(document, base_dir:, preserve_internal: false)
+        def initialize(document, base_dir:, preserve_internal: false, graph: false)
           @preserve_internal = preserve_internal
+          @graph = graph
           @document = document
           @base_dir = base_dir && File.realpath(base_dir)
           @documents = { '<root>' => document }
           @refs = 0
           @nodes = 0
+          @targets = {}
         end
 
-        def resolve
-          visit(@document, '<root>', [], 0, false)
+        def resolve(value = @document, schema_context: false)
+          visit(value, '<root>', [], 0, schema_context)
+        end
+
+        def dereference(value)
+          stack = []
+          while value.is_a?(Hash) && value.key?('$ref')
+            ref = value['$ref']
+            validate_ref(ref)
+            resource, fragment = ref.split('#', 2)
+            Input.fail_security('REF_EXTERNAL_DENIED', 'Dereference requires a bundled local document') unless resource.empty?
+            Input.fail_security('REF_CYCLE', 'Cyclic references are not supported by the generator') if stack.include?(ref)
+            stack << ref
+            Input.fail_security('REF_LIMIT', 'Too many expanded references') if stack.size > MAX_REFS
+            target = reference_target('<root>', fragment)
+            value = if target.is_a?(Hash) && @document['openapi'].to_s.start_with?('3.1.')
+                      target.merge(value.slice('summary', 'description'))
+                    else
+                      target
+                    end
+          end
+          value
         end
 
         private
@@ -279,13 +349,20 @@ module Paygen
           case value
           when Hash
             if !map_container && value.key?('$dynamicRef')
-              Input.fail_input('REF_DYNAMIC_UNSUPPORTED', 'Dynamic references require explicit schema normalization')
+              if @graph && location == '<root>' && schema_context
+                validate_ref(value['$dynamicRef'])
+                unless value['$dynamicRef'].start_with?('#')
+                  Input.fail_security('REF_EXTERNAL_DENIED', 'External dynamic references are not supported')
+                end
+              else
+                Input.fail_input('REF_DYNAMIC_UNSUPPORTED', 'Dynamic references require explicit schema normalization')
+              end
             end
             if !map_container && value.key?('$ref')
               resolve_ref(value, location, stack, depth, schema_context)
             else
               value.each_with_object({}) do |(key, child), hash|
-                if !map_container && (%w[example value].include?(key) || (schema_context && %w[default enum const].include?(key)) || key.start_with?('x-'))
+                if !map_container && (%w[example value].include?(key) || (schema_context && %w[examples default enum const].include?(key)) || key.start_with?('x-'))
                   hash[key] = child
                   next
                 end
@@ -302,20 +379,19 @@ module Paygen
         end
 
         def resolve_ref(value, location, stack, depth, schema_context)
-          @refs += 1
-          Input.fail_security('REF_LIMIT', 'Too many expanded references') if @refs > MAX_REFS
           ref = value['$ref']
-          Input.fail_input('REF_TYPE', 'Reference must be a string') unless ref.is_a?(String) && !ref.empty?
+          validate_ref(ref)
           resource, fragment = ref.split('#', 2)
           if @preserve_internal && location == '<root>' && resource.empty?
-            return value.each_with_object({}) do |(key, child), result|
-              result[key] = key == '$ref' ? child : visit(child, location, stack, depth + 1, schema_context)
-            end
+            reference_target(location, fragment) if @graph
+            return { '$ref' => ref }.merge(visit(value.reject { |key, _| key == '$ref' }, location, stack, depth + 1, schema_context))
           end
+          @refs += 1
+          Input.fail_security('REF_LIMIT', 'Too many expanded references') if @refs > MAX_REFS
           target_location = resource.empty? ? location : local_resource(resource, location)
           identity = [target_location, fragment.to_s]
           Input.fail_security('REF_CYCLE', 'Cyclic references are not supported by the generator') if stack.include?(identity)
-          target = Input.pointer(@documents.fetch(target_location), fragment)
+          target = reference_target(target_location, fragment)
           resolved = visit(target, target_location, stack + [identity], depth + 1, schema_context)
           siblings = value.reject { |key, _| key == '$ref' }
           return resolved if siblings.empty? || @document['openapi'].to_s.start_with?('3.0.')
@@ -327,6 +403,19 @@ module Paygen
           else
             resolved
           end
+        end
+
+        def validate_ref(ref)
+          Input.fail_input('REF_TYPE', 'Reference must be a string') unless ref.is_a?(String) && !ref.empty?
+          if ref.match?(/[\x00-\x20\x7f]/) || ref.match?(/%(?![0-9a-f]{2})/i)
+            Input.fail_input('REF_POINTER', 'Reference contains invalid URI characters or escapes')
+          end
+        end
+
+        def reference_target(location, fragment)
+          identity = [location, fragment.to_s]
+          return @targets[identity] if @targets.key?(identity)
+          @targets[identity] = Input.pointer(@documents.fetch(location), fragment)
         end
 
         def local_resource(resource, location)

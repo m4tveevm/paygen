@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "provider": "tochka_payment_review",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "authored_documentation_review",
+  "source_url": "https://developers.tochka.com/docs/tochka-api/opisanie-metodov/platezhi",
+  "upstream_license": "No upstream file is redistributed; review text is Paygen-authored.",
+  "native_snapshot_included": false,
+  "notes": [
+    "Full official source retrieval returned HTTP 502; review facts came from indexed official documentation.",
+    "This example is not counted as native import success or a runnable adapter."
+  ],
+  "files_sha256": {
+    "review.yml": "10dd5d83828b299fcf9a6f4ce1dc71ad6cc411caf1a328e79864abcba3a9d5f6"
+  }
+}

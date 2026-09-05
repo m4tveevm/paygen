@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "provider": "paystack",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "unchanged_complete_official_specification",
+  "api_version": "1.0.0",
+  "upstream_commit": "d9d444d0122a9b6a3d03d0f7d84165a002449919",
+  "source_url": "https://github.com/PaystackOSS/openapi/blob/d9d444d0122a9b6a3d03d0f7d84165a002449919/dist/paystack.yaml",
+  "download_url": "https://raw.githubusercontent.com/PaystackOSS/openapi/d9d444d0122a9b6a3d03d0f7d84165a002449919/dist/paystack.yaml",
+  "upstream_license": "MIT",
+  "upstream_license_url": "https://github.com/PaystackOSS/openapi/blob/d9d444d0122a9b6a3d03d0f7d84165a002449919/LICENSE",
+  "local_license": "MIT for profile, README and independent oracle; upstream source remains MIT",
+  "documentation_urls": [
+    "https://paystack.com/docs/api/transfer/",
+    "https://paystack.com/docs/transfers/how-transfers-work/",
+    "https://paystack.com/docs/transfers/single-transfers/"
+  ],
+  "notes": [
+    "The complete native source is byte-for-byte unchanged; no source overlays or curated replacement are used.",
+    "The explicit profile selects a narrow create/status flow; unsupported capabilities are not claimed.",
+    "oracle.json was authored separately from Paygen mappings and simulator from the cited native field semantics. Credentials and recipients are synthetic test values.",
+    "Tests load the generated Ruby service and production HTTP transport with WebMock intercepting all network requests. No live provider call or settlement claim."
+  ],
+  "files_sha256": {
+    "README.md": "a286c64b55741e84d5118e941669be66dbb19b6c3d203d8084944d48d536c8ab",
+    "UPSTREAM-LICENSE": "1edd6ae0b9bf7f622c83dea2121e4343654d4a1cd932a9ff46eac2d8a45b3920",
+    "openapi.yaml": "4427de6c07533f3d4e2202560f53f7d959b3b71f0a7a33f6d270b375fb0187d1",
+    "oracle.json": "3ea8ecfcf373573548100bd290c75800082aff5a7d47362a9ca8391e976ebe52",
+    "profile.yml": "df4b8d5473be0cd5d959ccf68fb9d0303043646a1af7b93e409c3b0202ad3c8c"
+  }
+}

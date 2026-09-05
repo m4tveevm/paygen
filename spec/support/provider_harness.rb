@@ -7,5 +7,9 @@ module Provider
     def initialize(**configuration)
       configure_paygen(**configuration)
     end
+
+    def check_conditions(_operation, _request_method)
+      { 'success' => true, 'status' => 'valid' }
+    end
   end
 end

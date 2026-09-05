@@ -13,3 +13,17 @@ for provider in novapay paypal stripe adyen; do
   bundle exec bin/paygen architecture-check "$project"
   bundle exec bin/paygen verify "$project" --seed 42
 done
+for provider in native-paystack native-paypal raiffeisen_payouts; do
+  project="$PAYGEN_SMOKE_DIR/$provider"
+  case "$provider" in
+    native-paystack) source="fixtures/$provider/openapi.yaml"; profile="fixtures/$provider/profile.yml" ;;
+    native-paypal) source="fixtures/$provider/openapi.json"; profile="fixtures/$provider/profile.yml" ;;
+    raiffeisen_payouts) source="fixtures/$provider/upstream/openapi.json"; profile="fixtures/$provider/integration.yml" ;;
+  esac
+  bundle exec bin/paygen init "$source" --profile "$profile" --output "$project"
+  bundle exec bin/paygen generate "$project"
+  bundle exec bin/paygen generate "$project"
+  bundle exec bin/paygen diff "$project" --check
+  bundle exec bin/paygen architecture-check "$project"
+  bundle exec bin/paygen verify "$project" --seed 42
+done

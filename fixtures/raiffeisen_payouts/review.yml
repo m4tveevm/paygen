@@ -1,0 +1,39 @@
+version: 1
+kind: integration_review
+provider: raiffeisen_payouts
+product: One-stage outgoing SBP payouts to individuals, without fiscalization
+source: upstream/openapi.json
+readiness: offline_adapter
+native_contract_valid: true
+selected_operations:
+  create: post-v2-payouts
+  status: get-payout-v2-payouts-id
+amount:
+  provider_unit: major
+  representation: JSON number, exact decimal serialization
+  example_application: '1110.01'
+  example_provider: 1110.01
+boundaries:
+  - The complete official native specification is preserved. The profile selects two operations without rewriting it.
+  - The account, phone, SBP bankId and purpose come from the application. Fixtures contain synthetic identifiers.
+  - bankId is the SBP member identifier, not a nine-digit bank BIC. The selected profile always supplies bankId.
+  - fiscal=false excludes self-employed income registration and receipt issuance from this example.
+  - Only COMPLETED approves a payout. DRAFT, WAITING_CONFIRMATION and other waiting states remain in progress.
+  - The profile makes no provider-side idempotent retry guarantee. Reconcile by the original request id before retrying; an ambiguous request is never automatically sent again.
+  - Production deployment requires a durable shared state store; the built-in store is scoped to one process.
+  - HTTP callback verification is excluded. Its HMAC authenticates a field-derived control string, not the raw JSON bytes.
+  - Two-stage drafts, package payouts and fiscalization require separate explicit workflows.
+counterexamples:
+  - name: wrong_bank_identifier
+    distinction: Bank BIC, bankAlias and SBP bankId are different identifiers despite similar names.
+  - name: wrong_amount_unit
+    distinction: Converting 1110.01 RUB to the JSON number 111001 changes the payout amount by 100 times.
+  - name: raw_body_hmac
+    distinction: HMAC over JSON bytes does not implement the documented amount|id|statusValue|statusDate signature input.
+  - name: premature_approval
+    distinction: HTTP 200 or status WAITING_CONFIRMATION does not mean funds reached the recipient.
+  - name: example_schema_mismatch
+    distinction: Some published examples use numeric inn/currencyOperationCode/agreementNumber while their schemas require strings. The source is preserved and the selected non-fiscal example omits these optional fields.
+sources:
+  - https://pay.raif.ru/doc/payout.html
+  - https://github.com/Raiffeisen-DGTL/ecom-API

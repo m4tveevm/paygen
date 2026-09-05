@@ -26,6 +26,22 @@ RSpec.describe 'CLI process contract' do
     expect(JSON.parse(output)).to include('llm_runtime' => false)
   end
 
+  it 'exports local HTML documentation and a Bruno collection through the CLI' do
+    with_project do |project, directory|
+      Paygen::Generator.new(project).generate
+      docs = File.join(directory, 'docs')
+      collection = File.join(directory, 'bruno')
+      [%w[docs] + [project.root, '--format', 'html', '--output', docs],
+       %w[collection] + [project.root, '--format', 'bruno', '--output', collection]].each do |arguments|
+        _out, error, status = cli(*arguments)
+        expect(status.exitstatus).to eq(0), error
+      end
+      expect(File).to exist(File.join(docs, 'index.html'))
+      expect(File).to exist(File.join(docs, 'effective-openapi.json'))
+      expect(File).to exist(File.join(collection, 'bruno.json'))
+    end
+  end
+
   it 'accepts stdin and keeps JSON diagnostics machine-readable' do
     output, error, status = cli('inspect', '-', '--format', 'json', input: File.read(source))
     expect(status.exitstatus).to eq(0), error

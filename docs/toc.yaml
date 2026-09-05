@@ -6,3 +6,9 @@ items:
     href: demo.md
   - name: Architecture and safety
     href: architecture.md
+  - name: Native API onboarding
+    href: native-onboarding.md
+  - name: Russian bank examples
+    href: ru-bank-examples.md
+  - name: Bruno adapter demo
+    href: bruno-demo.md

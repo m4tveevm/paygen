@@ -14,6 +14,7 @@ Gem::Specification.new do |s|
   s.require_paths = ['lib']
   s.add_dependency 'dry-cli', '~> 1.3'
   s.add_dependency 'json_schemer', '~> 2.4'
+  s.add_dependency 'json', '~> 2.21'
   s.add_dependency 'janeway-jsonpath', '>= 0.1', '< 2'
   s.add_dependency 'rack', '~> 3.1'
   s.add_dependency 'puma', '>= 6.6', '< 8'

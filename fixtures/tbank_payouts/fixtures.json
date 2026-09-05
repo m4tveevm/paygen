@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "source_kind": "authored_synthetic_offline_examples",
+  "native_source": "upstream/openapi.json",
+  "application_amount": "17.51",
+  "unsigned_init_request": {
+    "TerminalKey": "OFFLINE-E2C-TERMINAL",
+    "OrderId": "ru-tbank-demo-001",
+    "CardId": "OFFLINE-CARD-ID",
+    "Amount": 1751
+  },
+  "checked_response": {
+    "Success": true,
+    "ErrorCode": "0",
+    "TerminalKey": "OFFLINE-E2C-TERMINAL",
+    "Status": "CHECKED",
+    "PaymentId": "offline-payment-001",
+    "OrderId": "ru-tbank-demo-001",
+    "Amount": 1751
+  },
+  "confirmation_request_unsigned": {
+    "TerminalKey": "OFFLINE-E2C-TERMINAL",
+    "PaymentId": "offline-payment-001"
+  },
+  "expected_initial_status": "in_progress",
+  "missing_signature_fields": [
+    "DigestValue",
+    "SignatureValue",
+    "X509SerialNumber"
+  ],
+  "notes": [
+    "These payloads are intentionally unsigned and cannot be used as authenticated requests.",
+    "A successful Init response is insufficient: Payment confirmation and later reconciliation are separate steps.",
+    "No private keys, card PANs, bank credentials or live network calls are involved."
+  ]
+}

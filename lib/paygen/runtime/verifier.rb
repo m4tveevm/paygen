@@ -10,6 +10,23 @@ module Paygen
     class Verifier
       PACKS = %w[default transport callbacks reversals].freeze
 
+      # Capture the bytes actually returned to the adapter; normalized adapter
+      # results redact fields and cannot stand in for response-schema evidence.
+      class ObservedTransport
+        attr_reader :responses
+
+        def initialize(simulator)
+          @simulator = simulator
+          @responses = []
+        end
+
+        def request(**request)
+          result = @simulator.request(**request)
+          @responses << { 'role' => @simulator.evidence.fetch('requests').last&.fetch('role'), 'response' => result }
+          result
+        end
+      end
+
       def initialize(adapter:, simulator: nil, seed: 0, target: nil)
         @adapter = adapter
         @supplied_simulator = simulator
@@ -53,31 +70,33 @@ module Paygen
         failures = @checks.count { |check| !check['passed'] }
         { 'success' => failures.zero?, 'scenario_pack' => scenario_pack, 'seed' => @seed,
           'passed' => @checks.length - failures, 'failed' => failures,
-          'checks' => @checks }
+          'checks' => @checks, 'coverage' => 'Offline generated-adapter behavior against a profile-derived simulator. This does not prove live provider compatibility.' }
       end
 
       private
 
       def verify_success
-        check('create_and_fetch_status', 'success') do |simulator, operation|
+        check('create_and_fetch_status', 'success') do |simulator, operation, observed|
           created = @adapter.create_request(operation)
           assert_result(created, success: true)
           assert(!created['provider_id'].to_s.empty?, 'Create omitted provider id')
           status = final_status(with_provider_id(operation, created), 'success')
           assert_result(status, success: true, status: expected_final('success'))
           { 'created' => summary(created), 'fetched' => summary(status),
-            'created_count' => simulator.evidence['created_count'] }
+            'created_count' => simulator.evidence['created_count'], 'response_contracts' => response_contracts(observed) }
         end
       end
 
       def verify_idempotency
-        check('stable_idempotency_and_payload_conflict', 'success') do |simulator, operation|
+        name = strict_reconciliation? ? 'local_create_cache_and_payload_conflict' : 'stable_idempotency_and_payload_conflict'
+        check(name, 'success') do |simulator, operation|
           first = @adapter.create_request(operation)
           repeated = @adapter.create_request(operation.dup)
           assert_result(first, success: true)
           assert_result(repeated, success: true)
           assert(first['provider_id'] == repeated['provider_id'], 'Retry changed provider id')
           assert(simulator.evidence['created_count'] == 1, 'Retry created another payout')
+          assert(create_requests(simulator) == 1, 'Strict retry sent another provider create request') if strict_reconciliation?
           changed_amount = (BigDecimal(operation.fetch('amount').to_s) + 1).to_s('F')
           changed_amount = changed_amount.to_i if @config.dig('amount', 'input_unit') == 'minor'
           altered = operation.merge('amount' => changed_amount)
@@ -89,26 +108,39 @@ module Paygen
       end
 
       def verify_timeout
-        check('timeout_after_commit_reuses_idempotency_key', 'timeout_after_commit') do |simulator, operation|
+        name = strict_reconciliation? ? 'timeout_after_commit_requires_reconciliation' : 'timeout_after_commit_reuses_idempotency_key'
+        check(name, 'timeout_after_commit') do |simulator, operation|
           first = @adapter.create_request(operation)
           assert_result(first, success: false)
           assert(first.dig('error', 'ambiguous') == true, 'Timeout was not classified as ambiguous')
           assert(simulator.evidence['created_count'] == 1, 'Timeout happened before commit')
           repeated = @adapter.create_request(operation)
-          assert_result(repeated, success: true)
+          if strict_reconciliation?
+            assert_reconciliation_required(repeated)
+            assert(create_requests(simulator) == 1, 'Ambiguous retry sent another provider create request')
+          else
+            assert_result(repeated, success: true)
+          end
           assert(simulator.evidence['created_count'] == 1, 'Timeout retry duplicated payout')
           { 'timeout' => summary(first), 'retry' => summary(repeated) }
         end
       end
 
       def verify_rate_limit
-        check('rate_limit_is_retryable', 'rate_limit') do |_simulator, operation|
+        name = strict_reconciliation? ? 'rate_limit_preserves_reconciliation_policy' : 'rate_limit_is_retryable'
+        check(name, 'rate_limit') do |simulator, operation|
           first = @adapter.create_request(operation)
           assert_result(first, success: false)
-          assert(first.dig('error', 'retryable') == true, 'Rate limit was not retryable')
+          expected_retry = !strict_reconciliation?
+          assert(first.dig('error', 'retryable') == expected_retry, 'Rate-limit advice contradicts the retry policy')
           assert(first.dig('error', 'retry_after').to_i == 1, 'Retry-After was not preserved')
           repeated = @adapter.create_request(operation)
-          assert_result(repeated, success: true)
+          if strict_reconciliation?
+            assert_reconciliation_required(repeated)
+            assert(create_requests(simulator) == 1, 'Strict retry sent another provider create request')
+          else
+            assert_result(repeated, success: true)
+          end
           { 'rate_limit' => summary(first), 'retry' => summary(repeated) }
         end
       end
@@ -187,7 +219,8 @@ module Paygen
           before = states.empty? ? expected_final('success') : @config.fetch('status_mapping', {})[states.first]
           assert_result(approved, success: true, status: before)
           rejected = @adapter.fetch_status(identified)
-          assert_result(rejected, success: true, status: 'rejected')
+          after = states.empty? ? 'rejected' : @config.fetch('status_mapping', {})[states.last]
+          assert_result(rejected, success: true, status: after)
           { 'before' => summary(approved), 'after' => summary(rejected) }
         end
       end
@@ -222,14 +255,15 @@ module Paygen
         simulator = if @supplied_simulator && @supplied_simulator.scenario == scenario && @checks.empty?
                       @supplied_simulator
                     else
-                      Simulator.new(config: @config, scenario: scenario, seed: @seed)
+                      Simulator.new(config: @config, scenario: scenario, seed: @seed, strict_auth: true)
                     end
-        settings = { credentials: simulator.credentials, transport: simulator,
+        observed = ObservedTransport.new(simulator)
+        settings = { credentials: simulator.credentials, transport: observed,
                      mode: @config.fetch('mode', 'sandbox'), account: 'test-account',
                      clock: -> { Time.at(1_800_000_002) }, state_store: MemoryStateStore.new }
         @adapter.configure_paygen(**settings)
-        operation = simulator.sample_operation(id: "verify-#{Digest::SHA256.hexdigest("#{@seed}:#{name}")[0, 24]}")
-        details = yield simulator, operation
+        operation = simulator.sample_operation(id: "verify-#{Digest::SHA256.hexdigest("#{@seed}:#{name}")[0, 12]}")
+        details = yield simulator, operation, observed
         @checks << { 'name' => name, 'passed' => true, 'observed' => details,
                      'evidence' => simulator.evidence }
       rescue StandardError => e
@@ -244,8 +278,43 @@ module Paygen
       end
 
       def with_provider_id(operation, result)
-        operation.merge('provider_id' => result['provider_id'],
+        operation.merge('provider_operation_id' => result['provider_id'], 'provider_id' => result['provider_id'],
                         'provider_item_id' => result['provider_item_id'] || result['provider_id'])
+      end
+
+      def strict_reconciliation?
+        @config.dig('idempotency', 'strategy') == 'reconcile_before_retry'
+      end
+
+      def create_requests(simulator)
+        simulator.evidence.fetch('requests').count { |request| request['role'] == 'create' }
+      end
+
+      def assert_reconciliation_required(result)
+        assert_result(result, success: false)
+        assert(result.dig('error', 'code') == 'reconciliation_required', 'Retry did not require reconciliation')
+        assert(result.dig('error', 'retryable') == false, 'Unsafe retry was recommended')
+      end
+
+      def response_contracts(observed)
+        observed.responses.map do |record|
+          role = record.fetch('role')
+          response = record.fetch('response')
+          status = response.fetch(:status).to_s
+          definitions = @config.dig('endpoints', role, 'responses') || {}
+          definition = definitions[status] || definitions["#{status[0]}XX"] || definitions['default'] || {}
+          content = definition.fetch('content', {})
+          media = content['application/json'] || content.values.first || {}
+          schema = media['schema']
+          next { 'role' => role, 'http_status' => status, 'schema' => 'not_declared' } unless schema
+
+          payload = response[:body].is_a?(String) ? JSON.parse(response[:body], decimal_class: BigDecimal) : response[:body]
+          errors = JSONSchemer.schema(@adapter.send(:validation_schema, schema)).validate(payload).take(5)
+          problems = errors.map { |error| "#{error['data_pointer']}: #{error['type']}" }
+          assert(errors.empty?, "Observed #{role} HTTP #{status} response violates its source schema: #{problems.join('; ')}")
+          { 'role' => role, 'http_status' => status, 'schema' => 'valid', 'source' => 'effective_openapi',
+            'payload_source' => 'profile_derived_simulator' }
+        end
       end
 
       def batch_profile?
@@ -288,7 +357,7 @@ module Paygen
         @adapter.configure_paygen(credentials: simulator.credentials, transport: transport,
                                   base_url: target.to_s, allow_local: true,
                                   account: 'test-account', mode: @config.fetch('mode', 'sandbox'))
-        operation = simulator.sample_operation(id: "remote-#{Digest::SHA256.hexdigest(@seed.to_s)[0, 24]}")
+        operation = simulator.sample_operation(id: "remote-#{Digest::SHA256.hexdigest(@seed.to_s)[0, 12]}")
         observed = {}
         begin
           observed['created'] = summary(@adapter.create_request(operation))

@@ -1,0 +1,68 @@
+{
+  "operation": {
+    "id": "native_example_00000001",
+    "amount": "123.45",
+    "currency": "USD",
+    "payout_requisite": {
+      "email": "recipient@example.test"
+    }
+  },
+  "credentials": {
+    "access_token": "offline_paypal_access_token"
+  },
+  "create_url": "https://api-m.sandbox.paypal.com/v1/payments/payouts",
+  "status_url": "https://api-m.sandbox.paypal.com/v1/payments/payouts/BATCHTEST001",
+  "authorization": "Bearer offline_paypal_access_token",
+  "expected_request": {
+    "sender_batch_header": {
+      "sender_batch_id": "native_example_00000001"
+    },
+    "items": [
+      {
+        "recipient_type": "EMAIL",
+        "amount": {
+          "value": "123.45",
+          "currency": "USD"
+        },
+        "receiver": "recipient@example.test",
+        "sender_item_id": "native_example_00000001"
+      }
+    ]
+  },
+  "create_http_status": 201,
+  "create_response": {
+    "batch_header": {
+      "payout_batch_id": "BATCHTEST001",
+      "batch_status": "PENDING",
+      "sender_batch_header": {
+        "sender_batch_id": "native_example_00000001"
+      }
+    }
+  },
+  "status_response": {
+    "batch_header": {
+      "payout_batch_id": "BATCHTEST001",
+      "batch_status": "SUCCESS",
+      "sender_batch_header": {
+        "sender_batch_id": "native_example_00000001"
+      }
+    },
+    "items": [
+      {
+        "payout_item_id": "ITEMTEST001",
+        "transaction_status": "SUCCESS",
+        "payout_item": {
+          "recipient_type": "EMAIL",
+          "amount": {
+            "value": "123.45",
+            "currency": "USD"
+          },
+          "receiver": "recipient@example.test",
+          "sender_item_id": "native_example_00000001"
+        },
+        "payout_batch_id": "BATCHTEST001"
+      }
+    ]
+  },
+  "provider_id": "BATCHTEST001"
+}

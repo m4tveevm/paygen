@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "source_kind": "authored_synthetic_offline_examples",
+  "credentials": {
+    "secret_key": "public-offline-raiffeisen-key"
+  },
+  "account": "raiffeisen-offline-demo",
+  "clock": 1788595200,
+  "operation": {
+    "id": "ru-demo-001",
+    "amount": "1110.01",
+    "currency": "RUB",
+    "metadata": {
+      "debit_account": "40700000000000000000",
+      "payment_details": "Тестовая выплата за услуги"
+    },
+    "payout_requisite": {
+      "sbp": {
+        "phone": "79990000000",
+        "bank_id": "100000000007"
+      }
+    }
+  },
+  "expected_request": {
+    "method": "POST",
+    "url": "https://pay-test.raif.ru/api/v2/payouts",
+    "headers": {
+      "Authorization": "Bearer public-offline-raiffeisen-key",
+      "Content-Type": "application/json; charset=UTF-8",
+      "Accept-Charset": "UTF-8"
+    },
+    "body": {
+      "id": "ru-demo-001",
+      "account": "40700000000000000000",
+      "amount": 1110.01,
+      "currency": "RUB",
+      "fiscal": false,
+      "paymentDetails": "Тестовая выплата за услуги",
+      "payoutMethod": "SBP",
+      "payoutParams": {
+        "phone": "79990000000",
+        "bankId": "100000000007"
+      }
+    }
+  },
+  "responses": {
+    "created": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "ru-demo-001",
+        "amount": 1110.01,
+        "currency": "RUB",
+        "fiscal": false,
+        "paymentDetails": "Тестовая выплата за услуги",
+        "payoutMethod": "SBP",
+        "payoutParams": {
+          "phone": "79990000000",
+          "bankId": "100000000007"
+        },
+        "status": {
+          "value": "IN_PROGRESS",
+          "date": "2026-09-05T10:00:00+03:00"
+        },
+        "creationDate": "2026-09-05T09:59:00+03:00"
+      }
+    },
+    "waiting": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "ru-demo-001",
+        "amount": 1110.01,
+        "currency": "RUB",
+        "fiscal": false,
+        "paymentDetails": "Тестовая выплата за услуги",
+        "payoutMethod": "SBP",
+        "payoutParams": {
+          "phone": "79990000000",
+          "bankId": "100000000007"
+        },
+        "status": {
+          "value": "WAITING_CONFIRMATION",
+          "date": "2026-09-05T10:00:00+03:00"
+        },
+        "creationDate": "2026-09-05T09:59:00+03:00"
+      }
+    },
+    "completed": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "ru-demo-001",
+        "amount": 1110.01,
+        "currency": "RUB",
+        "fiscal": false,
+        "paymentDetails": "Тестовая выплата за услуги",
+        "payoutMethod": "SBP",
+        "payoutParams": {
+          "phone": "79990000000",
+          "bankId": "100000000007"
+        },
+        "status": {
+          "value": "COMPLETED",
+          "date": "2026-09-05T10:00:00+03:00"
+        },
+        "creationDate": "2026-09-05T09:59:00+03:00"
+      }
+    },
+    "declined": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "ru-demo-001",
+        "amount": 1110.01,
+        "currency": "RUB",
+        "fiscal": false,
+        "paymentDetails": "Тестовая выплата за услуги",
+        "payoutMethod": "SBP",
+        "payoutParams": {
+          "phone": "79990000000",
+          "bankId": "100000000007"
+        },
+        "status": {
+          "value": "DECLINED",
+          "date": "2026-09-05T10:00:00+03:00",
+          "declineReason": "RECEIVER_ACCOUNT_ERROR"
+        },
+        "creationDate": "2026-09-05T09:59:00+03:00"
+      }
+    }
+  },
+  "expected_states": {
+    "created": "in_progress",
+    "waiting": "in_progress",
+    "completed": "approved",
+    "declined": "rejected"
+  },
+  "counterexamples": {
+    "amount_as_kopecks": 111001,
+    "amount_as_string": "1110.01",
+    "bank_bic_instead_of_sbp_member_id": "044525700",
+    "callback_signature_input": "1110.01|ru-demo-001|COMPLETED|2026-09-05T10:00:00+03:00"
+  },
+  "notes": [
+    "Only injected transport is used by the tests. These are synthetic request and response values, not evidence of a live bank transfer.",
+    "No provider-side idempotency header or deduplication guarantee is claimed."
+  ]
+}

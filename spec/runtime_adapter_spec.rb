@@ -462,4 +462,307 @@ RSpec.describe Paygen::Runtime::Adapter do
       expect(observed.last).to eq(minor)
     end
   end
+
+  it 'uses the PDF operation object provider_operation_id with legacy path mappings and missing response ids' do
+    config['parameter_mapping'] = { 'status' => { 'payout_id' => 'provider_id' } }
+    model = Struct.new(:provider_operation_id)
+    object = model.new('pdf payment/42')
+    expect(transport).to receive(:request).with(hash_including(url: 'https://api.example.test/v1/payouts/pdf%20payment%2F42'))
+                                        .and_return(response({ 'status' => 'paid' }))
+    expect(adapter.fetch_status(object)).to include('success' => true, 'status' => 'approved', 'provider_id' => object.provider_operation_id)
+  end
+
+  it 'preserves a native BaseService failed? result and its own failure helper before sending HTTP' do
+    native_result = Struct.new(:http_status, :code) do
+      def failed? = true
+    end.new(:unprocessable_entity, 'backend_limit')
+    base = Class.new(Provider::BaseService) do
+      attr_reader :prechecks
+      define_method(:check_conditions) do |object, role|
+        @prechecks = [object, role]
+        failure(:unprocessable_entity, 'backend_limit')
+      end
+      define_method(:failure) do |status, code|
+        raise 'BaseService result contract was changed' unless [status, code] == [:unprocessable_entity, 'backend_limit']
+
+        native_result
+      end
+      private :failure
+    end
+    service = Class.new(base) { include Paygen::Runtime::Adapter }
+    service.const_set(:PAYGEN_CONFIG, config)
+    instance = service.new(transport: transport)
+    expect(transport).not_to receive(:request)
+    expect(instance.create_request(operation)).to equal(native_result)
+    expect(instance.prechecks).to eq([operation, 'create'])
+  end
+
+  it 'preserves a failed hash precheck and continues after successful native backend prechecks' do
+    base = Class.new(Provider::BaseService)
+    base.define_method(:check_conditions) { |_object, _role| { success: false, reason: 'backend_guard' } }
+    service = Class.new(base) { include Paygen::Runtime::Adapter }
+    service.const_set(:PAYGEN_CONFIG, config)
+    instance = service.new(transport: transport)
+    expect(instance.create_request(operation)).to eq(success: false, reason: 'backend_guard')
+    base.define_method(:check_conditions) { |_object, _role| Struct.new(:failed?).new(false) }
+    expect(instance.check_conditions(operation)).to include('success' => true)
+  end
+
+  it 'applies the explicit backend callback seam only to verified accepted terminal events' do
+    approvals, rejections = [], []
+    adapter.define_singleton_method(:approve_operation) { |id| approvals << id }
+    adapter.define_singleton_method(:reject_operation) { |id, code| rejections << [id, code] }
+    adapter.singleton_class.send(:private, :approve_operation, :reject_operation)
+    adapter.define_singleton_method(:paygen_callback_result) do |result, payload|
+      paygen_backend_callback_result(result, payload)
+    end
+    expect(deliver(callback(status: 'pending', event_id: 'pending'))['status']).to eq('in_progress')
+    message = callback(sequence: 2)
+    expect(deliver(message)).to include('status' => 'approved', 'backend_applied' => true)
+    expect(deliver(message)['ignored']).to eq('duplicate')
+    expect(deliver(callback(status: 'pending', sequence: 1, event_id: 'old'))['ignored']).to eq('out_of_order')
+    expect(deliver(callback(status: 'failed', sequence: 3, event_id: 'bad', secret: 'invalid')).dig('error', 'code')).to eq('invalid_signature')
+    expect(deliver(callback(status: 'failed', sequence: 3, event_id: 'failed', extra: { 'error' => { 'code' => 'bank_declined' } })))
+      .to include('status' => 'rejected', 'backend_applied' => true)
+    expect(approvals).to eq(['p-1'])
+    expect(rejections).to eq([['p-1', 'bank_declined']])
+  end
+
+  it 'does not mark a callback consumed when the backend rejects its state update' do
+    failed = Struct.new(:failed?).new(true)
+    calls = 0
+    adapter.define_singleton_method(:approve_operation) { |_id| calls += 1; calls == 1 ? failed : nil }
+    adapter.define_singleton_method(:paygen_callback_result) do |result, payload|
+      paygen_backend_callback_result(result, payload)
+    end
+    message = callback
+    expect(deliver(message)).to equal(failed)
+    expect(deliver(message)).to include('backend_applied' => true)
+    expect(deliver(message)['ignored']).to eq('duplicate')
+    expect(calls).to eq(2)
+  end
+
+  it 'leaves backend transitions opt-in and fails explicitly when the opt-in contract is missing' do
+    adapter.define_singleton_method(:approve_operation) { |_id| raise 'unrequested backend mutation' }
+    expect(deliver(callback)['status']).to eq('approved')
+    adapter.define_singleton_method(:paygen_callback_result) do |result, payload|
+      paygen_backend_callback_result(result, payload)
+    end
+    expect(deliver(callback(status: 'failed', event_id: 'rejected')).dig('error', 'code')).to eq('backend_callback_not_configured')
+  end
+
+  it 'serializes mapped path, query and header parameters with their declared schemas' do
+    config['endpoints']['status']['parameters'] = [
+      { 'name' => 'payout_id', 'in' => 'path', 'required' => true, 'schema' => { 'type' => 'string' } },
+      { 'name' => 'limit', 'in' => 'query', 'required' => true, 'schema' => { 'type' => 'integer', 'minimum' => 1 } },
+      { 'name' => 'include', 'in' => 'query', 'schema' => { 'type' => 'array', 'items' => { 'type' => 'string' } } },
+      { 'name' => 'states', 'in' => 'query', 'explode' => false, 'schema' => { 'type' => 'array' } },
+      { 'name' => 'X-Request-ID', 'in' => 'header', 'required' => true, 'schema' => { 'type' => 'string' } },
+      { 'name' => 'X-Fields', 'in' => 'header', 'schema' => { 'type' => 'array' } }
+    ]
+    config['parameter_mapping'] = {
+      'status' => { 'path' => { 'payout_id' => 'provider_operation_id' },
+                    'query' => { 'limit' => { 'value' => 2 }, 'include' => { 'value' => ['bank', 'recipient'] },
+                                 'states' => { 'value' => ['paid', 'failed'] } },
+                    'header' => { 'X-Request-ID' => 'id', 'X-Fields' => { 'value' => ['id', 'status'] } } }
+    }
+    expect(transport).to receive(:request) do |**request|
+      expect(URI.decode_www_form(URI.parse(request[:url]).query)).to eq([['limit', '2'], ['include', 'bank'], ['include', 'recipient'], ['states', 'paid,failed']])
+      expect(request[:headers]).to include('X-Request-ID' => 'op-123', 'X-Fields' => 'id,status')
+      response({ 'id' => 'p-1', 'status' => 'paid' })
+    end
+    expect(adapter.fetch_status(operation.merge('provider_operation_id' => 'p-1'))['status']).to eq('approved')
+  end
+
+  it 'rejects missing and incorrectly typed request parameters without sending HTTP or disclosing values' do
+    config['endpoints']['status']['parameters'] = [
+      { 'name' => 'limit', 'in' => 'query', 'required' => true, 'schema' => { 'type' => 'integer', 'minimum' => 1 } }
+    ]
+    expect(transport).not_to receive(:request)
+    expect(adapter.fetch_status('provider_id' => 'p-1').dig('error', 'reason')).to eq('missing query parameter limit')
+    invalid = adapter.fetch_status('provider_id' => 'p-1', 'limit' => 'private-api-value')
+    expect(invalid.dig('error', 'code')).to eq('validation_error')
+    expect(invalid.dig('error', 'reason')).to eq('invalid query parameter limit: integer')
+    expect(JSON.generate(invalid)).not_to include('private-api-value')
+  end
+
+  it 'checks required automatically supplied authentication and idempotency parameters' do
+    config['endpoints']['create']['parameters'] = [
+      { 'name' => 'X-API-Key', 'in' => 'header', 'required' => true, 'schema' => { 'type' => 'string' } },
+      { 'name' => 'Idempotency-Key', 'in' => 'header', 'required' => true, 'schema' => { 'type' => 'string', 'format' => 'uuid' } }
+    ]
+    allow(transport).to receive(:request).and_return(response({ 'id' => 'p-1', 'status' => 'pending' }))
+    expect(adapter.create_request(operation)['success']).to be(true)
+    config['auth'] = { 'type' => 'apiKey', 'in' => 'query', 'name' => 'access_key', 'credential' => 'api_key' }
+    config['endpoints']['status']['parameters'] = [
+      { 'name' => 'access_key', 'in' => 'query', 'required' => true, 'schema' => { 'type' => 'string' } }
+    ]
+    expect(adapter.fetch_status('provider_id' => 'p-1')['success']).to be(true)
+  end
+
+  it 'supports credential parameters without allowing them to replace authentication or idempotency' do
+    config['endpoints']['status']['parameters'] = [
+      { 'name' => 'X-Partner', 'in' => 'header', 'required' => true, 'schema' => { 'type' => 'string' } }
+    ]
+    config['parameter_mapping'] = { 'status' => { 'header' => { 'X-Partner' => { 'credential' => 'api_key' } } } }
+    expect(transport).to receive(:request).with(hash_including(headers: hash_including('X-Partner' => 'private-api-value')))
+                                        .and_return(response({ 'id' => 'p-1', 'status' => 'pending', 'echo' => 'private-api-value' }))
+    expect(adapter.fetch_status('provider_id' => 'p-1').dig('data', 'echo')).to eq('[REDACTED]')
+    config['endpoints']['status']['parameters'][0]['name'] = 'x-api-key'
+    config['parameter_mapping']['status']['header'] = { 'x-api-key' => { 'value' => 'spoofed' } }
+    expect(adapter.fetch_status('provider_id' => 'p-1').dig('error', 'code')).to eq('configuration_error')
+  end
+
+  it 'rejects unsupported cookie, object, content and non-form query serialization explicitly' do
+    definitions = [
+      { 'name' => 'session', 'in' => 'cookie' },
+      { 'name' => 'filter', 'in' => 'query', 'style' => 'deepObject' },
+      { 'name' => 'filter', 'in' => 'query', 'content' => { 'application/json' => { 'schema' => {} } } },
+      { 'name' => 'filter', 'in' => 'query', 'allowReserved' => true },
+      { 'name' => 'filter', 'in' => 'query', 'schema' => { 'type' => 'object' } }
+    ]
+    expect(transport).not_to receive(:request)
+    definitions.each do |definition|
+      config['endpoints']['status']['parameters'] = [definition]
+      result = adapter.fetch_status('provider_id' => 'p-1', 'filter' => { 'status' => 'paid' })
+      expect(result.dig('error', 'code')).to eq('configuration_error')
+      expect(result.dig('error', 'reason')).to include('unsupported')
+    end
+  end
+
+  it 'includes semantically relevant query and header parameters in create idempotency conflicts' do
+    config['endpoints']['create']['parameters'] = [
+      { 'name' => 'route', 'in' => 'query', 'schema' => { 'type' => 'string' } },
+      { 'name' => 'X-Account', 'in' => 'header', 'schema' => { 'type' => 'string' } }
+    ]
+    allow(transport).to receive(:request).and_return(response({ 'id' => 'p-1', 'status' => 'pending' }))
+    original = operation.merge('route' => 'bank-a', 'X-Account' => 'a')
+    expect(adapter.create_request(original)['success']).to be(true)
+    expect(adapter.create_request(original.merge('route' => 'bank-b')).dig('error', 'code')).to eq('idempotency_conflict')
+    expect(adapter.create_request(original.merge('X-Account' => 'b')).dig('error', 'code')).to eq('idempotency_conflict')
+    expect(transport).to have_received(:request).once
+  end
+
+  it 'emits exact decimal JSON numbers without Float conversion and rejects unsupported input precision' do
+    config['request_mapping']['amount']['transform'] = 'decimal_number'
+    config['endpoints']['create']['request_schema']['properties']['amount'] = { 'type' => 'number', 'minimum' => 1000 }
+    expect(transport).to receive(:request) do |**request|
+      expect(request[:body]).to include('"amount":9999999999999.99')
+      expect(JSON.parse(request[:body], decimal_class: BigDecimal)['amount']).to eq(BigDecimal('9999999999999.99'))
+      response({ 'id' => 'p-1', 'status' => 'pending' })
+    end
+    expect(adapter.create_request(operation.merge('amount' => '9999999999999.99'))['success']).to be(true)
+    expect(adapter.create_request(operation.merge('amount' => 1234.56)).dig('error', 'code')).to eq('validation_error')
+    expect(adapter.create_request(operation.merge('amount' => '1234.567')).dig('error', 'code')).to eq('validation_error')
+  end
+
+  it 'preserves a declared UTF-8 Content-Type and rejects a charset the encoder does not produce' do
+    config['endpoints']['create']['parameters'] = [
+      { 'name' => 'Content-Type', 'in' => 'header', 'schema' => { 'enum' => ['application/json; charset=UTF-8', 'application/json; charset=CP866'] } }
+    ]
+    config['parameter_mapping'] = { 'create' => { 'header' => { 'Content-Type' => { 'value' => 'application/json; charset=UTF-8' } } } }
+    expect(transport).to receive(:request).with(hash_including(headers: hash_including('Content-Type' => 'application/json; charset=UTF-8')))
+                                        .and_return(response({ 'id' => 'p-1', 'status' => 'pending' }))
+    expect(adapter.create_request(operation)['success']).to be(true)
+    config['parameter_mapping']['create']['header']['Content-Type']['value'] = 'application/json; charset=CP866'
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('configuration_error')
+  end
+
+  it 'omits an explicitly null idempotency header for body-based provider identities' do
+    config['idempotency'] = { 'header' => nil, 'from' => 'id' }
+    expect(transport).to receive(:request) do |**request|
+      expect(request[:headers].keys).not_to include(nil, 'Idempotency-Key')
+      response({ 'id' => 'p-1', 'status' => 'pending' })
+    end
+    expect(adapter.create_request(operation)['success']).to be(true)
+  end
+
+  it 'does not redispatch strict-policy creates after ambiguous timeouts and uses positive status evidence' do
+    config['idempotency'] = { 'strategy' => 'reconcile_before_retry', 'header' => nil, 'from' => 'id' }
+    requests = []
+    allow(transport).to receive(:request) do |**request|
+      requests << request
+      raise Timeout::Error if request[:method] == 'POST'
+
+      response({ 'id' => 'p-1', 'status' => 'paid' })
+    end
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('transport_timeout')
+    expect(adapter.create_request(operation).dig('error')).to include('code' => 'reconciliation_required', 'ambiguous' => true, 'retryable' => false)
+    expect(requests.length).to eq(1)
+    expect(adapter.fetch_status(operation.merge('provider_operation_id' => 'p-1'))['status']).to eq('approved')
+    expect(adapter.create_request(operation)).to include('success' => true, 'status' => 'approved', 'duplicate' => true)
+    expect(adapter.create_request(operation.merge('amount' => '15000.02')).dig('error', 'code')).to eq('idempotency_conflict')
+    expect(requests.map { |request| request[:method] }).to eq(%w[POST GET])
+  end
+
+  it 'caches successful strict-policy creates without assuming the provider deduplicates requests' do
+    config['idempotency'] = { 'strategy' => 'reconcile_before_retry', 'header' => nil, 'from' => 'id' }
+    expect(transport).to receive(:request).once.and_return(response({ 'id' => 'p-1', 'status' => 'pending' }))
+    result = adapter.create_request(operation)
+    result['provider_id'] = 'caller-mutated'
+    expect(adapter.create_request(operation)).to include('provider_id' => 'p-1', 'duplicate' => true)
+  end
+
+  it 'retains strict create reservations across adapters sharing a state store and does not unlock on 404' do
+    config['idempotency'] = { 'strategy' => 'reconcile_before_retry', 'header' => nil, 'from' => 'id' }
+    store = Paygen::Runtime::MemoryStateStore.new
+    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, state_store: store)
+    expect(transport).to receive(:request).once.and_return(response({}, status: 429, headers: { 'Retry-After' => '1' }))
+    expect(adapter.create_request(operation).dig('error')).to include('retryable' => false, 'action' => 'reconcile_before_retry')
+    another = adapter.class.new(credentials: { api_key: 'new-key' }, transport: transport, state_store: store)
+    expect(another.create_request(operation).dig('error', 'code')).to eq('reconciliation_required')
+    expect(transport).to receive(:request).once.and_return(response({}, status: 404))
+    expect(another.fetch_status(operation.merge('provider_operation_id' => 'p-1')).dig('error', 'code')).to eq('not_found')
+    expect(another.create_request(operation).dig('error', 'code')).to eq('reconciliation_required')
+  end
+
+  it 'preserves false values in explicit boolean parameter mappings' do
+    config['endpoints']['status']['parameters'] = [
+      { 'name' => 'expanded', 'in' => 'query', 'required' => true, 'schema' => { 'type' => 'boolean' } }
+    ]
+    config['parameter_mapping'] = { 'status' => { 'query' => { 'expanded' => 'expand_response' } } }
+    expect(transport).to receive(:request).with(hash_including(url: 'https://api.example.test/v1/payouts/p-1?expanded=false'))
+                                        .and_return(response({ 'id' => 'p-1', 'status' => 'pending' }))
+    expect(adapter.fetch_status('provider_id' => 'p-1', 'expand_response' => false)['success']).to be(true)
+  end
+
+  it 'binds status and cancel response identities to the requested backend operation' do
+    allow(transport).to receive(:request).and_return(response({ 'id' => 'different-payout', 'status' => 'paid' }))
+    object = Struct.new(:provider_operation_id).new('requested-payout')
+    expect(adapter.fetch_status(object).dig('error', 'code')).to eq('provider_id_mismatch')
+    expect(adapter.cancel(object).dig('error', 'code')).to eq('provider_id_mismatch')
+    expect(adapter.create_request(operation)['success']).to be(true)
+  end
+
+  it 'prevents a known strict-policy merchant identity from being rebound to another provider operation' do
+    config['idempotency'] = { 'strategy' => 'reconcile_before_retry', 'header' => nil, 'from' => 'id' }
+    expect(transport).to receive(:request).once.and_return(response({ 'id' => 'original-payout', 'status' => 'pending' }))
+    expect(adapter.create_request(operation)['provider_id']).to eq('original-payout')
+    expect(adapter.fetch_status(operation.merge('provider_operation_id' => 'another-payout')).dig('error', 'code')).to eq('operation_identity_mismatch')
+    expect(adapter.cancel(operation.merge('provider_operation_id' => 'another-payout')).dig('error', 'code')).to eq('operation_identity_mismatch')
+    expect(adapter.create_request(operation)).to include('provider_id' => 'original-payout', 'status' => 'in_progress', 'duplicate' => true)
+  end
+
+  it 'rejects case-insensitive duplicate headers and transport routing headers before dispatch' do
+    expect(transport).not_to receive(:request)
+    config['endpoints']['create']['parameters'] = [
+      { 'name' => 'X-Route', 'in' => 'header' }, { 'name' => 'x-route', 'in' => 'header' }
+    ]
+    expect(adapter.create_request(operation.merge('X-Route' => 'bank-a', 'x-route' => 'bank-b')).dig('error', 'reason'))
+      .to include('duplicate case-insensitive header')
+    config['endpoints']['create']['parameters'] = [{ 'name' => 'Host', 'in' => 'header' }]
+    expect(adapter.create_request(operation.merge('Host' => 'another-origin.test')).dig('error', 'reason')).to include('transport-controlled')
+  end
+
+  it 'rejects transport header overrides or duplicate headers introduced by request hooks' do
+    expect(transport).not_to receive(:request)
+    adapter.define_singleton_method(:paygen_request) do |request, _role, _operation|
+      request.merge(headers: request.fetch(:headers).merge('Host' => 'another-origin.test'))
+    end
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('security_denial')
+    adapter.define_singleton_method(:paygen_request) do |request, _role, _operation|
+      request.merge(headers: request.fetch(:headers).merge('X-Route' => 'a', 'x-route' => 'b'))
+    end
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('security_denial')
+  end
 end

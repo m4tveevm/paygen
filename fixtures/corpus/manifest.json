@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "selection": "Purposive diverse sample of 21 API brands, not a statistically random sample. Bank payment orders, transfers, payouts and acquiring are distinct products.",
+  "sources": [
+    {
+      "provider": "stripe",
+      "source_url": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.yaml",
+      "file": "stripe.native",
+      "bytes": 6409430,
+      "sha256": "2e0ce56f026b1862dd772061c839a2c8ca9cc3e180f8bb22d7694b8ba214d203",
+      "retrieved_at": "2026-09-05T09:40:53.353648+00:00"
+    },
+    {
+      "provider": "paypal",
+      "source_url": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/payments_payouts_batch_v1.json",
+      "file": "paypal.native",
+      "bytes": 75801,
+      "sha256": "2a86549e2e7e42e9f082d9e43051fe55b83ef19dea1f76cff549377756374cc0",
+      "retrieved_at": "2026-09-05T09:40:53.175062+00:00"
+    },
+    {
+      "provider": "adyen",
+      "source_url": "https://raw.githubusercontent.com/Adyen/adyen-openapi/main/json/TransferService-v4.json",
+      "file": "adyen.native",
+      "bytes": 251960,
+      "sha256": "86ddb9fb0723d82bc7d954f0d09936b3a7088c5e4c5895f4668935eef49d3a6e",
+      "retrieved_at": "2026-09-05T09:40:53.425743+00:00"
+    },
+    {
+      "provider": "modern-treasury",
+      "source_url": "https://raw.githubusercontent.com/Modern-Treasury/modern-treasury-openapi/main/openapi/mt_openapi_spec_v1.yaml",
+      "file": "modern-treasury.native",
+      "bytes": 732841,
+      "sha256": "d5e8dca15dd2427a35d24a4c50f9ec363cd8fd6901e55df490ea3998045b1983",
+      "retrieved_at": "2026-09-05T09:40:53.168481+00:00"
+    },
+    {
+      "provider": "lithic",
+      "source_url": "https://raw.githubusercontent.com/lithic-com/lithic-openapi/main/lithic-openapi.yml",
+      "file": "lithic.native",
+      "bytes": 1161898,
+      "sha256": "63e4625129589eede6e1d9a58255461944a4f2cbd67f5a433a80dcfd0a38070f",
+      "retrieved_at": "2026-09-05T09:41:03.900916+00:00"
+    },
+    {
+      "provider": "dwolla",
+      "source_url": "https://raw.githubusercontent.com/Dwolla/dwolla-openapi/main/openapi.yml",
+      "file": "dwolla.native",
+      "bytes": 617901,
+      "sha256": "0e13062ae3bebbcc83550adeb56f880005347ad30bb365bb466d33a3d2a103dd",
+      "retrieved_at": "2026-09-05T09:41:03.877734+00:00"
+    },
+    {
+      "provider": "paystack",
+      "source_url": "https://raw.githubusercontent.com/PaystackOSS/openapi/main/dist/paystack.yaml",
+      "file": "paystack.native",
+      "bytes": 520504,
+      "sha256": "4427de6c07533f3d4e2202560f53f7d959b3b71f0a7a33f6d270b375fb0187d1",
+      "retrieved_at": "2026-09-05T09:41:03.842778+00:00"
+    },
+    {
+      "provider": "mollie",
+      "source_url": "https://raw.githubusercontent.com/mollie/openapi/main/specs.yaml",
+      "file": "mollie.native",
+      "bytes": 1945498,
+      "sha256": "b7497b77b18f19bd514a1041a489f930f2ad00b829843010bfccb6bf36f791d1",
+      "retrieved_at": "2026-09-05T09:41:03.882420+00:00"
+    },
+    {
+      "provider": "plaid",
+      "source_url": "https://raw.githubusercontent.com/plaid/plaid-openapi/master/2020-09-14.yml",
+      "file": "plaid.native",
+      "bytes": 3163817,
+      "sha256": "141de8aaaad29c9b81c4d9d3b681711562fb729fe6c45208aaba65fe94852846",
+      "retrieved_at": "2026-09-05T09:41:14.635036+00:00"
+    },
+    {
+      "provider": "square",
+      "source_url": "https://raw.githubusercontent.com/square/connect-api-specification/master/api.json",
+      "file": "square.native",
+      "bytes": 3279392,
+      "sha256": "a0d0db22c202f68282fd359772461697b3f635df03d3b19b11bb60add7f8ff7c",
+      "retrieved_at": "2026-09-05T09:41:14.756930+00:00"
+    },
+    {
+      "provider": "yapily",
+      "source_url": "https://raw.githubusercontent.com/yapily/yapily-openapi/main/openapi.json",
+      "file": "yapily.native",
+      "bytes": 987155,
+      "sha256": "a8ca54f9eb9fc435601bc34be03b10ebcb93d38c359a4ec89817c6ff3ca77220",
+      "retrieved_at": "2026-09-05T09:41:14.629686+00:00"
+    },
+    {
+      "provider": "zbd",
+      "source_url": "https://raw.githubusercontent.com/zbdpay/payments-openapi/main/openapi.yml",
+      "file": "zbd.native",
+      "bytes": 73378,
+      "sha256": "196b057870861751cb91e2eca706c1435a53a184dc8a1285d112423ffe1b5d2a",
+      "retrieved_at": "2026-09-05T09:41:14.494943+00:00"
+    },
+    {
+      "provider": "currencycloud",
+      "source_url": "https://raw.githubusercontent.com/CurrencyCloud/currencycloud-swagger/master/src/reference.yaml",
+      "file": "currencycloud.native",
+      "bytes": 886462,
+      "sha256": "34f964ad1af12f6299e884c84dd3582cadbcd4300af5874f2dd2b90d30559dc6",
+      "retrieved_at": "2026-09-05T09:41:23.799454+00:00"
+    },
+    {
+      "provider": "rapyd",
+      "source_url": "https://raw.githubusercontent.com/Rapyd-Samples/RapydOpenAPI/master/rapyd-openapi.yaml",
+      "file": "rapyd.native",
+      "bytes": 1203052,
+      "sha256": "09330073052ff50c0af03a8d7f2aca42a13b309cd5b5d50d5c9c1ddf72f83ce0",
+      "retrieved_at": "2026-09-05T09:41:23.889028+00:00"
+    },
+    {
+      "provider": "razorpay",
+      "source_url": "https://razorpay.com/openapi.json",
+      "file": "razorpay.native",
+      "bytes": 402421,
+      "sha256": "824ca9e6faef0f08da4670d219931a842a68e6c88a4015160e5f4815a5e6a9a4",
+      "retrieved_at": "2026-09-05T09:41:25.537324+00:00"
+    },
+    {
+      "provider": "circle",
+      "source_url": "https://developers.circle.com/openapi/payouts.yaml",
+      "file": "circle.native",
+      "bytes": 74120,
+      "sha256": "1bb54d44710fa1d87299cab7b5d1cf12975e94ad9fc1bc5aa60c6ba0a4e3baa1",
+      "retrieved_at": "2026-09-05T09:41:23.556224+00:00"
+    },
+    {
+      "provider": "transferzero",
+      "source_url": "https://specification.transferzero.com/generated/openapi.json",
+      "file": "transferzero.native",
+      "bytes": 385295,
+      "sha256": "e6dd3e0e80e80e6574e56c53205b56ff8c832670061cbe84bb6d218e4bac7026",
+      "retrieved_at": "2026-09-05T09:41:36.081494+00:00"
+    },
+    {
+      "provider": "griffin",
+      "source_url": "https://docs.griffin.com/redocusaurus/plugin-redoc-0.yaml",
+      "file": "griffin.native",
+      "bytes": 4550140,
+      "sha256": "2a6f46f88c8508aaa3b6f46316d37b060397e87a1a5e3dc6bc057767295ef4b9",
+      "retrieved_at": "2026-09-05T09:41:34.234854+00:00"
+    },
+    {
+      "provider": "nomupay",
+      "source_url": "https://docs.nomupay.com/redocusaurus/payouts-api-v1.yaml",
+      "file": "nomupay.native",
+      "bytes": 279050,
+      "sha256": "a354597147c2b9604e6c58f2423a30fddeae8f24a5bcb1a28cd3fd5dc4cd3256",
+      "retrieved_at": "2026-09-05T09:41:33.704310+00:00"
+    },
+    {
+      "provider": "raiffeisen",
+      "source_url": "https://pay.raif.ru/doc/payout.html",
+      "file": "raiffeisen.native",
+      "bytes": 286320,
+      "sha256": "2b0c366e95da475ddd931474a2fc75fa22edc6087318f441082d6c7780d8f0d6",
+      "extraction": "JSON value of embedded __redoc_state.spec.data; see bank pack provenance"
+    },
+    {
+      "provider": "tbank",
+      "source_url": "https://www.tbank.ru/business/online-payments/dev/payouts/",
+      "file": "tbank.native",
+      "bytes": 294071,
+      "sha256": "0fd239f3126aff0cf8e4fa958910e6365fbbe04723de5f7695acd9f65f26bcb5",
+      "extraction": "JSON value of embedded __redoc_state.spec.data; see bank pack provenance"
+    }
+  ]
+}
