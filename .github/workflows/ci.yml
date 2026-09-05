@@ -1,0 +1,88 @@
+name: CI
+on:
+  push:
+    branches: [main, dev/paygen-reference]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  ruby:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ['3.3.12', '3.4.10', '4.0.6']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - name: Syntax and test suite
+        run: |
+          ruby -v
+          bundle exec ruby -e 'Dir["lib/**/*.rb", "spec/**/*.rb", "bin/paygen"].each { |f| abort("Syntax failed: #{f}") unless system(RbConfig.ruby, "-c", f) }'
+          bundle exec rspec
+      - name: CLI and generation smoke
+        run: script/smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-ruby-${{ matrix.ruby }}
+          path: |
+            Gemfile.lock
+            coverage/
+          if-no-files-found: warn
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global npm@11.9.0
+      - run: npm ci --ignore-scripts --engine-strict
+      - name: Report documentation dependency advisories
+        run: npm audit --json > npm-audit.json
+      - run: npm run docs:test
+      - run: npm run docs:build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: docs/_build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-lock
+          path: |
+            package-lock.json
+            npm-audit.json
+  completion:
+    needs: [ruby, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0.6'
+          bundler-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global npm@11.9.0
+      - name: Complete verification gate
+        shell: bash
+        run: script/verify-complete | tee verification-complete.log
+      - name: Capture verified repository checkpoint
+        run: git bundle create paygen-verified.bundle --all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: completion-evidence
+          path: |
+            verification-complete.log
+            paygen-verified.bundle

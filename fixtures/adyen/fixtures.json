@@ -1,0 +1,181 @@
+{
+  "fixture_version": 1,
+  "synthetic": true,
+  "operation": {
+    "id": "op_adyen_001",
+    "amount": "12.34",
+    "currency": "EUR",
+    "balance_account_id": "BA_FIXTURE_001",
+    "payout_requisite": {
+      "transfer_instrument_id": "TI_FIXTURE_001"
+    }
+  },
+  "credentials": {
+    "api_key": "fixture-adyen-api-key",
+    "callback_secret": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+  },
+  "account": null,
+  "clock": 1788602400,
+  "responses": {
+    "created": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "TR_FIXTURE_001",
+        "status": "received",
+        "category": "bank",
+        "type": "bankTransfer",
+        "direction": "outgoing",
+        "amount": {
+          "value": 1234,
+          "currency": "EUR"
+        },
+        "balanceAccountId": "BA_FIXTURE_001",
+        "reference": "op_adyen_001",
+        "counterparty": {
+          "transferInstrumentId": "TI_FIXTURE_001"
+        }
+      }
+    },
+    "booked": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "TR_FIXTURE_001",
+        "status": "booked",
+        "category": "bank",
+        "type": "bankTransfer",
+        "direction": "outgoing",
+        "amount": {
+          "value": 1234,
+          "currency": "EUR"
+        },
+        "balanceAccountId": "BA_FIXTURE_001",
+        "reference": "op_adyen_001",
+        "counterparty": {
+          "transferInstrumentId": "TI_FIXTURE_001"
+        }
+      }
+    },
+    "returned": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "TR_FIXTURE_001",
+        "status": "returned",
+        "category": "bank",
+        "type": "bankTransfer",
+        "direction": "outgoing",
+        "amount": {
+          "value": 1234,
+          "currency": "EUR"
+        },
+        "balanceAccountId": "BA_FIXTURE_001",
+        "reference": "op_adyen_001",
+        "counterparty": {
+          "transferInstrumentId": "TI_FIXTURE_001"
+        },
+        "reason": "counterpartyAccountClosed"
+      }
+    },
+    "rate_limited": {
+      "status": 429,
+      "headers": {
+        "Content-Type": "application/json",
+        "Retry-After": "60"
+      },
+      "body": {
+        "errorCode": "00_429",
+        "message": "Too many requests"
+      }
+    }
+  },
+  "webhooks": {
+    "booked": {
+      "payload": {
+        "environment": "test",
+        "type": "balancePlatform.transfer.updated",
+        "timestamp": "2026-09-05T10:00:01Z",
+        "data": {
+          "id": "TR_FIXTURE_001",
+          "status": "booked",
+          "category": "bank",
+          "type": "bankTransfer",
+          "direction": "outgoing",
+          "amount": {
+            "value": 1234,
+            "currency": "EUR"
+          },
+          "balanceAccountId": "BA_FIXTURE_001",
+          "reference": "op_adyen_001",
+          "counterparty": {
+            "transferInstrumentId": "TI_FIXTURE_001"
+          },
+          "sequenceNumber": 1
+        }
+      },
+      "raw_body": "{\"environment\":\"test\",\"type\":\"balancePlatform.transfer.updated\",\"timestamp\":\"2026-09-05T10:00:01Z\",\"data\":{\"id\":\"TR_FIXTURE_001\",\"status\":\"booked\",\"category\":\"bank\",\"type\":\"bankTransfer\",\"direction\":\"outgoing\",\"amount\":{\"value\":1234,\"currency\":\"EUR\"},\"balanceAccountId\":\"BA_FIXTURE_001\",\"reference\":\"op_adyen_001\",\"counterparty\":{\"transferInstrumentId\":\"TI_FIXTURE_001\"},\"sequenceNumber\":1}}",
+      "headers": {
+        "hmacsignature": "i5C12fCS9GcKV7L6gXJY+4lukBjJWuH7RbhJUcNfeBk="
+      }
+    },
+    "returned": {
+      "payload": {
+        "environment": "test",
+        "type": "balancePlatform.transfer.updated",
+        "timestamp": "2026-09-05T10:00:02Z",
+        "data": {
+          "id": "TR_FIXTURE_001",
+          "status": "returned",
+          "category": "bank",
+          "type": "bankTransfer",
+          "direction": "outgoing",
+          "amount": {
+            "value": 1234,
+            "currency": "EUR"
+          },
+          "balanceAccountId": "BA_FIXTURE_001",
+          "reference": "op_adyen_001",
+          "counterparty": {
+            "transferInstrumentId": "TI_FIXTURE_001"
+          },
+          "sequenceNumber": 2,
+          "reason": "counterpartyAccountClosed"
+        }
+      },
+      "raw_body": "{\"environment\":\"test\",\"type\":\"balancePlatform.transfer.updated\",\"timestamp\":\"2026-09-05T10:00:02Z\",\"data\":{\"id\":\"TR_FIXTURE_001\",\"status\":\"returned\",\"category\":\"bank\",\"type\":\"bankTransfer\",\"direction\":\"outgoing\",\"amount\":{\"value\":1234,\"currency\":\"EUR\"},\"balanceAccountId\":\"BA_FIXTURE_001\",\"reference\":\"op_adyen_001\",\"counterparty\":{\"transferInstrumentId\":\"TI_FIXTURE_001\"},\"sequenceNumber\":2,\"reason\":\"counterpartyAccountClosed\"}}",
+      "headers": {
+        "hmacsignature": "CWU6jAzfghgY/xMRomaKQxhs4meULxtR+CGpKnpIg8k="
+      }
+    }
+  },
+  "workflow": {
+    "inputs": {
+      "request_body": {
+        "amount": {
+          "value": 1234,
+          "currency": "EUR"
+        },
+        "balanceAccountId": "BA_FIXTURE_001",
+        "category": "bank",
+        "counterparty": {
+          "transferInstrumentId": "TI_FIXTURE_001"
+        },
+        "priority": "regular",
+        "reference": "op_adyen_001",
+        "type": "bankTransfer"
+      }
+    },
+    "response_names": [
+      "created",
+      "booked"
+    ],
+    "expected_provider_status": "booked"
+  }
+}

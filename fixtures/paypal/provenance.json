@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "provider": "paypal",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "authored_curated_subset",
+  "source_url": "https://github.com/paypal/paypal-rest-api-specifications/blob/90e8041ffe02d80c452d2b476bedd59a8d219bdc/openapi/payments_payouts_batch_v1.json",
+  "api_version": "1.9 (Payouts v1)",
+  "upstream_commit": "90e8041ffe02d80c452d2b476bedd59a8d219bdc",
+  "upstream_license": "Apache-2.0",
+  "upstream_license_url": "https://github.com/paypal/paypal-rest-api-specifications/blob/90e8041ffe02d80c452d2b476bedd59a8d219bdc/LICENSE",
+  "local_license": "MIT for authored subset and fixtures; upstream snapshot remains Apache-2.0",
+  "upstream_files": [
+    "upstream/paypal.json"
+  ],
+  "documentation_urls": [
+    "https://developer.paypal.com/api/payments.payouts-batch/v1",
+    "https://developer.paypal.com/api/rest/webhooks/rest",
+    "https://developer.paypal.com/payouts/webhooks"
+  ],
+  "notes": [
+    "openapi.yaml is a Paygen-authored restricted representation, not the downloaded upstream specification.",
+    "One email recipient per batch; profile deliberately narrows currencies to EUR/USD.",
+    "Webhook path is the local receiver contract. Signature verification is a fail-closed application hook, not an invented HMAC implementation.",
+    "upstream/paypal.json preserves the retrieved complete official specification for audit."
+  ],
+  "files_sha256": {
+    "UPSTREAM-LICENSE": "64f571f57de3009d51fd9d5ca61509aaa36f62b7ef0092f482e06dd962ba0b19",
+    "fixtures.json": "0c6096a19cdfe1936976ac98c2eb2cacd5ebac05e622b7336488776ec886f5a1",
+    "integration.yml": "01e854562a888b1a9c3687564f0a051b90a477c4771ea4a4e34804120cc9f331",
+    "openapi.yaml": "2d35d0f36672c3a89f8a27159a0d87a1facc4ebe2075ecab63565fac37328eae",
+    "overlay.yaml": "1bca0e2b000a741f99f7012e92183d3bff0f043fa58a4a6eb6a212fb151ab81b",
+    "scenarios.yml": "b86110fa11a8cd039c16552cf6c47133fe70fd37562347b49713a289092c56ed",
+    "upstream/paypal.json": "2a86549e2e7e42e9f082d9e43051fe55b83ef19dea1f76cff549377756374cc0",
+    "workflows/payout.arazzo.yaml": "f63caea808dd733c4eedbf1b0ae4116fa2e939ce2a2cb48c29249f3d4ba2fe9e"
+  }
+}

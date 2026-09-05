@@ -1,0 +1,185 @@
+{
+  "fixture_version": 1,
+  "synthetic": true,
+  "operation": {
+    "id": "op_stripe_001",
+    "amount": "12.34",
+    "currency": "EUR",
+    "payout_requisite": {
+      "bank_account_id": "ba_fixture_001"
+    }
+  },
+  "credentials": {
+    "api_key": "fixture-stripe-api-key",
+    "account": "acct_fixture_001",
+    "callback_secret": "fixture-stripe-secret"
+  },
+  "account": "acct_fixture_001",
+  "clock": 1788602400,
+  "responses": {
+    "created": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "po_fixture_001",
+        "object": "payout",
+        "amount": 1234,
+        "currency": "eur",
+        "status": "pending",
+        "livemode": false,
+        "destination": "ba_fixture_001",
+        "metadata": {
+          "operation_id": "op_stripe_001"
+        },
+        "failure_code": null
+      }
+    },
+    "paid": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "po_fixture_001",
+        "object": "payout",
+        "amount": 1234,
+        "currency": "eur",
+        "status": "paid",
+        "livemode": false,
+        "destination": "ba_fixture_001",
+        "metadata": {
+          "operation_id": "op_stripe_001"
+        },
+        "failure_code": null
+      }
+    },
+    "failed": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "po_fixture_001",
+        "object": "payout",
+        "amount": 1234,
+        "currency": "eur",
+        "status": "failed",
+        "livemode": false,
+        "destination": "ba_fixture_001",
+        "metadata": {
+          "operation_id": "op_stripe_001"
+        },
+        "failure_code": "account_closed"
+      }
+    },
+    "cancelled": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "po_fixture_001",
+        "object": "payout",
+        "amount": 1234,
+        "currency": "eur",
+        "status": "canceled",
+        "livemode": false,
+        "destination": "ba_fixture_001",
+        "metadata": {
+          "operation_id": "op_stripe_001"
+        },
+        "failure_code": null
+      }
+    },
+    "rate_limited": {
+      "status": 429,
+      "headers": {
+        "Content-Type": "application/json",
+        "Retry-After": "60"
+      },
+      "body": {
+        "error": {
+          "code": "rate_limit"
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "paid": {
+      "payload": {
+        "id": "evt_fixture_paid",
+        "type": "payout.paid",
+        "created": 1788602400,
+        "account": "acct_fixture_001",
+        "livemode": false,
+        "data": {
+          "object": {
+            "id": "po_fixture_001",
+            "object": "payout",
+            "amount": 1234,
+            "currency": "eur",
+            "status": "paid",
+            "livemode": false,
+            "destination": "ba_fixture_001",
+            "metadata": {
+              "operation_id": "op_stripe_001"
+            },
+            "failure_code": null
+          }
+        }
+      },
+      "raw_body": "{\"id\":\"evt_fixture_paid\",\"type\":\"payout.paid\",\"created\":1788602400,\"account\":\"acct_fixture_001\",\"livemode\":false,\"data\":{\"object\":{\"id\":\"po_fixture_001\",\"object\":\"payout\",\"amount\":1234,\"currency\":\"eur\",\"status\":\"paid\",\"livemode\":false,\"destination\":\"ba_fixture_001\",\"metadata\":{\"operation_id\":\"op_stripe_001\"},\"failure_code\":null}}}",
+      "headers": {
+        "Stripe-Signature": "t=1788602400,v1=e318013419b15c651ee54d600cf48a10c3925a23e01a6df1d62e5915869ef2d9"
+      }
+    },
+    "failed": {
+      "payload": {
+        "id": "evt_fixture_failed",
+        "type": "payout.failed",
+        "created": 1788602401,
+        "account": "acct_fixture_001",
+        "livemode": false,
+        "data": {
+          "object": {
+            "id": "po_fixture_001",
+            "object": "payout",
+            "amount": 1234,
+            "currency": "eur",
+            "status": "failed",
+            "livemode": false,
+            "destination": "ba_fixture_001",
+            "metadata": {
+              "operation_id": "op_stripe_001"
+            },
+            "failure_code": "account_closed"
+          }
+        }
+      },
+      "raw_body": "{\"id\":\"evt_fixture_failed\",\"type\":\"payout.failed\",\"created\":1788602401,\"account\":\"acct_fixture_001\",\"livemode\":false,\"data\":{\"object\":{\"id\":\"po_fixture_001\",\"object\":\"payout\",\"amount\":1234,\"currency\":\"eur\",\"status\":\"failed\",\"livemode\":false,\"destination\":\"ba_fixture_001\",\"metadata\":{\"operation_id\":\"op_stripe_001\"},\"failure_code\":\"account_closed\"}}}",
+      "headers": {
+        "Stripe-Signature": "t=1788602400,v1=fcccd4fa7b1820646ddf98803ea92ca3f7b161db60ec309d9dfe5dc1dd81edc6"
+      }
+    }
+  },
+  "workflow": {
+    "inputs": {
+      "request_body": {
+        "amount": 1234,
+        "currency": "eur",
+        "destination": "ba_fixture_001",
+        "method": "standard",
+        "metadata": {
+          "operation_id": "op_stripe_001"
+        }
+      }
+    },
+    "response_names": [
+      "created",
+      "paid"
+    ],
+    "expected_provider_status": "paid"
+  }
+}

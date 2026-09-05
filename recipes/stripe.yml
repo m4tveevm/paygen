@@ -1,0 +1,175 @@
+name: stripe
+match:
+  title: Stripe Connect Payouts — external-bank subset
+  operation_ids:
+  - GetPayoutsPayout
+  - PostPayouts
+  - PostPayoutsPayoutCancel
+  - payoutWebhook
+profile:
+  version: 1
+  provider: stripe
+  class_name: StripeService
+  mode: sandbox
+  operations:
+    create: PostPayouts
+    status: GetPayoutsPayout
+    cancel: PostPayoutsPayoutCancel
+    callback: payoutWebhook
+  amount:
+    input_unit: major
+    scale: 100
+    minimum: 1
+    currencies:
+    - EUR
+    - USD
+  request_encoding: form
+  request_mapping:
+    amount:
+      from: amount
+      transform: minor_units
+    currency:
+      from: currency
+      transform: lowercase
+    destination:
+      from: payout_requisite.bank_account_id
+    method:
+      value: standard
+    metadata.operation_id:
+      from: id
+  parameter_mapping:
+    status:
+      payout: provider_id
+    cancel:
+      payout: provider_id
+  response:
+    id: id
+    status: status
+    error: failure_code
+  status_mapping:
+    pending: in_progress
+    in_transit: in_progress
+    paid: approved
+    failed: rejected
+    canceled: rejected
+  status_order:
+  - pending
+  - in_transit
+  - paid
+  - failed
+  - canceled
+  status_transitions:
+    paid:
+    - failed
+  idempotency:
+    header: Idempotency-Key
+  auth:
+    type: bearer
+    credential: api_key
+    headers:
+      Stripe-Account:
+        credential: account
+      Stripe-Version:
+        value: 2026-08-26.dahlia
+  callback:
+    signature:
+      algorithm: stripe-v1
+      header: Stripe-Signature
+      encoding: hex
+      credential: callback_secret
+      tolerance: 300
+    id: data.object.id
+    external_id: data.object.metadata.operation_id
+    status: data.object.status
+    event: type
+    event_id: id
+    timestamp: created
+    account_field: account
+    mode_field: livemode
+    mode_values:
+      sandbox: false
+      production: true
+    events:
+      payout.created: pending
+      payout.updated: null
+      payout.paid: paid
+      payout.failed: failed
+      payout.canceled: canceled
+  errors:
+    '400':
+      code: invalid_request
+      action: reject
+    '401':
+      code: unauthorized
+      action: reject
+    '429':
+      code: rate_limit
+      action: retry
+    '500':
+      code: provider_unavailable
+      action: retry
+  simulator:
+    scenarios:
+      paid_then_failed:
+        statuses:
+        - paid
+        - failed
+      success:
+        statuses:
+        - pending
+        - paid
+overlays:
+- overlay: 1.1.0
+  info:
+    title: stripe explicit subset profile
+    version: 1.0.0
+  actions:
+  - target: $.info
+    update:
+      x-paygen-subset: true
+workflows:
+  payout.arazzo.yaml:
+    arazzo: 1.1.0
+    info:
+      title: stripe payout create/status replay
+      version: 1.0.0
+      description: Offline workflow using native provider request bodies. Workflow
+        success means both HTTP steps completed; it does not imply successful settlement.
+        Authentication belongs to the injected transport.
+    sourceDescriptions:
+    - name: provider
+      url: ../source/openapi.json
+      type: openapi
+    workflows:
+    - workflowId: payout
+      summary: Create a payout and inspect its latest provider status
+      inputs:
+        type: object
+        properties:
+          request_body:
+            type: object
+        required:
+        - request_body
+      steps:
+      - stepId: create
+        operationId: PostPayouts
+        requestBody:
+          contentType: application/x-www-form-urlencoded
+          payload: $inputs.request_body
+        successCriteria:
+        - condition: $statusCode == 200
+        outputs:
+          provider_id: $response.body#/id
+      - stepId: status
+        operationId: GetPayoutsPayout
+        parameters:
+        - name: payout
+          in: path
+          value: $steps.create.outputs.provider_id
+        successCriteria:
+        - condition: $statusCode == 200
+        outputs:
+          provider_status: $response.body#/status
+      outputs:
+        provider_id: $steps.create.outputs.provider_id
+        provider_status: $steps.status.outputs.provider_status

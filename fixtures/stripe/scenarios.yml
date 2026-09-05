@@ -1,0 +1,16 @@
+version: 1
+provider: stripe
+fixture_file: fixtures.json
+scenarios:
+  paid_then_failed:
+    responses:
+    - created
+    - paid
+    - failed
+    webhooks:
+    - paid
+    - failed
+    expected_statuses:
+    - in_progress
+    - approved
+    - rejected

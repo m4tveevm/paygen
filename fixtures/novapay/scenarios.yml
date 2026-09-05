@@ -1,0 +1,14 @@
+version: 1
+provider: novapay
+fixture_file: fixtures.json
+scenarios:
+  success:
+    responses:
+    - created
+    - completed
+    webhooks:
+    - processing
+    - completed
+    expected_statuses:
+    - in_progress
+    - approved

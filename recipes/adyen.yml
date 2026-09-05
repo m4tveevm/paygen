@@ -1,0 +1,185 @@
+name: adyen
+match:
+  title: Adyen Transfers v4 — bank subset
+  operation_ids:
+  - get-transfers-id
+  - post-transfers
+  - transferWebhook
+profile:
+  version: 1
+  provider: adyen
+  class_name: AdyenService
+  mode: sandbox
+  operations:
+    create: post-transfers
+    status: get-transfers-id
+    callback: transferWebhook
+  amount:
+    input_unit: major
+    scale: 100
+    minimum: 1
+    currencies:
+    - EUR
+    - USD
+  request_mapping:
+    amount.value:
+      from: amount
+      transform: minor_units
+    amount.currency:
+      from: currency
+    balanceAccountId:
+      from: balance_account_id
+    category:
+      value: bank
+    counterparty.transferInstrumentId:
+      from: payout_requisite.transfer_instrument_id
+    priority:
+      value: regular
+    reference:
+      from: id
+    type:
+      value: bankTransfer
+  parameter_mapping:
+    status:
+      id: provider_id
+  response:
+    id: id
+    status: status
+    error: reason
+  status_mapping:
+    received: in_progress
+    authorised: in_progress
+    booked: in_progress
+    failed: rejected
+    returned: rejected
+    refused: rejected
+    cancelled: rejected
+    pending: in_progress
+    approvalPending: in_progress
+  status_order:
+  - received
+  - approvalPending
+  - authorised
+  - pending
+  - booked
+  - returned
+  - failed
+  - refused
+  - cancelled
+  status_transitions:
+    booked:
+    - returned
+    - failed
+  idempotency:
+    header: Idempotency-Key
+  auth:
+    type: apiKey
+    in: header
+    name: X-API-Key
+    credential: api_key
+  callback:
+    signature:
+      algorithm: hmac-sha256
+      header: hmacsignature
+      encoding: base64
+      key_encoding: hex
+      credential: callback_secret
+    id: data.id
+    external_id: data.reference
+    status: data.status
+    event: type
+    timestamp: timestamp
+    sequence: data.sequenceNumber
+    mode_field: environment
+    mode_values:
+      sandbox: test
+      production: live
+    constraints:
+      data.category: bank
+      data.direction: outgoing
+      data.type: bankTransfer
+    events:
+      balancePlatform.transfer.created: null
+      balancePlatform.transfer.updated: null
+  errors:
+    '401':
+      code: unauthorized
+      action: reject
+    '403':
+      code: forbidden
+      action: reject
+    '422':
+      code: validation_error
+      action: reject
+    '429':
+      code: rate_limit
+      action: retry
+    '500':
+      code: provider_unavailable
+      action: retry
+  simulator:
+    scenarios:
+      booked_then_returned:
+        statuses:
+        - booked
+        - returned
+      success:
+        statuses:
+        - received
+        - booked
+    callback_secret: a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
+overlays:
+- overlay: 1.1.0
+  info:
+    title: adyen explicit subset profile
+    version: 1.0.0
+  actions:
+  - target: $.info
+    update:
+      x-paygen-subset: true
+workflows:
+  payout.arazzo.yaml:
+    arazzo: 1.1.0
+    info:
+      title: adyen payout create/status replay
+      version: 1.0.0
+      description: Offline workflow using native provider request bodies. Workflow
+        success means both HTTP steps completed; it does not imply successful settlement.
+        Authentication belongs to the injected transport.
+    sourceDescriptions:
+    - name: provider
+      url: ../source/openapi.json
+      type: openapi
+    workflows:
+    - workflowId: payout
+      summary: Create a payout and inspect its latest provider status
+      inputs:
+        type: object
+        properties:
+          request_body:
+            type: object
+        required:
+        - request_body
+      steps:
+      - stepId: create
+        operationId: post-transfers
+        requestBody:
+          contentType: application/json
+          payload: $inputs.request_body
+        successCriteria:
+        - condition: $statusCode == 200
+        outputs:
+          provider_id: $response.body#/id
+      - stepId: status
+        operationId: get-transfers-id
+        parameters:
+        - name: id
+          in: path
+          value: $steps.create.outputs.provider_id
+        successCriteria:
+        - condition: $statusCode == 200
+        outputs:
+          provider_status: $response.body#/status
+      outputs:
+        provider_id: $steps.create.outputs.provider_id
+        provider_status: $steps.status.outputs.provider_status
