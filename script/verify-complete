@@ -12,6 +12,7 @@ bundle exec bundler-audit check --update
 script/smoke
 bundle exec ruby script/architecture-audit.rb
 npm ci --ignore-scripts
+npm audit --audit-level=high
 npm run docs:build
 docker build -t paygen-verification .
 docker run --rm paygen-verification doctor
