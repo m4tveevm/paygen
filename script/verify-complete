@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+command -v ruby >/dev/null
+command -v bundle >/dev/null
+command -v npm >/dev/null
+command -v docker >/dev/null
+bundle check
+bundle exec rspec
+bundle exec rubocop --only Lint,Security
+bundle exec bundler-audit check --update
+script/smoke
+bundle exec ruby script/architecture-audit.rb
+npm ci --ignore-scripts --engine-strict
+npm audit --audit-level=high
+npm run docs:test
+npm run docs:build
+docker build -t paygen-verification .
+docker run --rm paygen-verification doctor
+docker build -f Dockerfile.docs -t paygen-docs-verification .
+PAYGEN_DOCS_CONTAINER=$(docker run -d -p 127.0.0.1::80 paygen-docs-verification)
+cleanup_docs() {
+  local result=$?
+  if (( result != 0 )); then docker logs "$PAYGEN_DOCS_CONTAINER" || true; fi
+  docker rm -f "$PAYGEN_DOCS_CONTAINER" >/dev/null
+  exit "$result"
+}
+trap cleanup_docs EXIT
+PAYGEN_DOCS_PORT=$(docker port "$PAYGEN_DOCS_CONTAINER" 80/tcp | sed 's/.*://')
+PAYGEN_DOCS_PAGE=$(curl --retry 5 --retry-all-errors --retry-delay 1 --retry-max-time 20 --connect-timeout 2 --max-time 5 --fail --silent --show-error "http://127.0.0.1:$PAYGEN_DOCS_PORT/")
+[[ "$PAYGEN_DOCS_PAGE" == *Paygen* ]]
+ruby -rjson -e 'puts JSON.pretty_generate(status: "PASS", ruby: RUBY_VERSION, checks: %w[rspec lint dependency_audit four_provider_smoke architecture diplodoc ruby_oci docs_oci])'

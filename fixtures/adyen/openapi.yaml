@@ -1,0 +1,229 @@
+openapi: 3.0.3
+info:
+  title: Adyen Transfers v4 — bank subset
+  version: '4'
+  description: Paygen-authored, intentionally restricted offline contract. See provenance.json
+    and README.md; this is not the complete upstream API.
+servers:
+- url: https://balanceplatform-api-test.adyen.com/btl/v4
+- url: https://balanceplatform-api-live.adyen.com/btl/v4
+security:
+- ProviderAuth: []
+paths:
+  /transfers:
+    post:
+      operationId: post-transfers
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+        '202':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: object
+                  properties:
+                    value:
+                      type: integer
+                      minimum: 1
+                    currency:
+                      type: string
+                      enum:
+                      - EUR
+                      - USD
+                  required:
+                  - value
+                  - currency
+                balanceAccountId:
+                  type: string
+                category:
+                  type: string
+                  enum:
+                  - bank
+                counterparty:
+                  type: object
+                  properties:
+                    transferInstrumentId:
+                      type: string
+                  required:
+                  - transferInstrumentId
+                priority:
+                  type: string
+                  enum:
+                  - regular
+                reference:
+                  type: string
+                  maxLength: 80
+                type:
+                  type: string
+                  enum:
+                  - bankTransfer
+              required:
+              - amount
+              - balanceAccountId
+              - category
+              - counterparty
+              - priority
+  /transfers/{id}:
+    get:
+      operationId: get-transfers-id
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /webhooks/transfer:
+    post:
+      operationId: transferWebhook
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Webhook'
+      security: []
+components:
+  securitySchemes:
+    ProviderAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    Transfer:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum:
+          - received
+          - authorised
+          - booked
+          - failed
+          - returned
+          - refused
+          - cancelled
+          - pending
+          - approvalPending
+        category:
+          type: string
+          enum:
+          - bank
+        type:
+          type: string
+          enum:
+          - bankTransfer
+        direction:
+          type: string
+          enum:
+          - outgoing
+        amount:
+          type: object
+          properties:
+            value:
+              type: integer
+              minimum: 1
+            currency:
+              type: string
+              enum:
+              - EUR
+              - USD
+          required:
+          - value
+          - currency
+        balanceAccountId:
+          type: string
+        reference:
+          type: string
+        reason:
+          type: string
+        sequenceNumber:
+          type: integer
+        counterparty:
+          type: object
+          properties:
+            transferInstrumentId:
+              type: string
+      required:
+      - id
+      - status
+      - amount
+      - category
+    Webhook:
+      type: object
+      properties:
+        environment:
+          type: string
+          enum:
+          - test
+          - live
+        type:
+          type: string
+          enum:
+          - balancePlatform.transfer.created
+          - balancePlatform.transfer.updated
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          $ref: '#/components/schemas/Transfer'
+      required:
+      - environment
+      - type
+      - data

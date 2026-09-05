@@ -1,0 +1,31 @@
+overlay: 1.1.0
+info:
+  title: NovaPay SBP contract correction
+  version: 1.0.0
+actions:
+- target: $.components.schemas.Recipient.required
+  remove: true
+- target: $.components.schemas.Recipient
+  update:
+    required:
+    - type
+    - phone
+    - bank_code
+- target: $.components.schemas.Recipient.properties.type.enum
+  remove: true
+- target: $.components.schemas.Recipient.properties.type
+  update:
+    enum:
+    - sbp
+- target: $.components.schemas.Recipient.properties.card_number
+  remove: true
+- target: $.components.schemas.PayoutResponse
+  update:
+    required:
+    - id
+    - external_id
+    - status
+    - amount
+    - currency
+- target: $.components.schemas.PayoutError.properties.code.enum
+  remove: true

@@ -1,0 +1,107 @@
+version: 1
+provider: novapay
+class_name: NovaPayService
+mode: sandbox
+operations:
+  create: createPayout
+  status: getPayoutStatus
+  cancel: cancelPayout
+  balance: getBalance
+  callback: payoutWebhook
+amount:
+  input_unit: major
+  scale: 100
+  minimum: 100000
+  currencies:
+  - RUB
+request_mapping:
+  amount:
+    from: amount
+    transform: minor_units
+  currency:
+    from: currency
+  external_id:
+    from: id
+  recipient.type:
+    value: sbp
+  recipient.phone:
+    from: payout_requisite.sbp.phone
+  recipient.bank_code:
+    from: payout_requisite.sbp.bank_code
+parameter_mapping:
+  status:
+    payout_id: provider_id
+  cancel:
+    payout_id: provider_id
+response:
+  id: id
+  status: status
+  error: error.code
+status_mapping:
+  pending: in_progress
+  processing: in_progress
+  completed: approved
+  failed: rejected
+  cancelled: rejected
+status_order:
+- pending
+- processing
+- completed
+- failed
+- cancelled
+idempotency:
+  header: Idempotency-Key
+auth:
+  type: apiKey
+  in: header
+  name: X-API-Key
+  credential: api_key
+callback:
+  signature:
+    algorithm: hmac-sha256
+    header: X-NovaPay-Signature
+    encoding: hex
+    credential: callback_secret
+  id: payout_id
+  external_id: external_id
+  status: status
+  event: event
+  events:
+    payout.completed: completed
+    payout.failed: failed
+    payout.processing: processing
+    payout.cancelled: cancelled
+errors:
+  '400':
+    code: invalid_request
+    action: reject
+  '401':
+    code: unauthorized
+    action: reject
+  '402':
+    code: insufficient_balance
+    action: reject
+  '422':
+    code: validation_error
+    action: reject
+  '429':
+    code: rate_limit
+    action: retry
+  '500':
+    code: provider_unavailable
+    action: retry
+  roles:
+    create:
+      '409':
+        code: duplicate
+        action: reconcile
+    cancel:
+      '409':
+        code: invalid_status
+        action: reject
+simulator:
+  scenarios:
+    success:
+      statuses:
+      - pending
+      - completed

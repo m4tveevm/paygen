@@ -1,0 +1,44 @@
+arazzo: 1.1.0
+info:
+  title: adyen payout create/status replay
+  version: 1.0.0
+  description: Offline workflow using native provider request bodies. Workflow success
+    means both HTTP steps completed; it does not imply successful settlement. Authentication
+    belongs to the injected transport.
+sourceDescriptions:
+- name: provider
+  url: ../source/openapi.json
+  type: openapi
+workflows:
+- workflowId: payout
+  summary: Create a payout and inspect its latest provider status
+  inputs:
+    type: object
+    properties:
+      request_body:
+        type: object
+    required:
+    - request_body
+  steps:
+  - stepId: create
+    operationId: post-transfers
+    requestBody:
+      contentType: application/json
+      payload: $inputs.request_body
+    successCriteria:
+    - condition: $statusCode == 200
+    outputs:
+      provider_id: $response.body#/id
+  - stepId: status
+    operationId: get-transfers-id
+    parameters:
+    - name: id
+      in: path
+      value: $steps.create.outputs.provider_id
+    successCriteria:
+    - condition: $statusCode == 200
+    outputs:
+      provider_status: $response.body#/status
+  outputs:
+    provider_id: $steps.create.outputs.provider_id
+    provider_status: $steps.status.outputs.provider_status

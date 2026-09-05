@@ -1,0 +1,13 @@
+version: 1
+provider: paypal
+fixture_file: fixtures.json
+scenarios:
+  batch_success_item_failed:
+    responses:
+    - batch_success
+    - batch_success_item_failed
+    webhooks:
+    - failed
+    expected_statuses:
+    - in_progress
+    - rejected
