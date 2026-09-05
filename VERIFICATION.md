@@ -2,6 +2,52 @@
 
 Status: COMPLETE
 
+## Native onboarding and generated integration bundles
+
+Implementation commit: `66847cb8f35bb25ce1045b2fff772706db67f387`.
+[CI run 33959385178](https://github.com/m4tveevm/paygen/actions/runs/33959385178)
+completed successfully. Its completion job `101288628745` ran the complete gate
+and emitted the final `PASS` record after both OCI checks.
+[Completion evidence](https://github.com/m4tveevm/paygen/actions/runs/33959385178/artifacts/9967503182)
+contains logs, JSON/JUnit Bruno reports and the verified git bundle. Current
+follow-up checks are on [PR #2](https://github.com/m4tveevm/paygen/pull/2/checks).
+
+| Gate | Result |
+| --- | --- |
+| Ruby 3.3.12 / 3.4.10 / 4.0.6 | 1,017 examples and syntax checks passed on every version |
+| Seven integration profiles | Init, two generations, clean diff, architecture and offline verification passed on every Ruby |
+| Full native HTTP oracles | Paystack, PayPal and Raiffeisen use unchanged complete sources and independently authored request/response expectations |
+| Corpus import | 13 of 21 digest-verified native sources pass; failures and unconfigured semantics are reported separately |
+| Bruno 4.1.0 | Five runs over four profiles, 56 loopback HTTP requests and 88 assertions; NovaPay repeats against the same application state |
+| Dependency audits | Ruby, Diplodoc and isolated Bruno dependency graphs report no vulnerabilities |
+| Lint/Security | 45 files, no offenses |
+| Documentation | Four compatibility tests and all six Diplodoc pages passed; integration HTML/MD export is covered by Ruby tests |
+| OCI | Ruby image build/doctor and documentation image build/nginx HTTP smoke passed |
+
+Ruby 3.3.12 CI coverage was 88.16% of lines and 73.26% of branches. The 1,017
+examples still include 703 pinned RFC 9535 compatibility cases; they are not
+1,017 independent payment scenarios. Corpus import is not adapter certification.
+
+Independent audits reproduced and fixed strict-cache identity rebinding,
+case-insensitive duplicate headers, transport header overrides, malformed nested
+profiles, outgoing webhook-method misclassification, literal schema examples and
+the Raiffeisen simulator's merchant-ID behavior. Regression checks cover these
+findings. Strict verifier checks now validate observed raw successful responses
+against their declared schemas and reject mock evidence with an invalid shape.
+
+Russian scope: Raiffeisen single-stage SBP without fiscalisation has an executable
+offline profile; its callback canonical-string HMAC is excluded. T-Bank retains
+certificate-signing and Init-to-Payment blockers. Tochka has an official-docs
+review but no claimed native snapshot because its source was unavailable.
+Durable backend state, live bank admission/acceptance, unimplemented signing
+protocols and unsupported selected recursive schemas remain application work.
+
+The evidence follow-up records this run and excludes the isolated Bruno
+node_modules directory from the Ruby Docker build context. It does not change
+application behavior; the PR runs the complete gate again for the current head.
+
+## Earlier reference implementation
+
 Initial verified implementation and verification-script commit:
 `c4097a085ff9cd4fd5491ec2248bcf96dc5a7a4c`.
 [Full completion run](https://github.com/m4tveevm/paygen/actions/runs/33954587927)

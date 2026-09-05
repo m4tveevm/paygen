@@ -1,6 +1,6 @@
 # Native API onboarding and usable integration output
 
-Status: CONTINUE
+Status: COMPLETE
 
 Approved scope: close the gaps found in the PDF assessment, accept full native
 OpenAPI sources, guide unfamiliar-provider configuration, generate portable
@@ -34,8 +34,8 @@ Evidence and remaining limitations will be recorded here before completion.
 - Full native Paystack, PayPal and Raiffeisen adapters with independent HTTP
   oracles; T-Bank signing/workflow and Tochka source-availability counterexamples.
 - Corpus: 21 digest-pinned native specifications, 13 successful imports.
-- Full local Ruby suite: 1,017 examples, zero failures; subsequent focused
-  regressions cover the final simulator/CLI changes. Mandatory final CI remains.
+- Full Ruby suite: 1,017 examples, zero failures on Ruby 3.3.12, 3.4.10 and
+  4.0.6; all seven provider-profile smoke tests passed on each version.
 - Ruby dependency audit and documentation dependency audit: no advisories.
 - Isolated, pinned Bruno 4.1.0 with patched dependencies: no advisories;
   5 runs across 4 profiles, 56 real loopback HTTP requests, 88 assertions pass.
@@ -43,7 +43,14 @@ Evidence and remaining limitations will be recorded here before completion.
   strict retry state, ID binding, headers and local export paths. Reproduced
   findings have fixes and regression coverage.
 
-Remaining completion work: publish the review branch/PR, run the complete Ruby
-matrix and OCI/Bruno completion gate on GitHub, then record its exact evidence.
+The full implementation gate passed for commit
+`66847cb8f35bb25ce1045b2fff772706db67f387` in
+[CI run 33959385178](https://github.com/m4tveevm/paygen/actions/runs/33959385178).
+The completion job emitted its final PASS after all Ruby, dependency, Bruno,
+documentation and OCI checks. Reports and the verified repository checkpoint are
+in the completion-evidence artifact. [PR #2](https://github.com/m4tveevm/paygen/pull/2)
+contains the implementation and the evidence follow-up; its checks show the
+current head result.
+
 Bank admission/live acceptance, T-Bank certificate signing and selected recursive
 schemas remain explicit product boundaries, not claimed successes.
