@@ -115,10 +115,13 @@ RSpec.describe 'Offline provider golden packs' do
         end
       end
 
-      it 'classifies 429 with provider-independent retry timing' do
-        with_adapter(provider, ['rate_limited']) do |adapter, fixture|
+      it 'preserves 429 timing without assuming provider key retention' do
+        with_adapter(provider, ['rate_limited']) do |adapter, fixture, requests|
           result = adapter.create_request(fixture.fetch('operation'))
-          expect(result.fetch('error')).to include('retryable' => true, 'retry_after' => 60)
+          expect(result.fetch('error')).to include('retryable' => false, 'retry_after' => 60)
+          repeated = adapter.create_request(fixture.fetch('operation'))
+          expect(repeated.dig('error', 'code')).to eq('reconciliation_required')
+          expect(requests.size).to eq(1)
         end
       end
 

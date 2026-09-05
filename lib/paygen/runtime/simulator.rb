@@ -19,6 +19,14 @@ module Paygen
       SCENARIOS = %w[success timeout_after_commit rate_limit unknown_status
                      batch_success_item_failed paid_then_failed booked_then_returned
                      account_mismatch mode_mismatch].freeze
+      class RequestContractError < ArgumentError
+        attr_reader :status, :code
+
+        def initialize(code, status = 400)
+          @status, @code = status, code
+          super(code)
+        end
+      end
       attr_reader :config, :scenario, :seed
 
       def initialize(config:, scenario: 'success', seed: 0, strict_auth: false)
@@ -47,9 +55,9 @@ module Paygen
           return response(404, error_body('not_found')) unless match
 
           role, parameters = match
+          reject_duplicate_headers!(headers)
           return response(401, error_body('unauthorized')) if @strict_auth && !authorized?(uri, headers)
-          parameters = URI.decode_www_form(uri.query.to_s).to_h.merge(parameters)
-          parsed = parse_body(body, headers)
+          parameters, parsed = validate_request!(role, parameters, uri, headers, body)
           result = dispatch(role, parameters, parsed, headers)
           @requests << { 'method' => method.to_s.upcase, 'path' => path,
                          'role' => role, 'status' => result[:status],
@@ -60,6 +68,8 @@ module Paygen
           end
           result
         end
+      rescue RequestContractError => e
+        response(e.status, error_body(e.code))
       rescue JSON::ParserError, URI::InvalidURIError, ArgumentError => e
         response(400, error_body('invalid_request', e.class.name))
       end
@@ -145,6 +155,132 @@ module Paygen
       end
 
       private
+
+      # Validate the wire request against the selected OpenAPI operation before
+      # dispatch can change provider state. Request mappings and adapter helpers
+      # are deliberately not involved in this contract check.
+      def validate_request!(role, path_parameters, uri, headers, body)
+        endpoint = config.fetch('endpoints').fetch(role)
+        query = URI.decode_www_form(uri.query.to_s).group_by(&:first).transform_values { |pairs| pairs.map(&:last) }
+        parameters = path_parameters.transform_values { |value| URI.decode_www_form_component(value) }
+        parameters = query.transform_values(&:last).merge(parameters)
+        Array(endpoint['parameters']).each do |definition|
+          name, location = definition.values_at('name', 'in')
+          raw = case location
+                when 'path' then path_parameters[name] && [path_parameters[name]]
+                when 'query' then query[name]
+                when 'header'
+                  value = header(headers, name)
+                  value.nil? ? nil : [value.to_s]
+                else raise RequestContractError, 'unsupported_parameter_serialization'
+                end
+          if raw.nil?
+            raise RequestContractError, 'missing_required_parameter' if definition['required'] || location == 'path'
+
+            next
+          end
+          value = deserialize_parameter(definition, raw)
+          validate_contract!(definition.fetch('schema', {}), value, 'invalid_parameter')
+        end
+
+        content = endpoint.fetch('request_content', {})
+        present = !body.nil? && (!body.respond_to?(:empty?) || !body.empty?)
+        raise RequestContractError, 'missing_required_body' if endpoint['request_required'] && !present
+
+        schema = endpoint.fetch('request_schema', {})
+        if present && content.any?
+          media_type = header(headers, 'content-type').to_s.split(';').first.to_s.strip.downcase
+          selected = content.keys.sort_by { |name| name.count('*') }.find { |name| media_type_matches?(name, media_type) }
+          raise RequestContractError.new('unsupported_media_type', 415) unless selected
+
+          schema = content.fetch(selected).fetch('schema', {})
+        end
+        parsed = parse_body(body, headers, schema: schema)
+        if present || endpoint['request_required'] || !endpoint.key?('request_required')
+          value = if header(headers, 'content-type').to_s.split(';').first.to_s.strip.casecmp?('application/x-www-form-urlencoded')
+                    deserialize_form_value(parsed, schema)
+                  else
+                    parsed
+                  end
+          validate_contract!(schema, value, 'invalid_request_body')
+        end
+        [parameters, parsed]
+      end
+
+      def media_type_matches?(declared, actual)
+        expected = declared.split(';').first.to_s.strip.downcase
+        return false if actual.empty?
+        return true if expected == actual || expected == '*/*'
+
+        expected.end_with?('/*') && actual.start_with?(expected.delete_suffix('*'))
+      end
+
+      def reject_duplicate_headers!(headers)
+        names = headers.keys.map { |name| name.to_s.downcase }
+        raise RequestContractError, 'ambiguous_header' unless names.uniq.length == names.length
+      end
+
+      def deserialize_parameter(definition, raw)
+        location = definition['in']
+        style = location == 'query' ? 'form' : 'simple'
+        unless definition.fetch('style', style) == style && !definition.key?('content') && !definition['allowReserved']
+          raise RequestContractError, 'unsupported_parameter_serialization'
+        end
+        schema = definition.fetch('schema', {})
+        array = schema.is_a?(Hash) && Array(schema['type']).include?('array')
+        if array
+          values = if location == 'query' && definition.fetch('explode', true)
+                     raw
+                   else
+                     raise RequestContractError, 'ambiguous_parameter' unless raw.length == 1
+
+                     raw.first.split(',', -1)
+                   end
+          values = values.map { |value| URI.decode_www_form_component(value) } if location == 'path'
+          values.map { |value| deserialize_scalar(value, schema.fetch('items', {})) }
+        else
+          raise RequestContractError, 'ambiguous_parameter' unless raw.length == 1
+
+          value = location == 'path' ? URI.decode_www_form_component(raw.first) : raw.first
+          deserialize_scalar(value, schema)
+        end
+      end
+
+      def deserialize_scalar(value, schema)
+        return value unless schema.is_a?(Hash)
+
+        types = Array(schema['type'])
+        raise RequestContractError, 'unsupported_parameter_serialization' if (types & %w[object array]).any?
+        return value if types.empty? || types.include?('string')
+        return Integer(value, 10) if types.include?('integer') && value.match?(/\A-?(?:0|[1-9]\d*)\z/)
+        return BigDecimal(value) if types.include?('number') && value.match?(/\A-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\z/)
+        return value == 'true' if types.include?('boolean') && %w[true false].include?(value)
+
+        value
+      end
+
+      def deserialize_form_value(value, schema)
+        return value unless schema.is_a?(Hash)
+
+        case value
+        when Hash
+          value.to_h { |name, child| [name, deserialize_form_value(child, schema.dig('properties', name) || {})] }
+        when Array
+          value.map { |child| deserialize_form_value(child, schema.fetch('items', {})) }
+        when String then deserialize_scalar(value, schema)
+        else value
+        end
+      end
+
+      def validate_contract!(schema, value, code)
+        @request_validators ||= {}
+        validator = @request_validators[schema] ||= begin
+          options = { ref_resolver: ->(_uri) { raise RequestContractError, 'unresolved_contract_reference' } }
+          options[:meta_schema] = JSONSchemer.openapi30 if config.fetch('openapi', '').start_with?('3.0.')
+          JSONSchemer.schema(schema, **options)
+        end
+        raise RequestContractError, code unless validator.valid?(value)
+      end
 
       def authorized?(uri, headers)
         auth = config.fetch('auth', {})
@@ -266,7 +402,7 @@ module Paygen
           pattern = Regexp.new("\\A#{pieces.join}\\z")
           paths.each do |path|
             match = pattern.match(path)
-            return [role, names.zip(match.captures.map { |v| URI.decode_www_form_component(v) }).to_h] if match
+            return [role, names.zip(match.captures).to_h] if match
           end
         end
         nil
@@ -274,7 +410,9 @@ module Paygen
 
       def idempotency_key(body, headers)
         setting = config.fetch('idempotency', {})
-        value = header(headers, setting.fetch('header', 'Idempotency-Key'))
+        return nil if setting['strategy'] == 'reconcile_before_retry'
+
+        value = header(headers, setting['header']) if setting['header'].is_a?(String) && !setting['header'].empty?
         value ||= get_path(body, setting['body']) if setting['body']
         value.to_s.empty? ? nil : value.to_s
       end
@@ -293,7 +431,7 @@ module Paygen
           fields << target
         end
         set_path(data, mapping.fetch('id', 'id'), record['id'])
-        set_path(data, mapping.fetch('status', 'status'), record['status'])
+        set_path(data, mapping.fetch('status', 'status'), response_status(record, mapping, schema))
         if mapping['items'] && mapping['item_status']
           item_schema = schema_at_path(schema, mapping['items']) || {}
           item = sample_schema(item_schema.fetch('items', {}))
@@ -311,6 +449,30 @@ module Paygen
         identity_fields(data, mapping)
         fields += [mapping['account_field'] || config['account_field'], mapping['mode_field'] || config['mode_field']]
         response_sample(data, schema, fields)
+      end
+
+      # Batch processing and the individual transfer have different status
+      # vocabularies. An item failure or return must not overwrite a previously
+      # valid batch status with a value that only exists in the item contract.
+      def response_status(record, mapping, schema)
+        value = record['status']
+        return value unless mapping['scope'] == 'batch'
+
+        batch_schema = schema_at_path(schema, mapping.fetch('status', 'status')) || {}
+        if sample_valid?(batch_schema, value)
+          record['batch_status'] = value
+          return value
+        end
+        status_mapping = config.fetch('response', {}).merge(config.dig('response', 'roles', 'status') || {})
+        return value unless status_mapping['items'] && status_mapping['item_status']
+
+        status_schema = response_schema('status', success_code('status', 200))
+        item_array = schema_at_path(status_schema, status_mapping['items']) || {}
+        item_schema = schema_at_path(item_array.fetch('items', {}), status_mapping['item_status'])
+        return value unless item_schema && sample_valid?(item_schema, value)
+
+        candidates = [record['batch_status'], approved_status, mapped_status('in_progress')].compact
+        candidates.find { |candidate| sample_valid?(batch_schema, candidate) } || value
       end
 
       def identity_fields(data, mapping)
@@ -537,18 +699,40 @@ module Paygen
         (@sample_validators[schema] ||= JSONSchemer.schema(schema)).valid?(candidate)
       end
 
-      def parse_body(body, headers)
+      def parse_body(body, headers, schema: {})
         return JSON.parse(JSON.generate(body)) if body.is_a?(Hash)
         return {} if body.nil? || body.empty?
-        if header(headers, 'content-type').to_s.include?('application/x-www-form-urlencoded')
-          URI.decode_www_form(body).each_with_object({}) do |(key, value), result|
-            set_path(result, key.gsub(/\[([^\]]+)\]/, '.\\1').sub(/\A\./, ''), value)
-          end
+        if header(headers, 'content-type').to_s.split(';').first.to_s.strip.casecmp?('application/x-www-form-urlencoded')
+          parse_form_body(body, schema)
         else
           parsed = JSON.parse(body)
           raise ArgumentError, 'Request must be an object' unless parsed.is_a?(Hash)
 
           parsed
+        end
+      end
+
+      def parse_form_body(body, schema)
+        paths = []
+        fields = URI.decode_www_form(body)
+        raise RequestContractError, 'too_many_form_parameters' if fields.length > 1000
+
+        fields.group_by(&:first).each_with_object({}) do |(key, pairs), result|
+          path = path_tokens(key.gsub(/\[([^\]]+)\]/, '.\\1').sub(/\A\./, ''))
+          if path.empty? || path.length > 32 || path.any? { |token| token.match?(/\A\d+\z/) && token.to_i > 999 }
+            raise RequestContractError, 'invalid_form_parameter'
+          end
+          if paths.any? { |previous| previous.take(path.length) == path || path.take(previous.length) == previous }
+            raise RequestContractError, 'ambiguous_form_parameter'
+          end
+          paths << path
+          values = pairs.map(&:last)
+          target_schema = schema_at_path(schema, path.join('.'))
+          array = target_schema.is_a?(Hash) && Array(target_schema['type']).include?('array')
+          if values.length > 1 && !array
+            raise RequestContractError, 'ambiguous_form_parameter'
+          end
+          set_path(result, path.join('.'), array ? values : values.first)
         end
       end
 

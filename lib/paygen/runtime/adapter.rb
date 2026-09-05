@@ -11,7 +11,7 @@ require_relative 'security'
 module Paygen
   module Runtime
     # Backend seam: generated classes include this module below BaseService.
-    # Public results always use string keys and never contain credential values.
+    # Public results use string keys, exact routing identities and redacted data.
     module Adapter
       class ParameterValidationError < ArgumentError; end
       TRANSPORT_HEADERS = %w[host content-length transfer-encoding connection proxy-authorization proxy-connection te trailer upgrade expect].freeze
@@ -126,25 +126,30 @@ module Paygen
         result = status_result(provider_status, provider_id, parsed)
         return result unless result['success']
 
-        event_id = read_path(parsed, config['event_id']) || Digest::SHA256.hexdigest(raw_body)
+        # A signature authenticates bytes; replay identity describes the event.
+        # JSON whitespace and object-key order must not create a second event.
+        event_id = read_path(parsed, config['event_id'])
+        event_id = Digest::SHA256.hexdigest(JSON.generate(canonical_json(parsed))) if event_id.to_s.empty?
         ordering = callback_order(parsed, config)
         @paygen_store.synchronize do |state|
-          key = "callback:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{provider_id}"
+          key = lifecycle_key(provider_id)
           previous = state[key] || { 'events' => [], 'status' => nil, 'provider_status' => nil, 'order' => nil }
           if previous['events'].include?(event_id.to_s)
-            result.merge('status' => previous['status'], 'ignored' => 'duplicate')
+            retained_result(previous, 'duplicate')
           elsif callback_out_of_order?(ordering, previous['order'])
-            result.merge('status' => previous['status'], 'ignored' => 'out_of_order')
-          elsif !allowed_transition?(previous['provider_status'], provider_status.to_s)
-            result.merge('status' => previous['status'], 'ignored' => 'invalid_transition')
+            retained_result(previous, 'out_of_order')
+          elsif !allowed_transition?(previous, result)
+            retained_result(previous, 'invalid_transition')
           else
-            result['external_id'] = safe(read_path(parsed, config['external_id'])) if config['external_id']
-            applied = paygen_callback_result(result, parsed)
+            result['external_id'] = read_path(parsed, config['external_id']) if config['external_id']
+            same_outcome = previous['callback_status'] == result['status']
+            applied = same_outcome ? retained_result(previous, 'duplicate') : paygen_callback_result(result, parsed)
             next applied if paygen_result_failed?(applied)
 
-            state[key] = { 'events' => (previous['events'] + [event_id.to_s]).last(10_000),
-                           'status' => result['status'], 'provider_status' => provider_status.to_s,
-                           'order' => ordering || previous['order'] }
+            state[key] = previous.merge('events' => (previous['events'] + [event_id.to_s]).last(10_000),
+                                        'status' => result['status'], 'provider_status' => provider_status.to_s,
+                                        'result' => copy_result(result), 'callback_status' => result['status'],
+                                        'order' => ordering || previous['order'])
             applied
           end
         end
@@ -197,6 +202,14 @@ module Paygen
         case value
         when Hash then value.to_h { |key, child| [key.to_s, stringify(child)] }
         when Array then value.map { |child| stringify(child) }
+        else value
+        end
+      end
+
+      def canonical_json(value)
+        case value
+        when Hash then value.keys.sort.to_h { |key| [key, canonical_json(value[key])] }
+        when Array then value.map { |child| canonical_json(child) }
         else value
         end
       end
@@ -391,10 +404,16 @@ module Paygen
         if role == 'create'
           decision = reserve_create_request(request, operation, role)
           return decision if decision
+
+          reserved = true
         end
         response = stringify(@paygen_transport.request(**request))
         response = stringify(paygen_response(response, role, operation))
         result = interpret_response(response, role, operation)
+        if role == 'create' && !result['success'] && (200..299).cover?(response['status'].to_i)
+          result['error'].merge!('ambiguous' => true, 'retryable' => false, 'action' => 'reconcile_before_retry')
+        end
+        result = reduce_lifecycle(result) if %w[create status cancel].include?(role)
         remember_request_result(role, operation, result)
       rescue Timeout::Error, EOFError, Errno::ECONNRESET
         paygen_failure('transport_timeout', retryable: role != 'create', ambiguous: role == 'create',
@@ -410,6 +429,8 @@ module Paygen
         paygen_failure('configuration_error', details: { 'reason' => e.message })
       rescue SocketError, SystemCallError
         paygen_failure('transport_error', retryable: role != 'create', ambiguous: role == 'create')
+      ensure
+        release_inflight_request(operation) if reserved
       end
 
       def build_request(role, operation)
@@ -433,7 +454,7 @@ module Paygen
         base = Security.uri(server_for(role), allow_local: @paygen_allow_local)
         url = "#{base.to_s.sub(%r{/$}, '')}#{path}"
         headers = { 'Accept' => 'application/json' }
-        idempotency_header = paygen_config.fetch('idempotency', {}).fetch('header', 'Idempotency-Key')
+        idempotency_header = paygen_config.fetch('idempotency', {})['header']
         headers[idempotency_header] = idempotency_key(operation) if role == 'create' && idempotency_header
         query = []
         mapped_headers = []
@@ -508,36 +529,94 @@ module Paygen
       end
 
       def request_state_key(operation)
-        "request:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{idempotency_key(operation)}"
+        merchant_id = read_path(operation, 'id')
+        raise ArgumentError, 'operation id is required for stable idempotency' if merchant_id.to_s.empty?
+
+        "request:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{Digest::SHA256.hexdigest(merchant_id.to_s)}"
       end
 
       def reconcile_before_retry?
-        paygen_config.fetch('idempotency', {})['strategy'] == 'reconcile_before_retry'
+        config = paygen_config.fetch('idempotency', {})
+        !(config['strategy'] == 'provider_key' && config['ttl_seconds'].is_a?(Integer) &&
+          config['ttl_seconds'].positive? && [config['header'], config['body']].any? { |key| key.is_a?(String) && !key.empty? })
       end
 
       def reserve_create_request(request, operation, role)
         @paygen_store.synchronize do |state|
           key = request_state_key(operation)
           fingerprint = request_fingerprint(request, role)
+          provider_key = idempotency_key(operation)
+          wire_identities = sent_idempotency_identities(request)
+          now = @paygen_clock.call.to_f
+          ownership_key = "idempotency:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{provider_key}"
+          ownership_keys = [ownership_key] + wire_identities.map do |identity|
+            "provider-identity:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{identity}"
+          end
+          next paygen_failure('idempotency_conflict') if ownership_keys.any? { |owner| state[owner] && state[owner] != key }
+
           previous = state[key]
           previous_fingerprint = previous.is_a?(Hash) ? previous['fingerprint'] : previous
-          if previous && previous_fingerprint != fingerprint
+          if previous && (previous_fingerprint != fingerprint || (previous.is_a?(Hash) &&
+              (previous['provider_key'] != provider_key || previous['wire_identities'] != wire_identities)))
             next paygen_failure('idempotency_conflict')
           end
-          if previous && reconcile_before_retry?
+          if previous
             if previous.is_a?(Hash) && previous['result']
-              next JSON.parse(JSON.generate(previous['result'])).merge('duplicate' => true)
+              latest = state[lifecycle_key(previous['result']['provider_id'])]
+              next copy_result(latest&.fetch('result', nil) || previous['result']).merge('duplicate' => true)
             end
-            next paygen_failure('reconciliation_required', ambiguous: true,
-                                details: { 'action' => 'fetch_status', 'idempotency_key' => idempotency_key(operation) })
+            expired = previous.is_a?(Hash) && previous['expires_at'] && now >= previous['expires_at']
+            previous['expired'] = true if expired
+            if reconcile_before_retry? || !previous.is_a?(Hash) || previous['inflight'] ||
+               !previous['retry_supported'] || previous['expired'] ||
+               now - previous['first_attempt_at'] >= paygen_config.dig('idempotency', 'ttl_seconds') ||
+               now < previous['last_attempt_at']
+              next paygen_failure('reconciliation_required', ambiguous: true,
+                                  details: { 'action' => 'fetch_status', 'idempotency_key' => idempotency_key(operation) })
+            end
           end
-          state[key] ||= { 'fingerprint' => fingerprint }
+          retry_supported = !reconcile_before_retry? && !wire_identities.empty?
+          state[key] ||= { 'fingerprint' => fingerprint, 'provider_key' => provider_key, 'wire_identities' => wire_identities,
+                          'first_attempt_at' => now, 'retry_supported' => retry_supported,
+                          'expires_at' => retry_supported ? now + paygen_config.dig('idempotency', 'ttl_seconds') : nil }
+          ownership_keys.each { |owner| state[owner] = key }
+          state[key]['inflight'] = true
+          state[key]['last_attempt_at'] = now
           nil
         end
       end
 
+      def sent_idempotency_identities(request)
+        config = paygen_config.fetch('idempotency', {})
+        values = {}
+        values['header'] = header(request.fetch(:headers), config['header']) if config['header'].is_a?(String)
+        if config['body'].is_a?(String) && request[:body].is_a?(String)
+          if header(request.fetch(:headers), 'Content-Type').to_s.start_with?('application/x-www-form-urlencoded')
+            parts = config['body'].gsub(/\[(\d+)\]/, '.\1').split('.')
+            name = parts.first + parts.drop(1).map { |part| "[#{part}]" }.join
+            values['body'] = URI.decode_www_form(request[:body]).to_h[name]
+          else
+            values['body'] = read_path(JSON.parse(request[:body]), config['body'])
+          end
+        end
+        values.filter_map do |kind, value|
+          next unless (value.is_a?(String) || value.is_a?(Numeric)) && !value.to_s.empty?
+
+          "#{kind}:#{Digest::SHA256.hexdigest(value.to_s)}"
+        end
+      rescue JSON::ParserError, ArgumentError
+        []
+      end
+
+      def release_inflight_request(operation)
+        @paygen_store.synchronize do |state|
+          entry = state[request_state_key(operation)]
+          entry['inflight'] = false if entry.is_a?(Hash)
+        end
+      end
+
       def remember_request_result(role, operation, result)
-        return result unless reconcile_before_retry? && %w[create status].include?(role) && result['success']
+        return result unless %w[create status cancel].include?(role) && result['success']
         # Reconciliation must refer to the original merchant operation identity;
         # a provider id alone does not establish that relationship for all APIs.
         key = request_state_key(operation)
@@ -557,7 +636,7 @@ module Paygen
       end
 
       def cached_identity_mismatch?(role, operation)
-        return false unless reconcile_before_retry? && %w[status cancel].include?(role)
+        return false unless %w[status cancel].include?(role)
 
         supplied_id = operation_provider_id(operation)
         return false unless supplied_id
@@ -695,7 +774,7 @@ module Paygen
 
       def reject_auth_parameter_collisions!(headers, query, role)
         protected_headers = auth_header_names
-        protected_headers += [paygen_config.fetch('idempotency', {}).fetch('header', 'Idempotency-Key').to_s.downcase] if role == 'create'
+        protected_headers += [paygen_config.fetch('idempotency', {})['header'].to_s.downcase] if role == 'create'
         if headers.any? { |name| protected_headers.include?(name.downcase) }
           raise ArgumentError, 'parameter mapping conflicts with authentication or idempotency header'
         end
@@ -715,7 +794,7 @@ module Paygen
         headers = request_parameters(role).filter_map do |definition|
           next unless definition['in'] == 'header'
           next if auth_header_names.include?(definition['name'].downcase)
-          next if definition['name'].casecmp?(paygen_config.fetch('idempotency', {}).fetch('header', 'Idempotency-Key').to_s)
+          next if definition['name'].casecmp?(paygen_config.fetch('idempotency', {})['header'].to_s)
 
           [definition['name'].downcase, header(request.fetch(:headers), definition['name'])]
         end.sort
@@ -830,11 +909,14 @@ module Paygen
       def interpret_response(response, role, operation)
         status = Integer(response.fetch('status'))
         raw = response['body']
-        payload = raw.is_a?(String) ? JSON.parse(raw) : stringify(raw || {})
+        payload = raw.is_a?(String) ? JSON.parse(raw, decimal_class: BigDecimal) : stringify(raw || {})
         mapping = response_config(role)
         duplicate = status == 409 && role == 'create' && read_path(payload, mapping.fetch('id', 'id')) &&
                     read_path(payload, mapping.fetch('status', 'status')) && !read_path(payload, mapping.fetch('error', 'error.code'))
         return classify_error(status, response, payload, role) unless (200..299).cover?(status) || duplicate
+
+        contract_failure = response_contract_failure(response, role, status, payload)
+        return contract_failure if contract_failure
 
         mismatch = identity_mismatch(payload, mapping)
         return paygen_failure(mismatch) if mismatch
@@ -863,7 +945,7 @@ module Paygen
           provider_status = read_path(matching.first, mapping.fetch('item_status', 'status'))
         end
         result = status_result(provider_status, provider_id, payload)
-        result['provider_item_id'] = safe(read_path(matching.first, mapping['item_id'])) if mapping['items'] && mapping['item_id']
+        result['provider_item_id'] = read_path(matching.first, mapping['item_id']) if mapping['items'] && mapping['item_id']
         # Batch acceptance never proves that a recipient received money.
         if mapping['scope'] == 'batch' && !mapping['items'] && result['status'] == 'approved'
           result['status'] = 'in_progress'
@@ -873,19 +955,52 @@ module Paygen
       rescue JSON::ParserError
         return classify_error(status, response, {}, role) unless (200..299).cover?(status)
 
-        paygen_failure('invalid_provider_response', ambiguous: role == 'create')
+        paygen_failure('invalid_provider_response', ambiguous: role == 'create',
+                       details: role == 'create' ? { 'action' => 'reconcile_before_retry' } : {})
+      end
+
+      def response_contract_failure(response, role, status, payload)
+        definitions = endpoint(role).fetch('responses', {})
+        return if definitions.empty?
+
+        definition = definitions[status.to_s] || definitions["#{status.to_s[0]}XX"] || definitions['default']
+        problems = []
+        if !definition
+          problems << 'HTTP status is not declared by the response contract'
+        else
+          content = definition.fetch('content', {})
+          unless content.empty?
+            content_type = header(response.fetch('headers', {}), 'Content-Type')&.split(';')&.first&.strip&.downcase
+            content_type ||= content.key?('application/json') ? 'application/json' : (content.keys.first if content.length == 1)
+            media = content[content_type] || content["#{content_type.to_s.split('/').first}/*"] || content['*/*']
+            if !media
+              problems << 'Content-Type is not declared by the response contract'
+            elsif media.key?('schema')
+              JSONSchemer.schema(validation_schema(media['schema'])).validate(payload).take(10).each do |error|
+                problems << "#{error['data_pointer']}: #{error['type']}"
+              end
+            end
+          end
+        end
+        return if problems.empty?
+
+        details = { 'violations' => problems, 'http_status' => status }
+        details['action'] = 'reconcile_before_retry' if role == 'create'
+        paygen_failure('invalid_provider_response', ambiguous: role == 'create', details: details)
       end
 
       def status_result(provider_status, provider_id, payload)
         mapped = paygen_config.fetch('status_mapping', {})[provider_status.to_s]
         unless mapped
           return paygen_failure('unknown_status', details: { 'provider_status' => provider_status,
-                                                      'action' => 'reconcile' }).merge('provider_id' => safe(provider_id.to_s))
+                                                      'action' => 'reconcile' }).merge('provider_id' => provider_id.to_s)
         end
 
         mapped = paygen_status(mapped, payload)
-        safe({ 'success' => true, 'status' => mapped, 'provider_id' => provider_id.to_s,
-               'provider_status' => provider_status.to_s, 'data' => payload })
+        # Routing identities are opaque contract values. Redact untrusted payload
+        # data separately, never an ID that the next status/cancel request uses.
+        { 'success' => true, 'status' => mapped, 'provider_id' => provider_id.to_s,
+          'provider_status' => provider_status.to_s, 'data' => safe(payload) }
       end
 
       def identity_mismatch(payload, mapping)
@@ -996,19 +1111,61 @@ module Paygen
         field && current[field] < previous[field]
       end
 
-      def allowed_transition?(previous, current)
-        return true if previous.nil? || previous == current
+      def lifecycle_key(provider_id)
+        "lifecycle:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{provider_id}"
+      end
+
+      def copy_result(result)
+        JSON.parse(JSON.generate(result))
+      end
+
+      def retained_result(previous, reason)
+        copy_result(previous.fetch('result')).merge('ignored' => reason)
+      end
+
+      def reduce_lifecycle(result)
+        return result unless result['success']
+
+        @paygen_store.synchronize do |state|
+          key = lifecycle_key(result.fetch('provider_id'))
+          previous = state[key] || { 'events' => [], 'status' => nil, 'provider_status' => nil, 'order' => nil }
+          next retained_result(previous, 'invalid_transition') unless allowed_transition?(previous, result)
+
+          state[key] = previous.merge('status' => result['status'], 'provider_status' => result['provider_status'],
+                                      'result' => copy_result(result))
+          result
+        end
+      end
+
+      def allowed_transition?(previous, result)
+        previous_status = previous['status']
+        current_status = result['status']
+        return true if previous_status.nil?
+
+        terminal = %w[approved rejected reversed]
+        return false if terminal.include?(previous_status) && !terminal.include?(current_status)
+
+        previous_provider = previous['provider_status']
+        current_provider = result['provider_status']
+        return true if previous_provider == current_provider && previous_status == current_status
+        # Batch acceptance can report SUCCESS while the recipient remains in
+        # progress. Its aggregate label must not constrain later item evidence.
+        mappings = paygen_config.fetch('status_mapping', {})
+        return true if previous_status == 'in_progress' && mappings[previous_provider] != previous_status
 
         rules = paygen_config['status_transitions']
-        return Array(rules[previous]).include?(current) if rules && rules.key?(previous)
+        return Array(rules[previous_provider]).include?(current_provider) if rules && rules.key?(previous_provider)
+        # An explicit reversed mapping carries reversal semantics. Other changes
+        # between terminal outcomes require provider-specific transition rules.
+        return true if previous_status == 'approved' && current_status == 'reversed'
+        return false if terminal.include?(previous_status) && previous_status != current_status
 
         order = paygen_config['status_order']
-        if order && order.include?(previous) && order.include?(current)
-          return order.index(current) >= order.index(previous)
+        if order && order.include?(previous_provider) && order.include?(current_provider)
+          return order.index(current_provider) >= order.index(previous_provider)
         end
 
-        mappings = paygen_config.fetch('status_mapping', {})
-        !(%w[approved rejected cancelled].include?(mappings[previous]) && mappings[current] == 'in_progress')
+        true
       end
 
       def safe(value)

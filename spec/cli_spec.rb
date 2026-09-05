@@ -44,6 +44,28 @@ RSpec.describe 'CLI process contract' do
     end
   end
 
+  it 'runs seeded sequences, saves a report and replays a validated trace' do
+    with_project do |project, directory|
+      Paygen::Generator.new(project).generate
+      output = File.join(directory, 'fuzz.json')
+      _out, error, status = cli('fuzz', project.root, '--seed', '42', '--cases', '6', '--steps', '8', '--output', output)
+      expect(status.exitstatus).to eq(0), error
+      report = JSON.parse(File.read(output))
+      expect(report).to include('success' => true, 'seed' => 42, 'cases' => 6)
+      trace = { 'version' => 1, 'seed' => 42, 'case' => 0, 'mode' => 'normal',
+                'profile_sha256' => report.fetch('profile_sha256'),
+                'steps' => %w[create retry poll].map { |action| { 'action' => action } } }
+      replay = File.join(directory, 'replay.json')
+      File.write(replay, JSON.generate(trace))
+      result, error, status = cli('fuzz', project.root, '--replay', replay)
+      expect(status.exitstatus).to eq(0), error
+      expect(JSON.parse(result)).to include('success' => true, 'replay' => true)
+      _out, _error, status = cli('fuzz', project.root, '--output', output)
+      expect(status.exitstatus).to eq(2)
+      expect(JSON.parse(File.read(output))).to eq(report)
+    end
+  end
+
   it 'accepts stdin and keeps JSON diagnostics machine-readable' do
     output, error, status = cli('inspect', '-', '--format', 'json', input: File.read(source))
     expect(status.exitstatus).to eq(0), error

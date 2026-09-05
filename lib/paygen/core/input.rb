@@ -97,7 +97,7 @@ module Paygen
           validate!(bundled)
         end
 
-        # The fragment remains in the root document's pointer/anchor scope.
+        # Fragments retain the schema resource scope in which they were declared.
         # Expansion has the same budgets and reference restrictions as resolve.
         def resolve_fragment(document, value, base_dir: nil, schema_context: false)
           Resolver.new(document, base_dir: base_dir).resolve(value, schema_context: schema_context)
@@ -106,6 +106,7 @@ module Paygen
         # Follow a Reference Object chain while retaining the target's child
         # schemas. Operation inventory should not expand unrelated definitions.
         def dereference(document, value)
+          return value unless value.is_a?(Hash) && value.key?('$ref')
           Resolver.new(document, base_dir: nil).dereference(value)
         end
 
@@ -315,23 +316,32 @@ module Paygen
           @refs = 0
           @nodes = 0
           @targets = {}
+          @resources = {}
+          @scopes = {}.compare_by_identity
+          @anchors = {}
+          @index_nodes = 0
+          @schema_resources = document['openapi'].to_s.start_with?('3.1.')
+          @root_uri = @base_dir ? file_uri(File.join(@base_dir, '__paygen_root__.json')) : 'paygen-local:///root.json'
+          index_document('<root>', document, @root_uri)
         end
 
         def resolve(value = @document, schema_context: false)
-          visit(value, '<root>', [], 0, schema_context)
+          visit(value, '<root>', [], 0, schema_context, false, @root_uri)
         end
 
         def dereference(value)
           stack = []
+          scope = @scopes.fetch(value, @root_uri)
           while value.is_a?(Hash) && value.key?('$ref')
             ref = value['$ref']
             validate_ref(ref)
-            resource, fragment = ref.split('#', 2)
-            Input.fail_security('REF_EXTERNAL_DENIED', 'Dereference requires a bundled local document') unless resource.empty?
-            Input.fail_security('REF_CYCLE', 'Cyclic references are not supported by the generator') if stack.include?(ref)
-            stack << ref
+            target_scope, fragment = reference_scope(ref, scope, local_files: false)
+            target = reference_target(target_scope, fragment)
+            identity = target.object_id
+            Input.fail_security('REF_CYCLE', 'Cyclic references are not supported by the generator') if stack.include?(identity)
+            stack << identity
             Input.fail_security('REF_LIMIT', 'Too many expanded references') if stack.size > MAX_REFS
-            target = reference_target('<root>', fragment)
+            scope = @scopes.fetch(target, target_scope)
             value = if target.is_a?(Hash) && @document['openapi'].to_s.start_with?('3.1.')
                       target.merge(value.slice('summary', 'description'))
                     else
@@ -343,7 +353,8 @@ module Paygen
 
         private
 
-        def visit(value, location, stack, depth, schema_context, map_container = false)
+        def visit(value, location, stack, depth, schema_context, map_container = false, scope = @root_uri)
+          scope = @scopes.fetch(value, scope)
           @nodes += 1
           Input.fail_security('REF_LIMIT', 'Resolved document exceeds resource limits') if @nodes > MAX_NODES || depth > MAX_DEPTH
           case value
@@ -359,7 +370,7 @@ module Paygen
               end
             end
             if !map_container && value.key?('$ref')
-              resolve_ref(value, location, stack, depth, schema_context)
+              resolve_ref(value, location, stack, depth, schema_context, scope)
             else
               value.each_with_object({}) do |(key, child), hash|
                 if !map_container && (%w[example value].include?(key) || (schema_context && %w[examples default enum const].include?(key)) || key.start_with?('x-'))
@@ -368,36 +379,36 @@ module Paygen
                 end
                 child_schema = schema_context || key == 'schema' || key == 'schemas' || key == '$defs'
                 child_map = %w[properties patternProperties dependentSchemas $defs schemas].include?(key)
-                hash[key] = visit(child, location, stack, depth + 1, child_schema, child_map)
+                hash[key] = visit(child, location, stack, depth + 1, child_schema, child_map, scope)
               end
             end
           when Array
-            value.map { |child| visit(child, location, stack, depth + 1, schema_context) }
+            value.map { |child| visit(child, location, stack, depth + 1, schema_context, false, scope) }
           else
             value
           end
         end
 
-        def resolve_ref(value, location, stack, depth, schema_context)
+        def resolve_ref(value, location, stack, depth, schema_context, scope)
           ref = value['$ref']
           validate_ref(ref)
-          resource, fragment = ref.split('#', 2)
-          if @preserve_internal && location == '<root>' && resource.empty?
-            reference_target(location, fragment) if @graph
-            return { '$ref' => ref }.merge(visit(value.reject { |key, _| key == '$ref' }, location, stack, depth + 1, schema_context))
+          target_scope, fragment = reference_scope(ref, scope)
+          target_location = @resources.fetch(target_scope).fetch(:location)
+          if @preserve_internal && location == '<root>' && target_location == '<root>'
+            reference_target(target_scope, fragment) if @graph
+            return { '$ref' => ref }.merge(visit(value.reject { |key, _| key == '$ref' }, location, stack, depth + 1, schema_context, false, scope))
           end
           @refs += 1
           Input.fail_security('REF_LIMIT', 'Too many expanded references') if @refs > MAX_REFS
-          target_location = resource.empty? ? location : local_resource(resource, location)
-          identity = [target_location, fragment.to_s]
+          target = reference_target(target_scope, fragment)
+          identity = target.object_id
           Input.fail_security('REF_CYCLE', 'Cyclic references are not supported by the generator') if stack.include?(identity)
-          target = reference_target(target_location, fragment)
-          resolved = visit(target, target_location, stack + [identity], depth + 1, schema_context)
+          resolved = visit(target, target_location, stack + [identity], depth + 1, schema_context, false, target_scope)
           siblings = value.reject { |key, _| key == '$ref' }
           return resolved if siblings.empty? || @document['openapi'].to_s.start_with?('3.0.')
           if schema_context
             # In 3.1 a schema ref and its siblings are conjunctive, not a merge.
-            { 'allOf' => [resolved, visit(siblings, location, stack, depth + 1, true)] }
+            { 'allOf' => [resolved, visit(siblings, location, stack, depth + 1, true, false, scope)] }
           elsif resolved.is_a?(Hash)
             resolved.merge(siblings.slice('summary', 'description'))
           else
@@ -412,28 +423,134 @@ module Paygen
           end
         end
 
-        def reference_target(location, fragment)
-          identity = [location, fragment.to_s]
-          return @targets[identity] if @targets.key?(identity)
-          @targets[identity] = Input.pointer(@documents.fetch(location), fragment)
+        # Resource IDs are identifiers, not download permission. Indexing all
+        # resources first also permits forward references and unused recursion.
+        def index_document(location, document, uri)
+          register_resource(uri, document, location)
+          index_scope(document, uri, location, 0, !document.key?('openapi'))
         end
 
-        def local_resource(resource, location)
-          if !@base_dir || resource.start_with?('/', '\\') || resource.match?(/\A[a-z][a-z0-9+.-]*:/i)
-            Input.fail_security('REF_EXTERNAL_DENIED', 'External references must be local files beneath the source directory')
+        def index_scope(value, scope, location, depth, schema_context, map_container = false)
+          @index_nodes += 1
+          Input.fail_security('REF_LIMIT', 'Reference graph exceeds resource limits') if @index_nodes > MAX_NODES || depth > MAX_DEPTH
+          case value
+          when Hash
+            if @schema_resources && schema_context && !map_container
+              if value.key?('$id')
+                scope = resource_id(value['$id'], scope)
+                register_resource(scope, value, location)
+              end
+              if value.key?('$anchor')
+                anchor = value['$anchor']
+                unless anchor.is_a?(String) && anchor.match?(/\A[A-Za-z_][-A-Za-z0-9._]*\z/)
+                  Input.fail_input('REF_ANCHOR', 'Invalid schema anchor')
+                end
+                identity = [scope, anchor]
+                if @anchors.key?(identity) && !@anchors[identity].equal?(value)
+                  Input.fail_input('REF_ANCHOR', 'Reference anchor must identify exactly one schema in its resource')
+                end
+                @anchors[identity] = value
+              end
+            end
+            @scopes[value] = scope
+            value.each do |key, child|
+              next if !map_container && (%w[example value].include?(key) || (schema_context && %w[examples default enum const].include?(key)) || key.start_with?('x-'))
+              child_schema = schema_context || key == 'schema' || key == 'schemas' || key == '$defs'
+              child_map = %w[properties patternProperties dependentSchemas $defs schemas].include?(key)
+              index_scope(child, scope, location, depth + 1, child_schema, child_map)
+            end
+          when Array
+            @scopes[value] = scope
+            value.each { |child| index_scope(child, scope, location, depth + 1, schema_context) }
           end
-          decoded = URI::DEFAULT_PARSER.unescape(resource)
+        end
+
+        def register_resource(uri, value, location)
+          if @resources.key?(uri) && !@resources[uri][:value].equal?(value)
+            Input.fail_input('REF_ID_DUPLICATE', 'Schema resource IDs must be unique after URI resolution')
+          end
+          @resources[uri] = { value: value, location: location }
+        end
+
+        def resource_id(id, scope)
+          unless id.is_a?(String) && !id.match?(/[\x00-\x20\x7f]/) && !id.match?(/%(?![0-9a-f]{2})/i)
+            Input.fail_input('REF_ID', 'Schema $id must be a valid URI reference')
+          end
+          uri = canonical_uri(scope, id)
+          Input.fail_input('REF_ID', 'Schema $id cannot contain a nonempty fragment') if uri.fragment && !uri.fragment.empty?
+          uri.fragment = nil
+          uri.to_s
+        rescue URI::Error
+          Input.fail_input('REF_ID', 'Schema $id must be a valid URI reference')
+        end
+
+        def canonical_uri(scope, reference)
+          # URI#normalize handles host case and default ports. Also normalize
+          # unreserved escapes and dot segments so aliases cannot hide an ID
+          # collision. Reserved escapes such as %2F retain their URI meaning.
+          reference = reference.gsub(/%([0-9a-f]{2})/i) do |escape|
+            character = Regexp.last_match(1).to_i(16).chr
+            character.match?(/[A-Za-z0-9._~-]/) ? character : escape.upcase
+          end
+          uri = URI.join(scope, reference).normalize
+          if uri.path&.start_with?('/')
+            base = uri.dup
+            base.path = '/'
+            base.query = nil
+            base.fragment = nil
+            uri.path = URI.join(base.to_s, './' + uri.path.delete_prefix('/')).path
+          end
+          uri
+        end
+
+        def reference_scope(ref, scope, local_files: true)
+          uri = canonical_uri(scope, ref)
+          fragment = uri.fragment
+          uri.fragment = nil
+          target_scope = uri.to_s
+          unless @resources.key?(target_scope)
+            resource = ref.split('#', 2).first
+            if !local_files || !@base_dir || resource.start_with?('/', '\\') || resource.match?(/\A[a-z][a-z0-9+.-]*:/i) || uri.scheme != 'file' || !uri.host.to_s.empty? || uri.query
+              Input.fail_security('REF_EXTERNAL_DENIED', 'External references must be local files beneath the source directory')
+            end
+            load_local_resource(uri)
+          end
+          [target_scope, fragment]
+        rescue URI::Error
+          Input.fail_input('REF_POINTER', 'Reference must be a valid URI reference')
+        end
+
+        def reference_target(scope, fragment)
+          identity = [scope, fragment.to_s]
+          return @targets[identity] if @targets.key?(identity)
+          decoded = URI::DEFAULT_PARSER.unescape(fragment.to_s)
+          @targets[identity] = if @schema_resources && !decoded.empty? && !decoded.start_with?('/')
+                                @anchors.fetch([scope, decoded]) do
+                                  Input.fail_input('REF_ANCHOR', 'Reference anchor does not exist in this schema resource')
+                                end
+                              else
+                                Input.pointer(@resources.fetch(scope).fetch(:value), fragment)
+                              end
+        end
+
+        def file_uri(path)
+          'file://' + URI::DEFAULT_PARSER.escape(path)
+        end
+
+        def load_local_resource(uri)
+          decoded = URI::DEFAULT_PARSER.unescape(uri.path)
           Input.fail_security('REF_PATH', 'Invalid reference path') if decoded.include?("\0") || decoded.include?('\\')
-          directory = location == '<root>' ? @base_dir : File.dirname(location)
-          candidate = File.realpath(File.expand_path(decoded, directory))
+          candidate = File.realpath(decoded)
           unless candidate.start_with?(@base_dir + File::SEPARATOR)
             Input.fail_security('REF_PATH', 'Reference escapes the source directory')
           end
           unless @documents.key?(candidate)
             Input.fail_security('REF_LIMIT', 'Too many referenced documents') if @documents.size >= MAX_DOCUMENTS
             @documents[candidate] = Input.read(candidate)
+            index_document(candidate, @documents[candidate], file_uri(candidate))
           end
-          candidate
+          # A symlink may be a second local retrieval URI for the same resource.
+          register_resource(uri.to_s, @documents.fetch(candidate), candidate)
         rescue Errno::ENOENT, Errno::EACCES, Errno::ELOOP
           Input.fail_input('REF_MISSING', 'Referenced file is missing or inaccessible')
         end
