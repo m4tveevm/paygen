@@ -45,6 +45,9 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci --ignore-scripts
+      - name: Report documentation dependency advisories
+        run: npm audit --json > npm-audit.json
+        continue-on-error: true
       - run: npm run docs:build
       - uses: actions/upload-artifact@v4
         with:
@@ -53,7 +56,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: node-lock
-          path: package-lock.json
+          path: |
+            package-lock.json
+            npm-audit.json
   completion:
     needs: [ruby, docs]
     runs-on: ubuntu-latest
