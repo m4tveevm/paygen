@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "provider": "raiffeisen_payouts",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "native_embedded_openapi",
+  "source_url": "https://pay.raif.ru/doc/payout.html",
+  "api_version": "1.0",
+  "openapi_version": "3.0.3",
+  "upstream_license": "not specified in the official source",
+  "upstream_license_url": null,
+  "source_page_sha256": "c89ee51a4f1e6fef2e65bf23bf4526a15ca7089761e06754210992a65df4eee9",
+  "extraction": "JSON parse __redoc_state.spec.data from the official HTML, then UTF-8 JSON with 2-space indentation and a trailing newline. No paths, schemas or examples were edited.",
+  "upstream_files": [
+    "upstream/openapi.json"
+  ],
+  "documentation_urls": [
+    "https://pay.raif.ru/doc/payout.html"
+  ],
+  "notes": [
+    "The source URL is mutable; source-page and extracted-document SHA-256 identify the exact reviewed snapshot.",
+    "This full native contract is separate from Paygen-authored semantic profiles and synthetic offline fixtures.",
+    "The public bank GitHub repository contains an older document; this snapshot is the currently published bank documentation.",
+    "The bank source does not declare a redistribution license; its contents are not relicensed under Paygen MIT."
+  ],
+  "files_sha256": {
+    "fixtures.json": "c7f07752a1e2d2db5f405588bda0c79a509be9ad2c7cfd045902819ddebdecaa",
+    "integration.yml": "1b91ea2a3d9948db56c4b65b7643ca2838dbd0f19c52cd2ff8ff9b712b952ad8",
+    "review.yml": "a047e79767d8b271ce6b864b367e355c0009ed25b0dda3207088ad2857151470",
+    "upstream/openapi.json": "2b0c366e95da475ddd931474a2fc75fa22edc6087318f441082d6c7780d8f0d6"
+  }
+}

@@ -1,0 +1,37 @@
+version: 1
+kind: integration_review
+provider: tochka_payment_review
+product: Outgoing bank payment orders requiring signature
+readiness: source_unavailable
+native_contract_valid: null
+source_retrieval:
+  date: '2026-09-05'
+  result: Official documentation and specification hosts returned HTTP 502 in this environment. Indexed official documentation was available for the facts below.
+  native_snapshot_included: false
+cases:
+  - name: unsigned_order
+    provider_status: WaitingForCreate
+    expected_status: in_progress
+    requires: The payment still needs a signature in internet banking.
+  - name: accepted_order
+    provider_status: Created
+    expected_status: in_progress
+    requires: Reconcile execution; creation or submission does not establish delivery.
+  - name: paid_order
+    provider_status: Paid
+    expected_status: approved
+    requires: A verified response for the matching payment order.
+operation_selection:
+  outgoing_candidate: POST /payment/v1.0/for-sign
+  outgoing_status: GET /payment/v1.0/status/{requestId}
+  excluded_payin: POST /acquiring/v1.0/payments
+  reason: Create Payment Operation creates an acquiring payment link; it is a different flow from an outgoing bank payment order.
+blockers:
+  - Retrieve and pin the native specification before generating an adapter.
+  - Review authentication, signing, authorization and retry policy from the complete contract.
+  - Preserve the human signature step and distinguish requestId from an acquiring operationId.
+sources:
+  - https://developers.tochka.com/docs/tochka-api/opisanie-metodov/platezhi
+  - https://developers.tochka.com/docs/tochka-api/api/create-payment-for-sign-payment-v-1-0-for-sign-post
+  - https://developers.tochka.com/docs/tochka-api/api/get-payment-status-payment-v-1-0-status-request-id-get
+  - https://developers.tochka.com/docs/tochka-api/opisanie-metodov/platyozhnye-ssylki/bez-fiskalizacii

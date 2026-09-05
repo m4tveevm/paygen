@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "provider": "paypal",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "unchanged_complete_official_specification",
+  "api_version": "1.9",
+  "upstream_commit": "90e8041ffe02d80c452d2b476bedd59a8d219bdc",
+  "source_url": "https://github.com/paypal/paypal-rest-api-specifications/blob/90e8041ffe02d80c452d2b476bedd59a8d219bdc/openapi/payments_payouts_batch_v1.json",
+  "download_url": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/90e8041ffe02d80c452d2b476bedd59a8d219bdc/openapi/payments_payouts_batch_v1.json",
+  "upstream_license": "Apache-2.0",
+  "upstream_license_url": "https://github.com/paypal/paypal-rest-api-specifications/blob/90e8041ffe02d80c452d2b476bedd59a8d219bdc/LICENSE",
+  "local_license": "MIT for profile, README and independent oracle; upstream source remains Apache-2.0",
+  "documentation_urls": [
+    "https://developer.paypal.com/api/payments.payouts-batch/v1/payouts-post",
+    "https://developer.paypal.com/api/payments.payouts-batch/v1/payouts-get",
+    "https://developer.paypal.com/api/payments.payouts-batch/v1/definitions/payout_batch_header"
+  ],
+  "notes": [
+    "The complete native source is byte-for-byte unchanged; no source overlays or curated replacement are used.",
+    "The explicit profile selects a narrow create/status flow; unsupported capabilities are not claimed.",
+    "oracle.json was authored separately from Paygen mappings and simulator from the cited native field semantics. Credentials and recipients are synthetic test values.",
+    "Tests load the generated Ruby service and production HTTP transport with WebMock intercepting all network requests. No live provider call or settlement claim."
+  ],
+  "files_sha256": {
+    "README.md": "e628a999ed43c76eb2776fd8a7a60da032ee470d7bfde80eff6cf31556f79ec0",
+    "UPSTREAM-LICENSE": "64f571f57de3009d51fd9d5ca61509aaa36f62b7ef0092f482e06dd962ba0b19",
+    "openapi.json": "2a86549e2e7e42e9f082d9e43051fe55b83ef19dea1f76cff549377756374cc0",
+    "oracle.json": "a38fe55d300cc3d8543415bcc6e7e62a39b0b04efb35f4a3de3f0577ab79e09e",
+    "profile.yml": "272f1d000893d08e7056ef27da9b5c5b16799beeb2fd33756d49e10a9b641b06"
+  }
+}

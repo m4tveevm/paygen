@@ -7,20 +7,20 @@ module Paygen
     DIRECTORIES = %w[source overlays workflows recipes extensions scenarios generated].freeze
     attr_reader :root
 
-    def self.init(input, output:, stdin: $stdin)
+    def self.init(input, output:, stdin: $stdin, profile: nil)
       destination = File.expand_path(output)
       raise Error, 'Output already exists; choose an empty project path' if File.exist?(destination)
       raw_document = Core::Input.read(input, stdin: stdin)
       remote = input.to_s == '-' || input.to_s.match?(/\Ahttps?:/i)
       base_dir = remote ? nil : File.dirname(File.realpath(input))
-      document = Core::Input.bundle(raw_document, base_dir: base_dir)
-      Core::Input.validate!(Core::Input.resolve(document))
+      document = Core::Input.graph(raw_document, base_dir: base_dir)
       project = new(destination, create: true)
       DIRECTORIES.each { |directory| FileUtils.mkdir_p(project.path(directory)) }
       project.write('source/openapi.json', Paygen.json(document))
       recipe = available_recipes.find { |candidate| matches?(candidate, document) }
-      profile = recipe ? recipe.fetch('profile') : Core::IR.new(document).profile
-      project.write('integration.yml', YAML.dump(profile))
+      defaults = recipe ? recipe.fetch('profile') : Core::IR.new(document).profile
+      supplied = profile ? Core::Input.read(profile) : {}
+      project.write('integration.yml', YAML.dump(Paygen.deep_merge(defaults, supplied)))
       if recipe
         project.write('recipes/selected.yml', YAML.dump(recipe))
         recipe.fetch('overlays', []).each_with_index do |overlay, index|
@@ -102,7 +102,11 @@ module Paygen
       staging = Dir.mktmpdir('.paygen-staging-', root)
       backup = Dir.mktmpdir('.paygen-backup-', root)
       Dir.rmdir(backup)
-      files.each { |name, body| File.write(File.join(staging, name), body) }
+      files.each do |name, body|
+        target = File.join(staging, name)
+        FileUtils.mkdir_p(File.dirname(target))
+        File.write(target, body)
+      end
       File.rename(destination, backup) if File.exist?(destination)
       begin
         File.rename(staging, destination)
@@ -146,8 +150,7 @@ module Paygen
         document = overlay.apply(Core::Input.read(path(relative)), overlay_uri: file)
         @overlay_diagnostics.concat(overlay.diagnostics)
       end
-      document = Core::Input.resolve(document, base_dir: File.dirname(path('source/openapi.json')))
-      Core::Input.validate!(document)
+      Core::Input.graph(document, base_dir: File.dirname(path('source/openapi.json')))
     end
 
     def ir(overrides: {})
@@ -187,8 +190,7 @@ module Paygen
       document = Core::Input.read(input)
       remote = input.to_s == '-' || input.to_s.match?(/\Ahttps?:/i)
       base_dir = remote ? nil : File.dirname(File.realpath(input))
-      document = Core::Input.bundle(document, base_dir: base_dir)
-      Core::Input.validate!(Core::Input.resolve(document))
+      document = Core::Input.graph(document, base_dir: base_dir)
       source_uri = remote ? input.to_s : File.expand_path(input)
       source_body = Paygen.json(document)
       source_sha256 = Digest::SHA256.hexdigest(source_body)
@@ -199,7 +201,7 @@ module Paygen
           relative = Pathname.new(file).relative_path_from(Pathname.new(root)).to_s
           effective = Core::Overlay.new(effective, source_uri: source_uri).apply(Core::Input.read(path(relative)), overlay_uri: file)
         end
-        Core::Input.validate!(Core::Input.resolve(effective))
+        Core::Input.graph(effective)
         manifest = lock.merge('source_uri' => source_uri, 'source_sha256' => source_sha256)
         previous_source = File.read(path('source/openapi.json'))
         write('source/openapi.json', source_body)

@@ -1,0 +1,71 @@
+version: 1
+provider: native_paypal
+class_name: NativePayPalService
+mode: sandbox
+operations:
+  create: payouts.post
+  status: payouts.get
+  cancel:
+  balance:
+  callback:
+amount:
+  input_unit: major
+  scale: 100
+  minimum: 1
+  currencies: [USD]
+request_mapping:
+  sender_batch_header.sender_batch_id:
+    from: id
+  items.0.recipient_type:
+    value: EMAIL
+  items.0.amount.value:
+    from: amount
+    transform: decimal_string
+  items.0.amount.currency:
+    from: currency
+  items.0.receiver:
+    from: payout_requisite.email
+  items.0.sender_item_id:
+    from: id
+parameter_mapping:
+  status:
+    id: provider_operation_id
+response:
+  id: batch_header.payout_batch_id
+  status: batch_header.batch_status
+  error: name
+  scope: batch
+  roles:
+    status:
+      items: items
+      item_status: transaction_status
+      item_id: payout_item_id
+      item_external_id: payout_item.sender_item_id
+status_mapping:
+  PENDING: in_progress
+  PROCESSING: in_progress
+  SUCCESS: approved
+  UNCLAIMED: in_progress
+  ONHOLD: in_progress
+  FAILED: rejected
+  DENIED: rejected
+  BLOCKED: rejected
+  CANCELED: rejected
+  RETURNED: rejected
+  REFUNDED: reversed
+  REVERSED: reversed
+idempotency:
+  header: PayPal-Request-Id
+  body: sender_batch_header.sender_batch_id
+  strategy: provider_key
+auth:
+  type: oauth2
+  credential: access_token
+  scopes: [https://uri.paypal.com/payments/payouts]
+errors:
+  '400': {code: invalid_request, action: reject}
+  '401': {code: unauthorized, action: reject}
+  '403': {code: forbidden, action: reject}
+  '404': {code: batch_not_found, action: reconcile}
+  '429': {code: rate_limit, action: retry}
+  '500': {code: provider_unavailable, action: retry}

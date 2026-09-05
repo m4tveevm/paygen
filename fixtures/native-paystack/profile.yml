@@ -1,0 +1,57 @@
+version: 1
+provider: native_paystack
+class_name: NativePaystackService
+mode: sandbox
+operations:
+  create: transfer_initiate
+  status: transfer_fetch
+  cancel:
+  balance:
+  callback:
+amount:
+  input_unit: major
+  scale: 100
+  minimum: 1
+  currencies: [NGN]
+request_mapping:
+  source:
+    value: balance
+  amount:
+    from: amount
+    transform: minor_units
+  currency:
+    from: currency
+  recipient:
+    from: payout_requisite.recipient_code
+  reference:
+    from: id
+parameter_mapping:
+  status:
+    code: provider_operation_id
+response:
+  id: data.transfer_code
+  status: data.status
+  error: code
+status_mapping:
+  pending: in_progress
+  received: in_progress
+  otp: in_progress
+  success: approved
+  failed: rejected
+  abandoned: rejected
+  blocked: rejected
+  rejected: rejected
+  reversed: reversed
+idempotency:
+  header:
+  body: reference
+  strategy: provider_key
+auth:
+  type: bearer
+  credential: secret_key
+errors:
+  '400': {code: invalid_request, action: reject}
+  '401': {code: unauthorized, action: reject}
+  '404': {code: transfer_not_found, action: reconcile}
+  '429': {code: rate_limit, action: retry}
+  '500': {code: provider_unavailable, action: retry}

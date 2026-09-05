@@ -1,0 +1,91 @@
+---
+version: 1
+provider: raiffeisen_payouts
+class_name: RaiffeisenPayoutsService
+mode: sandbox
+operations:
+  create: post-v2-payouts
+  status: get-payout-v2-payouts-id
+  cancel:
+  balance:
+  callback:
+amount:
+  input_unit: major
+  scale: 100
+  minimum: 1
+  currencies:
+  - RUB
+request_mapping:
+  id:
+    from: id
+  account:
+    from: metadata.debit_account
+  amount:
+    from: amount
+    transform: decimal_number
+  currency:
+    from: currency
+  fiscal:
+    value: false
+  paymentDetails:
+    from: metadata.payment_details
+  payoutMethod:
+    value: SBP
+  payoutParams.phone:
+    from: payout_requisite.sbp.phone
+  payoutParams.bankId:
+    from: payout_requisite.sbp.bank_id
+parameter_mapping:
+  create:
+    header:
+      Accept-Charset:
+        value: UTF-8
+      Content-Type:
+        value: application/json; charset=UTF-8
+  status:
+    path:
+      id: id
+    header:
+      Accept-Charset:
+        value: UTF-8
+response:
+  id: id
+  status: status.value
+  error: status.declineReason
+status_mapping:
+  ON_SIGNING: in_progress
+  IN_PROGRESS: in_progress
+  PENDING: in_progress
+  DRAFT: in_progress
+  WAITING_CONFIRMATION: in_progress
+  WAITING_INCOME_REGISTRATION: in_progress
+  WAITING_RECEIPT_RELEASING: in_progress
+  WAITING_RECEIPT_CANCELLATION: in_progress
+  READY_TO_PROCESS: in_progress
+  COMPLETED: approved
+  DECLINED: rejected
+idempotency:
+  from: id
+  strategy: reconcile_before_retry
+  header:
+auth:
+  type: bearer
+  credential: secret_key
+errors:
+  '400':
+    code: invalid_request
+    action: reject
+  '401':
+    code: unauthorized
+    action: reject
+  '403':
+    code: forbidden
+    action: reject
+  '429':
+    code: rate_limit
+    action: retry
+  '500':
+    code: provider_unavailable
+    action: retry
+simulator:
+  id_from_request: id
