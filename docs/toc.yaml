@@ -16,5 +16,7 @@ items:
     href: bruno-demo.md
   - name: Supported scope
     href: scope.md
+  - name: Payment verification
+    href: testing.md
   - name: Development
     href: development.md

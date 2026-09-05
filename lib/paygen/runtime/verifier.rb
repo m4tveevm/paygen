@@ -220,7 +220,16 @@ module Paygen
           assert_result(approved, success: true, status: before)
           rejected = @adapter.fetch_status(identified)
           after = states.empty? ? 'rejected' : @config.fetch('status_mapping', {})[states.last]
-          assert_result(rejected, success: true, status: after)
+          transitions = @config.fetch('status_transitions', {})
+          target_status = states.last || @config.fetch('status_mapping', {}).find { |_name, value| value == 'rejected' }&.first
+          permitted = Array(transitions[approved['provider_status']]).include?(target_status) ||
+                      (before == 'approved' && after == 'reversed')
+          if %w[approved rejected reversed].include?(before) && after != before && !permitted
+            assert_result(rejected, success: true, status: before)
+            assert(rejected['ignored'] == 'invalid_transition', 'An undeclared terminal change was accepted')
+          else
+            assert_result(rejected, success: true, status: after)
+          end
           { 'before' => summary(approved), 'after' => summary(rejected) }
         end
       end
@@ -283,7 +292,9 @@ module Paygen
       end
 
       def strict_reconciliation?
-        @config.dig('idempotency', 'strategy') == 'reconcile_before_retry'
+        policy = @config.fetch('idempotency', {})
+        policy['strategy'] != 'provider_key' || !policy['ttl_seconds'].is_a?(Integer) ||
+          !policy['ttl_seconds'].positive? || (policy['header'].to_s.empty? && policy['body'].to_s.empty?)
       end
 
       def create_requests(simulator)

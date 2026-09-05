@@ -19,6 +19,8 @@ RSpec.describe Paygen::Runtime::Adapter do
       'status_mapping' => { 'pending' => 'in_progress', 'processing' => 'in_progress',
                             'paid' => 'approved', 'failed' => 'rejected', 'cancelled' => 'rejected' },
       'status_order' => %w[pending processing paid failed cancelled],
+      'status_transitions' => { 'paid' => ['failed'] },
+      'idempotency' => { 'strategy' => 'provider_key', 'header' => 'Idempotency-Key', 'ttl_seconds' => 60 },
       'response' => { 'id' => 'id', 'status' => 'status', 'error' => 'error.code' },
       'auth' => { 'type' => 'apiKey', 'in' => 'header', 'name' => 'X-API-Key', 'credential' => 'api_key' },
       'callback' => {

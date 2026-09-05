@@ -3,6 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PAYGEN_SMOKE_DIR=$(mktemp -d)
 trap 'rm -rf "$PAYGEN_SMOKE_DIR"' EXIT
+mkdir -p tmp/fuzz-verification
+PAYGEN_FUZZ_REPORTS=$(mktemp -d tmp/fuzz-verification/run.XXXXXX)
 bundle exec bin/paygen doctor
 for provider in novapay paypal stripe adyen; do
   project="$PAYGEN_SMOKE_DIR/$provider"
@@ -12,6 +14,9 @@ for provider in novapay paypal stripe adyen; do
   bundle exec bin/paygen diff "$project" --check
   bundle exec bin/paygen architecture-check "$project"
   bundle exec bin/paygen verify "$project" --seed 42
+  if [[ "$provider" == novapay ]]; then
+    bundle exec bin/paygen fuzz "$project" --seed 42 --cases 20 --steps 20 --output "$PAYGEN_FUZZ_REPORTS/$provider.json"
+  fi
 done
 for provider in native-paystack native-paypal raiffeisen_payouts; do
   project="$PAYGEN_SMOKE_DIR/$provider"
@@ -26,4 +31,7 @@ for provider in native-paystack native-paypal raiffeisen_payouts; do
   bundle exec bin/paygen diff "$project" --check
   bundle exec bin/paygen architecture-check "$project"
   bundle exec bin/paygen verify "$project" --seed 42
+  if [[ "$provider" == raiffeisen_payouts ]]; then
+    bundle exec bin/paygen fuzz "$project" --seed 42 --cases 20 --steps 20 --output "$PAYGEN_FUZZ_REPORTS/$provider.json"
+  fi
 done

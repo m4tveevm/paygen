@@ -41,6 +41,16 @@ edited manually. `explain` shows where a configuration value came from. `update`
 validates a replacement contract against existing corrections before pinning it;
 generate and verify again after updating.
 
+Run seeded payment sequences with `fuzz` and replay saved failures:
+
+```bash
+bundle exec bin/paygen fuzz tmp/provider --seed 42 --cases 100 --steps 30 --output tmp/fuzz.json
+bundle exec bin/paygen fuzz tmp/provider --replay tmp/fuzz.json
+```
+
+The replay command accepts a failure report or trace. See
+[payment verification](testing.md) for scope, limits and minimized counterexamples.
+
 | Project path | Ownership and purpose |
 | --- | --- |
 | `source/` | Pinned API source |
