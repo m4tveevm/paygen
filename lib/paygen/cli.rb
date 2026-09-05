@@ -58,9 +58,29 @@ module Paygen
         desc 'Create a project with pinned source, profile and user-owned extensions'
         argument :input, required: true
         option :output, required: true
-        def call(input:, output:, **)
-          project = Project.init(input, output: output)
+        option :profile, type: :string
+        def call(input:, output:, profile: nil, **)
+          project = Project.init(input, output: output, profile: profile)
           emit({ 'status' => 'initialized', 'project' => project.root, 'diagnostics' => project.ir.diagnostics })
+        end
+      end
+
+      class Configure < Base
+        desc 'Review operation candidates and apply explicit semantic answers'
+        argument :project, required: true
+        option :answers, type: :string
+        option :set, type: :array, default: []
+        def call(project:, answers: nil, set: [], **)
+          project = Project.new(project)
+          edits = Paygen.deep_merge(answers ? Core::Input.read(answers) : {}, parse_sets(set))
+          unless edits.empty?
+            project.transaction do
+              # Partial profiles remain editable; malformed shapes are rejected.
+              project.ir(overrides: edits)
+              project.write('integration.yml', YAML.dump(Paygen.deep_merge(project.profile, edits)))
+            end
+          end
+          emit(Core::Onboarding.new(project.ir).report)
         end
       end
 
@@ -175,7 +195,7 @@ module Paygen
           end
           candidate = Paygen.deep_merge(overlay, 'actions' => overlay.fetch('actions') + additions)
           effective = replay(project, file, candidate)
-          Core::Input.validate!(Core::Input.resolve(effective, base_dir: File.dirname(project.path('source/openapi.json'))))
+          Core::Input.graph(effective, base_dir: File.dirname(project.path('source/openapi.json')))
           project.write(file, File.extname(file) == '.json' ? Paygen.json(candidate) : YAML.dump(candidate))
           emit({ 'status' => 'patched', 'file' => file, 'actions' => additions })
         end
@@ -279,6 +299,27 @@ module Paygen
         end
       end
 
+      class Docs < Base
+        desc 'Export portable integration documentation and examples'
+        argument :project, required: true
+        option :format, default: 'html', values: %w[md html]
+        option :output, required: true
+        def call(project:, output:, format: 'html', **)
+          emit(Generator.new(project).docs(format: format, output: output))
+        end
+      end
+
+      class Collection < Base
+        desc 'Export a Bruno collection for the local generated-adapter demo'
+        argument :project, required: true
+        option :format, default: 'bruno', values: %w[bruno]
+        option :output, required: true
+        def call(project:, output:, format: 'bruno', **)
+          require_relative 'collection'
+          emit(Paygen::Collection.new(project).export(output: output, format: format))
+        end
+      end
+
       class ArchitectureCheck < Base
         desc 'Check semantic consistency, input hashes and generated ownership'
         argument :project, required: true
@@ -311,10 +352,36 @@ module Paygen
           require 'puma'
           require_relative 'runtime/simulator'
           config = Project.new(project).ir.config
-          app = Runtime::Simulator.new(config: config, scenario: scenario, seed: Integer(seed))
+          app = Runtime::Simulator.new(config: config, scenario: scenario, seed: Integer(seed), strict_auth: true)
           server = Puma::Server.new(app)
           server.add_tcp_listener('127.0.0.1', Integer(port))
           warn "Paygen simulator listening on http://127.0.0.1:#{Integer(port)}"
+          trap('INT') { server.stop }
+          trap('TERM') { server.stop }
+          server.run.join
+        end
+      end
+
+      class Demo < Base
+        desc 'Run a local application that invokes the generated adapter and verifies callbacks'
+        argument :project, required: true
+        option :scenario, default: 'success'
+        option :seed, default: '0'
+        option :port, default: '9293'
+        def call(project:, scenario: 'success', seed: '0', port: '9293', **)
+          require 'puma'
+          require_relative 'runtime/demo'
+          project = Project.new(project)
+          generator = Generator.new(project)
+          raise Error.new('Regenerate before starting the demo', code: 'GENERATED_DRIFT', exit_code: 1) unless generator.diff.empty?
+          rendered = generator.render(draft: project.lock.fetch('draft', false), overrides: project.lock.fetch('overrides', {}))
+          config = JSON.parse(rendered.fetch('config.json'))
+          source = rendered["#{config.fetch('provider')}_service.rb"]
+          raise Error.new('Resolve semantic blockers before starting the demo', code: 'SEMANTIC_BLOCKERS', exit_code: 4) unless source
+          app = Runtime::Demo.new(source: source, config: config, scenario: scenario, seed: Integer(seed))
+          server = Puma::Server.new(app)
+          server.add_tcp_listener('127.0.0.1', Integer(port))
+          warn "Paygen adapter demo listening on http://127.0.0.1:#{Integer(port)}"
           trap('INT') { server.stop }
           trap('TERM') { server.stop }
           server.run.join
@@ -357,6 +424,7 @@ module Paygen
 
       register 'inspect', Inspect
       register 'init', Init
+      register 'configure', Configure
       register 'generate', Generate
       register 'diff', Diff
       register 'update', Update
@@ -370,9 +438,12 @@ module Paygen
       register 'recipe add', RecipeAdd
       register 'recipe remove', RecipeRemove
       register 'export', Export
+      register 'docs', Docs
+      register 'collection', Collection
       register 'architecture-check', ArchitectureCheck
       register 'doctor', Doctor
       register 'serve', Serve
+      register 'demo', Demo
       register 'verify', Verify
     end
 

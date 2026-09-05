@@ -4,6 +4,7 @@
 /tmp/
 /*.gem
 /node_modules/
+/tools/bruno/node_modules/
 /docs/_build/
 /output/
 /.env

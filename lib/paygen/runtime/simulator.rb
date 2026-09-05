@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'json_schemer'
 require 'uri'
 require 'digest'
 require 'openssl'
@@ -20,12 +21,13 @@ module Paygen
                      account_mismatch mode_mismatch].freeze
       attr_reader :config, :scenario, :seed
 
-      def initialize(config:, scenario: 'success', seed: 0)
+      def initialize(config:, scenario: 'success', seed: 0, strict_auth: false)
         raise ArgumentError, "Unknown simulator scenario: #{scenario}" unless SCENARIOS.include?(scenario)
 
         @config = JSON.parse(JSON.generate(config))
         @scenario = scenario
         @seed = Integer(seed)
+        @strict_auth = strict_auth
         @records = {}
         @idempotency = {}
         @requests = []
@@ -45,6 +47,7 @@ module Paygen
           return response(404, error_body('not_found')) unless match
 
           role, parameters = match
+          return response(401, error_body('unauthorized')) if @strict_auth && !authorized?(uri, headers)
           parameters = URI.decode_www_form(uri.query.to_s).to_h.merge(parameters)
           parsed = parse_body(body, headers)
           result = dispatch(role, parameters, parsed, headers)
@@ -90,8 +93,13 @@ module Paygen
         signature = config.dig('callback', 'signature') || {}
         result = { auth.fetch('credential', 'api_key') => 'paygen-simulator-key',
                    signature.fetch('credential', 'callback_secret') => callback_secret }
+        if auth['type'] == 'basic'
+          result[auth.fetch('username', 'username')] = 'paygen-simulator-user'
+          result[auth.fetch('password', 'password')] = 'paygen-simulator-password'
+        end
         auth.fetch('headers', {}).each_value do |value|
           result[value['credential']] = 'test-account' if value.is_a?(Hash) && value['credential']
+          result[value] = 'test-account' if value.is_a?(String)
         end
         Array(signature['credentials']).each { |name| result[name] = callback_secret }
         result
@@ -138,6 +146,28 @@ module Paygen
 
       private
 
+      def authorized?(uri, headers)
+        auth = config.fetch('auth', {})
+        expected = credentials
+        value = expected[auth.fetch('credential', 'api_key')]
+        valid = case auth.fetch('type', 'none')
+                when 'none' then true
+                when 'apiKey'
+                  actual = auth['in'] == 'query' ? URI.decode_www_form(uri.query.to_s).to_h[auth['name']] : header(headers, auth['name'])
+                  actual == value
+                when 'bearer', 'oauth2', 'OAuth2' then header(headers, 'Authorization') == "Bearer #{value}"
+                when 'basic'
+                  user = expected[auth.fetch('username', 'username')]
+                  password = expected[auth.fetch('password', 'password')]
+                  header(headers, 'Authorization') == "Basic #{Base64.strict_encode64("#{user}:#{password}")}"
+                else false
+                end
+        valid && auth.fetch('headers', {}).all? do |name, rule|
+          target = rule.is_a?(Hash) ? (rule['credential'] ? expected[rule['credential']] : rule['value']) : expected[rule]
+          header(headers, name) == target.to_s
+        end
+      end
+
       def dispatch(role, parameters, body, headers)
         case role
         when 'create' then create(body, headers)
@@ -165,7 +195,10 @@ module Paygen
 
         return response(503, error_body('simulator_capacity')) if @records.length >= 10_000
 
-        id = "sim_#{Digest::SHA256.hexdigest("#{seed}:#{@records.length}:#{identity}:#{fingerprint}")[0, 20]}"
+        id_path = config.dig('simulator', 'id_from_request')
+        id = id_path ? get_path(body, id_path).to_s : "sim_#{Digest::SHA256.hexdigest("#{seed}:#{@records.length}:#{identity}:#{fingerprint}")[0, 20]}"
+        return response(400, error_body('missing_request_identity')) if id.empty?
+        return response(409, error_body('duplicate_request_identity')) if @records.key?(id)
         record = { 'id' => id, 'request' => body, 'status' => initial_status,
                    'status_reads' => 0, 'fingerprint' => fingerprint }
         @records[id] = record
@@ -247,16 +280,21 @@ module Paygen
       end
 
       def operation_body(record, role)
-        data = sample_schema(response_schema(role, success_code(role, role == 'create' ? 201 : 200)))
+        schema = response_schema(role, success_code(role, role == 'create' ? 201 : 200))
+        data = sample_schema(schema)
         mapping = config.fetch('response', {}).merge(config.dig('response', 'roles', role) || {})
         config.fetch('request_mapping', {}).each_key do |target|
           value = get_path(record['request'], target)
-          set_path(data, target, value) unless value.nil? || target.match?(/card_number|pan|secret|password/i)
+          target_schema = schema_at_path(schema, target)
+          next if value.nil? || target.match?(/card_number|pan|secret|password/i) || !target_schema
+          value = Integer(value, 10) if target_schema['type'] == 'integer' && value.is_a?(String) && value.match?(/\A-?\d+\z/)
+          set_path(data, target, value)
         end
         set_path(data, mapping.fetch('id', 'id'), record['id'])
         set_path(data, mapping.fetch('status', 'status'), record['status'])
         if mapping['items'] && mapping['item_status']
-          item = {}
+          item_schema = schema_at_path(schema, mapping['items']) || {}
+          item = sample_schema(item_schema.fetch('items', {}))
           set_path(item, mapping['item_status'], scenario == 'batch_success_item_failed' ? rejected_status : record['status'])
           set_path(item, mapping.fetch('item_id', 'id'), record['id'])
           if mapping['item_external_id']
@@ -415,19 +453,46 @@ module Paygen
         case type
         when 'object'
           schema.fetch('properties', {}).each_with_object({}) do |(name, value), result|
-            result[name] = sample_schema(value, depth + 1)
+            candidate = sample_schema(value, depth + 1)
+            # Some native contracts contain contradictory optional enums or
+            # invalid annotations. Omit an invalid optional sample; leave a
+            # required failure visible to the verifier instead of inventing data.
+            next if !Array(schema['required']).include?(name) && !sample_valid?(value, candidate)
+            result[name] = candidate
           end
         when 'array' then [sample_schema(schema.fetch('items', {}), depth + 1)]
         when 'integer', 'number' then schema.fetch('minimum', 1)
         when 'boolean' then false
         when 'string'
-          { 'date-time' => '2027-01-15T08:00:00Z', 'date' => '2027-01-15',
+          example = { 'date-time' => '2027-01-15T08:00:00Z', 'date' => '2027-01-15',
             'email' => 'sample@example.test', 'uuid' => '00000000-0000-4000-8000-000000000001',
             'uri' => 'https://simulator.example', 'uri-reference' => '/test',
             'hostname' => 'simulator.example', 'ipv4' => '203.0.113.1',
             'ipv6' => '2001:db8::1' }.fetch(schema['format'], 'test-value')
+          if schema['maxLength'].is_a?(Integer) && example.length > schema['maxLength']
+            example = example[0, schema['maxLength']]
+          end
+          if schema['pattern']
+            # A small deterministic sample set, never a claim of arbitrary regex
+            # generation. The verifier reports patterns for which no sample fits.
+            candidates = [example, '0.00', '1.00', '1', 'x', '1234567890']
+            example = candidates.find { |value| sample_valid?(schema, value) } || example
+          end
+          example
         else {}
         end
+      end
+
+      def schema_at_path(schema, path)
+        path_tokens(path).reduce(schema) do |node, token|
+          break nil unless node.is_a?(Hash)
+          token.match?(/\A\d+\z/) ? node['items'] : node.dig('properties', token)
+        end
+      end
+
+      def sample_valid?(schema, candidate)
+        @sample_validators ||= {}
+        (@sample_validators[schema] ||= JSONSchemer.schema(schema)).valid?(candidate)
       end
 
       def parse_body(body, headers)

@@ -86,3 +86,4 @@ jobs:
           path: |
             verification-complete.log
             paygen-verified.bundle
+            tmp/bruno-verification/

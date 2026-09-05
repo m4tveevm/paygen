@@ -29,6 +29,7 @@ module Paygen
             raise Error.new("#{key} must be an object", code: 'INVALID_PROFILE', exit_code: 3)
           end
         end
+        validate_nested_shapes!
         @provenance = {}
         [['inference', inferred], ['vendor-extension', vendor], ['recipe', recipe],
          ['integration-profile', profile], ['cli-override', overrides]].each do |origin, layer|
@@ -38,34 +39,31 @@ module Paygen
       end
 
       def operations
-        @operations ||= document.fetch('paths', {}).map { |path, item| [path, item, false] }.concat(
-          document.fetch('webhooks', {}).map { |name, item| [name, item, true] }
-        ).flat_map do |path, item, inbound|
-          next [] unless item.is_a?(Hash)
-          item.filter_map do |method, operation|
-            next unless METHODS.include?(method) && operation.is_a?(Hash)
-            content = operation.dig('requestBody', 'content') || {}
-            media_type = content.key?('application/json') ? 'application/json' : content.keys.first
-            {
-              'operation_id' => operation['operationId'] || "#{method}:#{path}",
-              'method' => method.upcase, 'path' => path,
-              'inbound' => inbound,
-              'servers' => operation.fetch('servers', item.fetch('servers', document.fetch('servers', []))),
-              'summary' => operation['summary'],
-              'parameters' => merge_parameters(item.fetch('parameters', []), operation.fetch('parameters', [])),
-              'request_schema' => content.dig(media_type, 'schema') || {},
-              'request_examples' => content[media_type] || {},
-              'content_type' => media_type || 'application/json',
-              'responses' => operation.fetch('responses', {}),
-              'security' => operation.fetch('security', document.fetch('security', []))
-            }
-          end
-        end
+        return @operations if @operations
+        @operation_sources = {}
+        @operations = []
+        document.fetch('paths', {}).each { |path, item| collect_operations(path, item, false, "/paths/#{pointer_token(path)}") }
+        document.fetch('webhooks', {}).each { |name, item| collect_operations(name, item, true, "/webhooks/#{pointer_token(name)}") }
+        @operations
+      end
+
+      # Resolve only selected HTTP contracts. Unrelated recursive component graphs
+      # remain pinned in the source rather than being duplicated into every endpoint.
+      def endpoint(operation_id)
+        @endpoint_cache ||= {}
+        return @endpoint_cache[operation_id] if @endpoint_cache.key?(operation_id)
+        metadata = operations.find { |item| item['operation_id'] == operation_id }
+        return nil unless metadata
+        operation, item = @operation_sources.fetch(metadata['source_pointer'])
+        resolved = Input.resolve_fragment(document, operation.reject { |key, _| key == 'callbacks' })
+        common = Input.resolve_fragment(document, { 'parameters' => item.fetch('parameters', []) })
+        @endpoint_cache[operation_id] = operation_metadata(metadata['path'], metadata['method'].downcase,
+                                                          resolved, item.merge(common), metadata['inbound'], metadata['source_pointer'])
       end
 
       def config
         endpoints = profile.fetch('operations', {}).to_h do |role, operation_id|
-          operation = operations.find { |item| item['operation_id'] == operation_id }
+          operation = endpoint(operation_id)
           operation = operation.merge('servers' => profile['servers']) if operation && profile.key?('servers')
           [role, operation]
         end.compact
@@ -76,16 +74,92 @@ module Paygen
 
       def to_h
         { 'openapi' => document['openapi'], 'title' => document.dig('info', 'title'),
-          'operations' => operations, 'profile' => profile, 'diagnostics' => diagnostics }
+          'operations' => operations, 'profile' => profile, 'diagnostics' => diagnostics,
+          'candidates' => candidates }
+      end
+
+      # Suggestions carry evidence, never status/amount/auth assumptions. A method
+      # named "payout" may simulate receipt of funds rather than send money.
+      def candidates
+        ROLES.keys.to_h do |role|
+          ranked = operations.filter_map do |op|
+            evidence = []
+            evidence << 'operationId' if op['operation_id'].match?(ROLES.fetch(role))
+            evidence << 'inbound callback contract' if role == 'callback' && op['inbound']
+            words = [op['path'], op['summary'], *op['tags']].join(' ')
+            domain = words.match?(/payout|transfer|payment/i)
+            method_match = { 'create' => %w[POST], 'status' => %w[GET], 'cancel' => %w[DELETE POST], 'balance' => %w[GET] }.fetch(role, [])
+            evidence << 'HTTP method and payment vocabulary' if !op['inbound'] && domain && method_match.include?(op['method'])
+            evidence << 'cancellation vocabulary' if role == 'cancel' && words.match?(/cancel|void/i)
+            evidence << 'balance vocabulary' if role == 'balance' && words.match?(/balance/i)
+            next if evidence.empty?
+            { 'operation_id' => op['operation_id'], 'method' => op['method'], 'path' => op['path'],
+              'source_pointer' => op['source_pointer'], 'evidence' => evidence,
+              'review_required' => true }
+          end
+          [role, ranked.sort_by { |item| [-item['evidence'].size, item['operation_id']] }]
+        end
       end
 
       private
+
+      def pointer_token(value)
+        value.gsub('~', '~0').gsub('/', '~1')
+      end
+
+      def shallow(value)
+        Input.dereference(document, value)
+      end
+
+      def collect_operations(path, raw_item, inbound, pointer, depth = 0)
+        raise Error.new('Callback nesting exceeds the limit', code: 'REF_LIMIT', exit_code: 5) if depth > 16
+        item = shallow(raw_item)
+        return unless item.is_a?(Hash)
+        item.each do |method, raw_operation|
+          next unless METHODS.include?(method) && raw_operation.is_a?(Hash)
+          operation = shallow(raw_operation)
+          location = "#{pointer}/#{method}"
+          @operation_sources[location] = [operation, item]
+          @operations << operation_metadata(path, method, operation, item, inbound, location)
+          operation.fetch('callbacks', {}).each do |name, raw_callback|
+            callback = shallow(raw_callback)
+            callback.each do |expression, callback_item|
+              next if expression.start_with?('x-')
+              collect_operations(expression, callback_item, true,
+                                 "#{location}/callbacks/#{pointer_token(name)}/#{pointer_token(expression)}", depth + 1)
+            end
+          end
+        end
+      end
+
+      def operation_metadata(path, method, operation, item, inbound, pointer)
+        content = shallow(operation.fetch('requestBody', {})).fetch('content', {})
+        media_type = content.key?('application/json') ? 'application/json' : content.keys.first
+        {
+          'operation_id' => operation['operationId'] || "#{method}:#{inbound ? pointer : path}",
+          'method' => method.upcase, 'path' => path, 'inbound' => inbound, 'source_pointer' => pointer,
+          'servers' => operation.fetch('servers', item.fetch('servers', document.fetch('servers', []))),
+          'summary' => operation['summary'], 'tags' => operation.fetch('tags', []),
+          'parameters' => merge_parameters(item.fetch('parameters', []).map { |p| shallow(p) }, operation.fetch('parameters', []).map { |p| shallow(p) }),
+          'request_schema' => content.dig(media_type, 'schema') || {},
+          'request_content' => content,
+          'request_examples' => content[media_type] || {}, 'content_type' => media_type || 'application/json',
+          'responses' => operation.fetch('responses', {}),
+          'security' => operation.fetch('security', document.fetch('security', []))
+        }
+      end
 
       def infer(layers)
         title = document.dig('info', 'title').to_s
         slug = title.downcase.gsub(/[^a-z0-9]+/, '_').sub(/_+\z/, '')
         roles = ROLES.to_h do |role, regex|
-          candidates = operations.select { |operation| operation['operation_id'].match?(regex) || (role == 'callback' && operation['inbound']) }
+          candidates = operations.select do |operation|
+            if role == 'callback'
+              operation['inbound']
+            else
+              !operation['inbound'] && operation['operation_id'].match?(regex)
+            end
+          end
           [role, candidates.one? ? candidates.first['operation_id'] : nil]
         end.compact
         result = { 'version' => 1, 'provider' => slug, 'class_name' => slug.split('_').map(&:capitalize).join + 'Service',
@@ -126,12 +200,31 @@ module Paygen
         %w[operations request_mapping status_mapping amount].each do |key|
           diagnostic('SEMANTIC_REQUIRED', "Explicit #{key} configuration is required", key) if !profile[key].is_a?(Hash) || profile[key].empty?
         end
-        operation_map = profile['operations'].is_a?(Hash) ? profile['operations'] : {}
+        operation_map = profile['operations'].is_a?(Hash) ? profile['operations'].compact : {}
         diagnostic('CREATE_REQUIRED', 'Select the outgoing create operation', 'operations.create') unless operation_map['create']
         operation_map.each do |role, operation_id|
           diagnostic('UNKNOWN_OPERATION', "Unknown operation selected for #{role}", "operations.#{role}") unless operations.any? { |op| op['operation_id'] == operation_id }
         end
+        duplicates = operations.group_by { |op| op['operation_id'] }.select { |_id, items| items.size > 1 }
+        diagnostic('DUPLICATE_OPERATION_ID', 'Operation identifiers must be unique', 'operations') unless duplicates.empty?
+        operation_map.each do |role, operation_id|
+          begin
+            selected = endpoint(operation_id)
+            next unless selected
+            if role != 'callback' && selected['inbound']
+              diagnostic('INBOUND_OPERATION', 'An inbound callback cannot be an outgoing operation', "operations.#{role}")
+            end
+            validate_parameters(role, selected) unless role == 'callback'
+          rescue Paygen::Error => e
+            @endpoint_cache[operation_id] = nil
+            diagnostic(e.code, "Selected operation cannot be expanded: #{e.message}", "operations.#{role}")
+          end
+        end
         authenticated = profile.dig('auth', 'type') && profile.dig('auth', 'type') != 'none'
+        auth_type = profile.dig('auth', 'type')
+        if auth_type && !%w[none apiKey bearer basic oauth2 OAuth2].include?(auth_type)
+          diagnostic('AUTH_UNSUPPORTED', 'Authentication requires an unsupported signing or authorization protocol', 'auth.type')
+        end
         unless authenticated
           outgoing_ids = operation_map.reject { |role, _| role == 'callback' }.values
           protected_operations = operations.select do |op|
@@ -176,6 +269,10 @@ module Paygen
         if operation_map['create'] && !profile['idempotency'].is_a?(Hash)
           diagnostic('IDEMPOTENCY_REQUIRED', 'Configure a stable idempotency key before generating payouts', 'idempotency')
         end
+        strategy = profile.dig('idempotency', 'strategy')
+        if strategy && !%w[provider_key reconcile_before_retry].include?(strategy)
+          diagnostic('IDEMPOTENCY_STRATEGY_UNSUPPORTED', 'Use provider_key or reconcile_before_retry', 'idempotency.strategy')
+        end
         statuses = profile['status_mapping']
         if statuses.is_a?(Hash) && statuses.values.any? { |status| !%w[in_progress approved rejected reversed unknown].include?(status) }
           diagnostic('INVALID_STATUS_MAP', 'Target statuses must be canonical payout states', 'status_mapping')
@@ -184,6 +281,82 @@ module Paygen
 
       def diagnostic(code, message, path)
         diagnostics << { 'code' => code, 'severity' => 'blocker', 'message' => message, 'path' => path }
+      end
+
+      def require_object!(value, path)
+        return if value.is_a?(Hash)
+        raise Error.new("#{path} must be an object", code: 'INVALID_PROFILE', exit_code: 3)
+      end
+
+      def validate_nested_shapes!
+        %w[auth.headers callback.signature callback.events callback.constraints response.roles errors.roles].each do |path|
+          parent, key = path.split('.')
+          container = profile[parent]
+          require_object!(container[key], path) if container&.key?(key)
+        end
+        %w[response errors].each do |key|
+          profile.dig(key, 'roles')&.each { |role, rules| require_object!(rules, "#{key}.roles.#{role}") }
+        end
+        auth = profile.fetch('auth', {})
+        %w[type credential username password in name].each do |key|
+          next unless auth.key?(key)
+          unless auth[key].is_a?(String) && !auth[key].empty?
+            raise Error.new("auth.#{key} must be a nonempty string", code: 'INVALID_PROFILE', exit_code: 3)
+          end
+        end
+        auth.fetch('headers', {}).each do |name, rule|
+          valid = rule.is_a?(String) && !rule.empty?
+          if rule.is_a?(Hash) && (rule.keys & %w[value credential]).size == 1
+            valid = rule.key?('credential') ? (rule['credential'].is_a?(String) && !rule['credential'].empty?) :
+              (rule['value'].is_a?(String) || rule['value'].is_a?(Numeric) || [true, false].include?(rule['value']))
+          end
+          unless valid
+            raise Error.new("auth.headers.#{name} must declare a credential name or scalar literal", code: 'INVALID_PROFILE', exit_code: 3)
+          end
+        end
+        profile.fetch('parameter_mapping', {}).each do |role, mappings|
+          require_object!(mappings, "parameter_mapping.#{role}")
+          mappings.each do |name, mapping|
+            if %w[path query header cookie].include?(name)
+              require_object!(mapping, "parameter_mapping.#{role}.#{name}")
+              mapping.each { |parameter, rule| validate_parameter_rule!(rule, "parameter_mapping.#{role}.#{name}.#{parameter}") }
+            else
+              validate_parameter_rule!(mapping, "parameter_mapping.#{role}.#{name}")
+            end
+          end
+        end
+      end
+
+      def validate_parameter_rule!(rule, path)
+        return if rule.is_a?(String) && !rule.empty?
+        valid = rule.is_a?(Hash) && (rule.keys & %w[from value credential]).size == 1 &&
+                (!rule.key?('from') || rule['from'].is_a?(String)) &&
+                (!rule.key?('credential') || rule['credential'].is_a?(String))
+        return if valid
+        raise Error.new("#{path} must declare one source, credential or literal value", code: 'INVALID_PROFILE', exit_code: 3)
+      end
+
+      def validate_parameters(role, operation)
+        mappings = profile.dig('parameter_mapping', role) || {}
+        mappings.each_key do |name|
+          next if %w[path query header cookie].include?(name)
+          definitions = operation.fetch('parameters', []).select { |parameter| parameter['name'] == name }
+          if definitions.any? && definitions.none? { |parameter| parameter['in'] == 'path' }
+            diagnostic('PARAMETER_LOCATION_REQUIRED', 'Query and header mappings must be nested under their location', "parameter_mapping.#{role}.#{name}")
+          end
+        end
+        operation.fetch('parameters', []).each do |parameter|
+          location = parameter['in']
+          style = parameter.fetch('style', location == 'query' ? 'form' : 'simple')
+          schema = parameter.fetch('schema', {})
+          unsupported = !%w[path query header].include?(location) || parameter.key?('content') ||
+                        parameter['allowReserved'] || style != (location == 'query' ? 'form' : 'simple') ||
+                        schema['type'] == 'object' || schema.key?('properties') ||
+                        (schema['type'] == 'array' && schema.dig('items', 'type') == 'object')
+          next unless unsupported
+          diagnostic('PARAMETER_UNSUPPORTED', 'Parameter requires unsupported location, content or serialization; supply an explicit contract overlay',
+                     "parameters.#{role}.#{location}.#{parameter['name']}")
+        end
       end
 
       def record_provenance(value, path, origin)

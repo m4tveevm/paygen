@@ -13,6 +13,9 @@ module Paygen
     # Backend seam: generated classes include this module below BaseService.
     # Public results always use string keys and never contain credential values.
     module Adapter
+      class ParameterValidationError < ArgumentError; end
+      TRANSPORT_HEADERS = %w[host content-length transfer-encoding connection proxy-authorization proxy-connection te trailer upgrade expect].freeze
+
       DEFAULT_OPERATION_ATTRIBUTES = %w[
         id amount currency payout_requisite provider_operation_id provider_id
         provider_payment_id provider_item_id idempotency_key balance_account_id
@@ -44,6 +47,9 @@ module Paygen
 
       def check_conditions(operation, request_method = 'create')
         ensure_configured
+        base_result = super(operation, request_method) if defined?(super)
+        return base_result if paygen_result_failed?(base_result)
+
         body = build_body(operation, request_method.to_s)
         problems = []
         if request_method.to_s == 'create'
@@ -64,11 +70,11 @@ module Paygen
           end
         end
         problems.concat(Array(paygen_validate(operation, request_method.to_s, body)))
-        return failure('validation_error', details: { 'violations' => problems }) unless problems.empty?
+        return paygen_failure('validation_error', details: { 'violations' => problems }) unless problems.empty?
 
         { 'success' => true, 'status' => 'valid' }
       rescue ArgumentError, TypeError => e
-        failure('validation_error', details: { 'reason' => e.message })
+        paygen_failure('validation_error', details: { 'reason' => e.message })
       end
 
       def create_request(operation, request_method = 'create')
@@ -90,31 +96,31 @@ module Paygen
       def process_callback(payload, raw_body: nil, headers: {})
         ensure_configured
         config = paygen_config.fetch('callback', {})
-        return failure('callback_not_configured') if config.empty?
-        return failure('missing_raw_body') unless raw_body.is_a?(String)
-        return failure('payload_too_large') if raw_body.bytesize > 1_048_576
+        return paygen_failure('callback_not_configured') if config.empty?
+        return paygen_failure('missing_raw_body') unless raw_body.is_a?(String)
+        return paygen_failure('payload_too_large') if raw_body.bytesize > 1_048_576
 
         parsed = JSON.parse(raw_body)
-        return failure('payload_mismatch') unless stringify(payload) == parsed
-        return failure('invalid_signature') unless verify_callback(parsed, raw_body, stringify(headers))
+        return paygen_failure('payload_mismatch') unless stringify(payload) == parsed
+        return paygen_failure('invalid_signature') unless verify_callback(parsed, raw_body, stringify(headers))
         schema = endpoint('callback')['request_schema']
-        return failure('invalid_callback') if schema && !JSONSchemer.schema(validation_schema(schema)).valid?(parsed)
+        return paygen_failure('invalid_callback') if schema && !JSONSchemer.schema(validation_schema(schema)).valid?(parsed)
 
         mismatch = identity_mismatch(parsed, config)
-        return failure(mismatch) if mismatch
+        return paygen_failure(mismatch) if mismatch
         constraints = config.fetch('constraints', {})
-        return failure('callback_scope_mismatch') unless constraints.all? { |path, value| read_path(parsed, path) == value }
+        return paygen_failure('callback_scope_mismatch') unless constraints.all? { |path, value| read_path(parsed, path) == value }
 
         provider_id = read_path(parsed, config.fetch('id', 'id'))
-        return failure('missing_provider_id') if provider_id.to_s.empty?
+        return paygen_failure('missing_provider_id') if provider_id.to_s.empty?
 
         provider_status = read_path(parsed, config.fetch('status', 'status'))
         event = read_path(parsed, config.fetch('event', 'event'))
         events = config.fetch('events', {})
-        return failure('unsupported_event') if !events.empty? && !events.key?(event)
+        return paygen_failure('unsupported_event') if !events.empty? && !events.key?(event)
 
         expected = events[event]
-        return failure('event_status_mismatch') if expected && provider_status && expected != provider_status
+        return paygen_failure('event_status_mismatch') if expected && provider_status && expected != provider_status
 
         provider_status ||= expected
         result = status_result(provider_status, provider_id, parsed)
@@ -132,17 +138,20 @@ module Paygen
           elsif !allowed_transition?(previous['provider_status'], provider_status.to_s)
             result.merge('status' => previous['status'], 'ignored' => 'invalid_transition')
           else
+            result['external_id'] = safe(read_path(parsed, config['external_id'])) if config['external_id']
+            applied = paygen_callback_result(result, parsed)
+            next applied if paygen_result_failed?(applied)
+
             state[key] = { 'events' => (previous['events'] + [event_id.to_s]).last(10_000),
                            'status' => result['status'], 'provider_status' => provider_status.to_s,
                            'order' => ordering || previous['order'] }
-            result['external_id'] = safe(read_path(parsed, config['external_id'])) if config['external_id']
-            result
+            applied
           end
         end
       rescue JSON::ParserError, ArgumentError, TypeError
-        failure('invalid_callback')
+        paygen_failure('invalid_callback')
       rescue SecurityError
-        failure('security_denial')
+        paygen_failure('security_denial')
       end
 
       # Override these methods in extensions. No Ruby code is loaded from YAML.
@@ -150,12 +159,35 @@ module Paygen
       def paygen_request(request, _role, _operation) = request
       def paygen_response(response, _role, _operation) = response
       def paygen_status(status, _payload) = status
+      # Opt in from trusted extension code by calling paygen_backend_callback_result.
+      # The backend must make these operations durable and idempotent itself.
+      def paygen_callback_result(result, _payload) = result
+
+      def paygen_backend_callback_result(result, payload)
+        return result unless result['success'] && !result['ignored']
+
+        method = { 'approved' => :approve_operation, 'rejected' => :reject_operation }[result['status']]
+        return result unless method
+        return paygen_failure('backend_callback_not_configured') unless respond_to?(method, true)
+
+        arguments = [read_path(payload, paygen_config.fetch('callback', {}).fetch('id', 'id'))]
+        error_path = paygen_config.fetch('callback', {}).fetch('error', 'error.code')
+        arguments << read_path(payload, error_path) if method == :reject_operation
+        outcome = __send__(method, *arguments)
+        paygen_result_failed?(outcome) ? outcome : result.merge('backend_applied' => true)
+      end
       # Override with (_payload, raw_body:, headers:) to verify provider evidence.
       def paygen_verify_callback(_payload, **_verification) = false
       def paygen_classify_error(error, _role, _response) = error
       def paygen_retry_decision(error, _role) = error['retryable']
 
       private
+
+      def paygen_result_failed?(result)
+        return result.failed? if result.respond_to?(:failed?)
+
+        result.is_a?(Hash) && (result['success'] == false || result[:success] == false)
+      end
 
       def ensure_configured
         configure_paygen unless @paygen_configured
@@ -309,6 +341,7 @@ module Paygen
         case name
         when nil then value
         when 'minor_units' then minor_amount(value)
+        when 'decimal_number' then BigDecimal(transform(value, 'decimal_string'))
         when 'major_units', 'decimal_string'
           minor = minor_amount(value)
           scale = Integer(paygen_config.fetch('amount', {}).fetch('scale', 100))
@@ -341,43 +374,42 @@ module Paygen
 
       def execute(role, operation)
         ensure_configured
-        return failure('operation_not_supported') if endpoint(role).empty?
+        return paygen_failure('operation_not_supported') if endpoint(role).empty?
         if paygen_config['mode'] && @paygen_mode != paygen_config['mode']
-          return failure('mode_mismatch')
+          return paygen_failure('mode_mismatch')
         end
         if role == 'create'
           validation = check_conditions(operation, role)
-          return validation unless validation['success']
+          return validation if paygen_result_failed?(validation)
         end
+
+        return paygen_failure('operation_identity_mismatch') if cached_identity_mismatch?(role, operation)
 
         request = build_request(role, operation)
         request = paygen_request(request, role, operation)
         validate_request_destination!(request, role)
         if role == 'create'
-          conflict = @paygen_store.synchronize do |state|
-            key = "request:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{idempotency_key(operation)}"
-            fingerprint = Digest::SHA256.hexdigest(request.fetch(:body).to_s)
-            previous = state[key]
-            state[key] ||= fingerprint
-            previous && previous != fingerprint
-          end
-          return failure('idempotency_conflict') if conflict
+          decision = reserve_create_request(request, operation, role)
+          return decision if decision
         end
         response = stringify(@paygen_transport.request(**request))
         response = stringify(paygen_response(response, role, operation))
-        interpret_response(response, role, operation)
+        result = interpret_response(response, role, operation)
+        remember_request_result(role, operation, result)
       rescue Timeout::Error, EOFError, Errno::ECONNRESET
-        failure('transport_timeout', retryable: role != 'create', ambiguous: role == 'create',
+        paygen_failure('transport_timeout', retryable: role != 'create', ambiguous: role == 'create',
                 details: role == 'create' ? { 'action' => 'reconcile_before_retry', 'idempotency_key' => idempotency_key(operation) } : {})
       rescue ResponseSizeError
-        failure('security_denial', ambiguous: role == 'create',
+        paygen_failure('security_denial', ambiguous: role == 'create',
                 details: role == 'create' ? { 'action' => 'reconcile_before_retry', 'idempotency_key' => idempotency_key(operation) } : {})
       rescue SecurityError
-        failure('security_denial')
+        paygen_failure('security_denial')
+      rescue ParameterValidationError => e
+        paygen_failure('validation_error', details: { 'reason' => e.message })
       rescue ArgumentError, TypeError, KeyError => e
-        failure('configuration_error', details: { 'reason' => e.message })
+        paygen_failure('configuration_error', details: { 'reason' => e.message })
       rescue SocketError, SystemCallError
-        failure('transport_error', retryable: role != 'create', ambiguous: role == 'create')
+        paygen_failure('transport_error', retryable: role != 'create', ambiguous: role == 'create')
       end
 
       def build_request(role, operation)
@@ -387,41 +419,314 @@ module Paygen
         raise SecurityError, 'Endpoint path must be relative to its server' unless path.start_with?('/') && !path.start_with?('//')
         raise SecurityError, 'Unsafe endpoint path' if path.include?('..') || path.include?('\\') || path.include?('?') || path.include?('#')
 
-        mappings = paygen_config.fetch('parameter_mapping', {}).fetch(role, {})
+        parameters = request_parameters(role)
         path = path.gsub(/\{([^}]+)\}/) do
-          parameter = Regexp.last_match(1)
-          value = read_path(operation, mappings[parameter] || 'provider_id') ||
-                  read_path(operation, parameter) || read_path(operation, 'provider_payment_id')
-          raise ArgumentError, "missing path parameter #{parameter}" if value.to_s.empty?
-          raise SecurityError, 'Unsafe path parameter' if %w[. ..].include?(value.to_s)
+          name = Regexp.last_match(1)
+          definition = parameters.find { |item| item['in'] == 'path' && item['name'] == name } ||
+                       { 'name' => name, 'in' => 'path', 'required' => true }
+          value = parameter_value(operation, role, definition)
+          validate_parameter!(definition, value)
+          raise ParameterValidationError, "missing path parameter #{name}" if value.to_s.empty?
 
-          URI.encode_www_form_component(value.to_s).gsub('+', '%20')
+          serialize_simple_parameter(value, path: true)
         end
         base = Security.uri(server_for(role), allow_local: @paygen_allow_local)
         url = "#{base.to_s.sub(%r{/$}, '')}#{path}"
         headers = { 'Accept' => 'application/json' }
-        headers[paygen_config.fetch('idempotency', {}).fetch('header', 'Idempotency-Key')] = idempotency_key(operation) if role == 'create'
+        idempotency_header = paygen_config.fetch('idempotency', {}).fetch('header', 'Idempotency-Key')
+        headers[idempotency_header] = idempotency_key(operation) if role == 'create' && idempotency_header
+        query = []
+        mapped_headers = []
+        parameters.reject { |item| item['in'] == 'path' }.each do |definition|
+          value = parameter_value(operation, role, definition)
+          next if value.nil?
+
+          validate_parameter!(definition, value)
+          if definition['in'] == 'query'
+            query.concat(serialize_query_parameter(definition, value))
+          else
+            mapped_headers << definition.fetch('name')
+            headers[definition.fetch('name')] = serialize_simple_parameter(value)
+          end
+        end
+        unless query.empty?
+          target = URI.parse(url)
+          target.query = URI.encode_www_form(query)
+          url = target.to_s
+        end
+        reject_auth_parameter_collisions!(mapped_headers, query, role)
         url = apply_auth(headers, url)
         body = build_body(operation, role)
         if body
           encoding = spec['request_encoding'] || paygen_config['request_encoding'] || 'json'
           if encoding == 'form'
-            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+            set_content_type!(headers, 'application/x-www-form-urlencoded')
             body = URI.encode_www_form(form_pairs(body))
           elsif encoding == 'json'
-            headers['Content-Type'] = 'application/json'
-            body = JSON.generate(body)
+            set_content_type!(headers, 'application/json')
+            body = JSON.generate(json_decimal_numbers(body))
           else
             raise ArgumentError, 'unsupported request encoding'
           end
         end
+        parameters.each do |definition|
+          next if definition['in'] == 'path'
+
+          value = parameter_value(operation, role, definition)
+          if value.nil?
+            value = if definition['in'] == 'header'
+                      header(headers, definition.fetch('name'))
+                    else
+                      pairs = URI.decode_www_form(URI.parse(url).query.to_s).select { |key, _| key == definition['name'] }
+                      pairs.first&.last
+                    end
+          end
+          validate_parameter!(definition, value)
+        end
         { method: spec.fetch('method').to_s.upcase, url: url, headers: headers, body: body }
+      end
+
+      def set_content_type!(headers, expected)
+        explicit = header(headers, 'Content-Type')
+        unless explicit
+          headers['Content-Type'] = expected
+          return
+        end
+        media_type, *parameters = explicit.split(';').map(&:strip)
+        unless media_type.casecmp?(expected) && parameters.all? { |item| item.match?(/\Acharset="?UTF-8"?\z/i) }
+          raise ArgumentError, 'Content-Type parameter does not match the UTF-8 request encoding'
+        end
+      end
+
+      def json_decimal_numbers(value)
+        case value
+        when BigDecimal then JSON::Fragment.new(value.to_s('F'))
+        when Hash then value.transform_values { |child| json_decimal_numbers(child) }
+        when Array then value.map { |child| json_decimal_numbers(child) }
+        else value
+        end
+      end
+
+      def request_state_key(operation)
+        "request:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{idempotency_key(operation)}"
+      end
+
+      def reconcile_before_retry?
+        paygen_config.fetch('idempotency', {})['strategy'] == 'reconcile_before_retry'
+      end
+
+      def reserve_create_request(request, operation, role)
+        @paygen_store.synchronize do |state|
+          key = request_state_key(operation)
+          fingerprint = request_fingerprint(request, role)
+          previous = state[key]
+          previous_fingerprint = previous.is_a?(Hash) ? previous['fingerprint'] : previous
+          if previous && previous_fingerprint != fingerprint
+            next paygen_failure('idempotency_conflict')
+          end
+          if previous && reconcile_before_retry?
+            if previous.is_a?(Hash) && previous['result']
+              next JSON.parse(JSON.generate(previous['result'])).merge('duplicate' => true)
+            end
+            next paygen_failure('reconciliation_required', ambiguous: true,
+                                details: { 'action' => 'fetch_status', 'idempotency_key' => idempotency_key(operation) })
+          end
+          state[key] ||= { 'fingerprint' => fingerprint }
+          nil
+        end
+      end
+
+      def remember_request_result(role, operation, result)
+        return result unless reconcile_before_retry? && %w[create status].include?(role) && result['success']
+        # Reconciliation must refer to the original merchant operation identity;
+        # a provider id alone does not establish that relationship for all APIs.
+        key = request_state_key(operation)
+        @paygen_store.synchronize do |state|
+          entry = state[key]
+          if entry.is_a?(Hash)
+            known_id = entry.dig('result', 'provider_id')
+            if known_id && result['provider_id'] != known_id
+              next paygen_failure('operation_identity_mismatch')
+            end
+            entry['result'] = JSON.parse(JSON.generate(result))
+          end
+          result
+        end
+      rescue ArgumentError
+        result
+      end
+
+      def cached_identity_mismatch?(role, operation)
+        return false unless reconcile_before_retry? && %w[status cancel].include?(role)
+
+        supplied_id = operation_provider_id(operation)
+        return false unless supplied_id
+
+        key = request_state_key(operation)
+        @paygen_store.synchronize do |state|
+          known_id = state[key].is_a?(Hash) ? state[key].dig('result', 'provider_id') : nil
+          known_id && known_id.to_s != supplied_id.to_s
+        end
+      rescue ArgumentError
+        false
+      end
+
+      def request_parameters(role)
+        header_names = []
+        Array(endpoint(role)['parameters']).each do |definition|
+          unless definition.is_a?(Hash) && definition['name'].is_a?(String)
+            raise ArgumentError, 'invalid request parameter definition'
+          end
+          location = definition['in']
+          if location == 'header'
+            normalized = definition.fetch('name').downcase
+            raise ArgumentError, 'duplicate case-insensitive header parameter' if header_names.include?(normalized)
+            raise ArgumentError, 'transport-controlled header parameter is not supported' if TRANSPORT_HEADERS.include?(normalized)
+
+            header_names << normalized
+          end
+          raise ArgumentError, "unsupported parameter location #{location}" unless %w[path query header].include?(location)
+          expected_style = location == 'query' ? 'form' : 'simple'
+          unless definition.fetch('style', expected_style) == expected_style
+            raise ArgumentError, "unsupported #{location} parameter style #{definition['style']}"
+          end
+          if definition.key?('content') || definition['allowReserved'] == true
+            raise ArgumentError, "unsupported parameter serialization for #{location} #{definition['name']}"
+          end
+        end
+      end
+
+      def parameter_value(operation, role, definition)
+        name, location = definition.values_at('name', 'in')
+        mappings = paygen_config.fetch('parameter_mapping', {}).fetch(role, {})
+        local = mappings.fetch(location, {})
+        raise ArgumentError, "parameter_mapping.#{role}.#{location} must be an object" unless local.is_a?(Hash)
+
+        rule = local[name]
+        rule = mappings[name] if rule.nil? && location == 'path'
+        if rule.nil?
+          value = read_path(operation, name)
+          if location == 'path' && value.nil? && name.match?(/(?:\Aid\z|(?:_id|Id)\z)/)
+            value = operation_provider_id(operation)
+          end
+          return value
+        end
+        rule = { 'from' => rule } if rule.is_a?(String)
+        unless rule.is_a?(Hash) && (rule.keys & %w[from value credential]).length == 1
+          raise ArgumentError, "invalid parameter mapping for #{location} #{name}"
+        end
+        value = if rule.key?('value')
+                  rule['value']
+                elsif rule.key?('credential')
+                  credential(rule['credential'])
+                else
+                  found = read_path(operation, rule['from'])
+                  if found.nil? && %w[provider_id provider_operation_id provider_payment_id].include?(rule['from'])
+                    found = operation_provider_id(operation)
+                  end
+                  found
+                end
+        return nil if value.nil?
+
+        value = transform(value, rule['transform'])
+        @paygen_sensitive_values << value if rule.key?('credential')
+        value
+      end
+
+      def operation_provider_id(operation)
+        %w[provider_operation_id provider_id provider_payment_id].each do |name|
+          value = read_path(operation, name)
+          return value unless value.nil? || value.to_s.empty?
+        end
+        nil
+      end
+
+      def validate_parameter!(definition, value)
+        name, location = definition.values_at('name', 'in')
+        if value.nil?
+          raise ParameterValidationError, "missing #{location} parameter #{name}" if definition['required'] || location == 'path'
+
+          return
+        end
+        values = value.is_a?(Array) ? value : [value]
+        if values.empty? && definition['required']
+          raise ParameterValidationError, "empty required #{location} parameter #{name}"
+        end
+        scalar = lambda do |item|
+          number = item.is_a?(Integer) || ((item.is_a?(Float) || item.is_a?(BigDecimal)) && item.finite?)
+          item.is_a?(String) || number || [true, false].include?(item)
+        end
+        unless values.length <= 1000 && values.all?(&scalar)
+          raise ArgumentError, "unsupported object or nested parameter serialization for #{location} #{name}"
+        end
+        schema = definition.fetch('schema', {})
+        errors = JSONSchemer.schema(validation_schema(schema)).validate(value).to_a
+        return if errors.empty?
+
+        kinds = errors.map { |error| error['type'] }.uniq.join(', ')
+        raise ParameterValidationError, "invalid #{location} parameter #{name}: #{kinds}"
+      end
+
+      def serialize_simple_parameter(value, path: false)
+        values = value.is_a?(Array) ? value : [value]
+        values.map do |item|
+          next(item.is_a?(BigDecimal) ? item.to_s('F') : item.to_s) unless path
+          raise SecurityError, 'Unsafe path parameter' if %w[. ..].include?(item.to_s)
+
+          URI.encode_www_form_component(item.to_s).gsub('+', '%20')
+        end.join(',')
+      end
+
+      def serialize_query_parameter(definition, value)
+        if value.is_a?(Array) && definition.fetch('explode', true)
+          value.map { |item| [definition.fetch('name'), item.to_s] }
+        else
+          [[definition.fetch('name'), serialize_simple_parameter(value)]]
+        end
+      end
+
+      def auth_header_names
+        auth = paygen_config.fetch('auth', {})
+        names = auth.fetch('headers', {}).keys
+        names += [auth.fetch('name', 'X-API-Key')] if auth['type'] == 'apiKey' && auth.fetch('in', 'header') == 'header'
+        names += ['Authorization'] if %w[bearer oauth2 OAuth2 basic].include?(auth['type'])
+        names.map(&:downcase)
+      end
+
+      def reject_auth_parameter_collisions!(headers, query, role)
+        protected_headers = auth_header_names
+        protected_headers += [paygen_config.fetch('idempotency', {}).fetch('header', 'Idempotency-Key').to_s.downcase] if role == 'create'
+        if headers.any? { |name| protected_headers.include?(name.downcase) }
+          raise ArgumentError, 'parameter mapping conflicts with authentication or idempotency header'
+        end
+        auth = paygen_config.fetch('auth', {})
+        if auth['type'] == 'apiKey' && auth['in'] == 'query' && query.any? { |name, _| name == auth['name'] }
+          raise ArgumentError, 'parameter mapping conflicts with authentication query parameter'
+        end
+      end
+
+      def request_fingerprint(request, role)
+        url = URI.parse(request.fetch(:url))
+        auth = paygen_config.fetch('auth', {})
+        if auth['type'] == 'apiKey' && auth['in'] == 'query'
+          pairs = URI.decode_www_form(url.query.to_s).reject { |name, _| name == auth['name'] }
+          url.query = pairs.empty? ? nil : URI.encode_www_form(pairs)
+        end
+        headers = request_parameters(role).filter_map do |definition|
+          next unless definition['in'] == 'header'
+          next if auth_header_names.include?(definition['name'].downcase)
+          next if definition['name'].casecmp?(paygen_config.fetch('idempotency', {}).fetch('header', 'Idempotency-Key').to_s)
+
+          [definition['name'].downcase, header(request.fetch(:headers), definition['name'])]
+        end.sort
+        Digest::SHA256.hexdigest(JSON.generate([request.fetch(:method), url.to_s, headers, request[:body]]))
       end
 
       def form_pairs(value, prefix = nil)
         case value
         when Hash then value.flat_map { |key, child| form_pairs(child, prefix ? "#{prefix}[#{key}]" : key) }
         when Array then value.each_with_index.flat_map { |child, index| form_pairs(child, "#{prefix}[#{index}]") }
+        when BigDecimal then [[prefix, value.to_s('F')]]
         else [[prefix, value]]
         end
       end
@@ -508,6 +813,10 @@ module Paygen
         if base.query || base.fragment
           raise SecurityError, 'Server URL cannot contain query or fragment'
         end
+        names = request.fetch(:headers).keys.map { |name| name.to_s.downcase }
+        raise SecurityError, 'Duplicate HTTP header names' unless names.uniq.length == names.length
+        raise SecurityError, 'Transport-controlled HTTP header' if names.any? { |name| TRANSPORT_HEADERS.include?(name) }
+
         request.fetch(:headers).each do |key, value|
           raise SecurityError, 'Invalid HTTP header' if key.to_s.match?(/[\r\n:\x00]/) || value.to_s.match?(/[\r\n\x00]/)
         end
@@ -528,23 +837,28 @@ module Paygen
         return classify_error(status, response, payload, role) unless (200..299).cover?(status) || duplicate
 
         mismatch = identity_mismatch(payload, mapping)
-        return failure(mismatch) if mismatch
+        return paygen_failure(mismatch) if mismatch
         return { 'success' => true, 'status' => 'available', 'data' => safe(payload) } if role == 'balance'
 
-        provider_id = read_path(payload, mapping.fetch('id', 'id')) || read_path(operation, 'provider_id')
-        return failure('missing_provider_id') if provider_id.to_s.empty?
+        response_id = read_path(payload, mapping.fetch('id', 'id'))
+        expected_id = operation_provider_id(operation)
+        if %w[status cancel].include?(role) && expected_id && response_id && response_id.to_s != expected_id.to_s
+          return paygen_failure('provider_id_mismatch')
+        end
+        provider_id = response_id || expected_id
+        return paygen_failure('missing_provider_id') if provider_id.to_s.empty?
 
         provider_status = read_path(payload, mapping.fetch('status', 'status'))
         if mapping['items']
           items = read_path(payload, mapping['items'])
-          return failure('missing_item_evidence') unless items.is_a?(Array) && !items.empty?
+          return paygen_failure('missing_item_evidence') unless items.is_a?(Array) && !items.empty?
 
           matching = if mapping['item_external_id']
                        items.select { |item| read_path(item, mapping['item_external_id']).to_s == read_path(operation, 'id').to_s }
                      else
                        items
                      end
-          return failure('ambiguous_item_evidence') unless matching.length == 1
+          return paygen_failure('ambiguous_item_evidence') unless matching.length == 1
 
           provider_status = read_path(matching.first, mapping.fetch('item_status', 'status'))
         end
@@ -559,13 +873,13 @@ module Paygen
       rescue JSON::ParserError
         return classify_error(status, response, {}, role) unless (200..299).cover?(status)
 
-        failure('invalid_provider_response', ambiguous: role == 'create')
+        paygen_failure('invalid_provider_response', ambiguous: role == 'create')
       end
 
       def status_result(provider_status, provider_id, payload)
         mapped = paygen_config.fetch('status_mapping', {})[provider_status.to_s]
         unless mapped
-          return failure('unknown_status', details: { 'provider_status' => provider_status,
+          return paygen_failure('unknown_status', details: { 'provider_status' => provider_status,
                                                       'action' => 'reconcile' }).merge('provider_id' => safe(provider_id.to_s))
         end
 
@@ -610,6 +924,10 @@ module Paygen
         error = paygen_classify_error(error, role, response)
         error['retryable'] = !!paygen_retry_decision(error, role)
         error['retryable'] = false if error['ambiguous']
+        if role == 'create' && reconcile_before_retry?
+          error['retryable'] = false
+          error['action'] = 'reconcile_before_retry'
+        end
         { 'success' => false, 'status' => 'error', 'error' => safe(error.compact) }
       end
 
@@ -697,7 +1015,7 @@ module Paygen
         Security.redact(value, secrets: (@paygen_credentials&.values || []) + (@paygen_sensitive_values || []))
       end
 
-      def failure(code, retryable: false, ambiguous: false, details: {})
+      def paygen_failure(code, retryable: false, ambiguous: false, details: {})
         { 'success' => false, 'status' => 'error', 'error' => safe({ 'code' => code, 'retryable' => retryable,
                                                                 'ambiguous' => ambiguous }.merge(details)) }
       end
