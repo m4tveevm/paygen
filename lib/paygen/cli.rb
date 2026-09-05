@@ -422,6 +422,39 @@ module Paygen
         end
       end
 
+      class Fuzz < Base
+        desc 'Check generated payment sequences and replay reduced failures offline'
+        argument :project, required: true, desc: 'Generated project directory'
+        option :seed, default: '0', desc: 'Seed for reproducible payment sequences'
+        option :cases, default: '100', desc: 'Number of independent sequences'
+        option :steps, default: '30', desc: 'Maximum actions per generated sequence'
+        option :replay, type: :string, desc: 'Replay a saved report or trace instead of generating sequences'
+        option :output, type: :string, desc: 'Save the JSON report to a new file outside the project'
+        def call(project:, seed: '0', cases: '100', steps: '30', replay: nil, output: nil, **)
+          require_relative 'runtime/state_fuzzer'
+          require_relative 'runtime/reference_provider'
+          project = Project.new(project)
+          generator = Generator.new(project)
+          raise Error.new('Generate the current integration before fuzzing', code: 'GENERATED_DRIFT', exit_code: 1) unless generator.diff.empty?
+          files = generator.render(draft: project.lock.fetch('draft', false), overrides: project.lock.fetch('overrides', {}))
+          config = JSON.parse(files.fetch('config.json'))
+          source = files["#{config.fetch('provider')}_service.rb"]
+          raise Error.new('A diagnostic-only draft has no adapter to test', code: 'SEMANTIC_BLOCKERS', exit_code: 4) unless source
+          destination = File.expand_path(output) if output
+          if destination && (destination == project.root || destination.start_with?(project.root + '/'))
+            raise Error, 'Save the report outside the generated project'
+          end
+          raise Error, 'Report output already exists' if destination && (File.exist?(destination) || File.symlink?(destination))
+          raise Error, 'Report output directory does not exist' if destination && !File.directory?(File.dirname(destination))
+          service = Runtime::ReferenceProvider.load_service(source: source, class_name: config.fetch('class_name'))
+          fuzzer = Runtime::StateFuzzer.new(adapter: service.new, seed: Integer(seed))
+          report = replay ? fuzzer.replay(Core::Input.read(replay)) : fuzzer.run(cases: Integer(cases), steps: Integer(steps))
+          File.open(destination, 'wx') { |file| file.write(Paygen.json(report)) } if destination
+          emit(report)
+          raise Error.new('Payment sequence verification failed', code: 'FUZZ_FAILED', exit_code: 1) unless report['success']
+        end
+      end
+
       register 'inspect', Inspect
       register 'init', Init
       register 'configure', Configure
@@ -445,6 +478,7 @@ module Paygen
       register 'serve', Serve
       register 'demo', Demo
       register 'verify', Verify
+      register 'fuzz', Fuzz
     end
 
     def self.run(argv = ARGV)

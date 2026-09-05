@@ -250,6 +250,36 @@ RSpec.describe Paygen::Runtime::Simulator do
     expect(response.dig('items', 0, 'item', 'external_id')).to eq('operation-key')
   end
 
+  it 'keeps the PayPal batch contract valid when a successful payout item later fails or returns' do
+    document = Paygen::Core::Input.load(File.expand_path('../fixtures/paypal/openapi.yaml', __dir__))
+    profile = Paygen::Core::Input.read(File.expand_path('../recipes/paypal.yml', __dir__)).fetch('profile')
+    config = Paygen::Core::IR.new(document, profile: profile).config
+    config['simulator']['scenarios']['booked_then_returned'] = { 'statuses' => %w[SUCCESS RETURNED] }
+    request_body = {
+      'sender_batch_header' => { 'sender_batch_id' => 'merchant-batch-1' },
+      'items' => [{ 'recipient_type' => 'EMAIL', 'receiver' => 'recipient@example.test',
+                    'sender_item_id' => 'merchant-item-1', 'amount' => { 'currency' => 'USD', 'value' => '10.50' } }]
+    }
+    { 'paid_then_failed' => 'FAILED', 'booked_then_returned' => 'RETURNED' }.each do |scenario, item_status|
+      simulator = described_class.new(config: config, scenario: scenario)
+      created = simulator.request(method: 'POST', url: '/v1/payments/payouts',
+                                  headers: { 'Content-Type' => 'application/json' }, body: JSON.generate(request_body))
+      id = parsed(created).dig('batch_header', 'payout_batch_id')
+      results = [created] + 2.times.map do
+        simulator.request(method: 'GET', url: "/v1/payments/payouts/#{id}")
+      end
+      results.each_with_index do |result, index|
+        role = index.zero? ? 'create' : 'status'
+        schema = config.dig('endpoints', role, 'responses', result.fetch(:status).to_s,
+                            'content', 'application/json', 'schema')
+        expect(JSONSchemer.schema(schema).validate(parsed(result)).to_a).to be_empty
+        expect(parsed(result).dig('batch_header', 'batch_status')).to eq('SUCCESS')
+      end
+      expect(parsed(results[1]).dig('items', 0, 'transaction_status')).to eq('SUCCESS')
+      expect(parsed(results[2]).dig('items', 0, 'transaction_status')).to eq(item_status)
+    end
+  end
+
   it 'parses form bodies and canonicalizes object order for idempotency' do
     simulator = described_class.new(config: configuration)
     original = simulator.request(method: 'POST', url: '/payouts',

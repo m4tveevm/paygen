@@ -45,10 +45,14 @@ With Ruby, Node, npm, Docker and curl available, run the full CI checks:
 script/check
 ```
 
-This includes dependency audits, the documentation build, Bruno HTTP tests and
-both container checks. It installs the locked Node dependencies and downloads
+This includes dependency audits, the documentation build, state-sequence tests,
+Bruno HTTP tests and both container checks. The Ruby container also executes the
+seven provider scenarios. The check installs locked Node dependencies and downloads
 container images as needed. Bruno JSON and JUnit reports are written under
-`tmp/bruno-verification/`.
+`tmp/bruno-verification/`. CI retains these reports on failure as well as success.
+
+For seeded payment sequences and replaying a minimized failure, see
+[payment verification](testing.md).
 
 [GitHub Actions](https://github.com/m4tveevm/paygen/actions/workflows/ci.yml)
 runs the Ruby suite on 3.3.12, 3.4.10 and 4.0.6. Workflow artifacts contain test

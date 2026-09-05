@@ -114,8 +114,20 @@ result before an individual payout is approved.
 
 Stable identities bind retries to the original operation. Where duplicate
 submission safety is unconfirmed, `reconcile_before_retry` requires a status
-check after an ambiguous result. Callback signatures are verified against exact
-raw bytes before state changes. Default replay and idempotency state is in memory;
+check after an ambiguous result. Provider-key retention is explicit and bounded;
+expiry never clears the merchant operation reservation.
+
+Polling, callbacks, creation and cancellation use the same lifecycle state.
+Terminal results cannot regress to processing. Changes between terminal outcomes
+require explicit `status_transitions`, except a status explicitly mapped to
+`reversed`. Callback signatures are verified against exact raw bytes, while
+logical replay identity uses the parsed event. Changed whitespace cannot trigger
+the same backend callback effect twice. Runtime identifiers are preserved exactly;
+redaction applies to diagnostic data, not functional identity fields.
+
+Successful responses are validated against the declared response contract before
+status interpretation. The simulator validates incoming requests before mutation.
+Default replay and idempotency state is in memory;
 the host application must supply durable, coordinated state and idempotent
 backend mutations for deployment across workers or restarts.
 
@@ -150,9 +162,24 @@ workflow.run('payout', inputs: inputs, seed: 42)
 
 Supply `transport` and the workflow's declared `inputs`. The transport owns HTTP
 authentication. `sources` accepts a declared source name or its exact URL as a
-key; import and validation never fetch source URLs. Validation checks local
-dependencies and supplied external targets. Unprovided external sources remain
-unresolved until execution.
+key; import and validation never fetch source URLs. Execution requires an explicit
+transport and checks capabilities across the reachable workflow graph before its
+first request. Unavailable sources, unsupported criteria and invalid dependencies
+fail during this preflight. Forward step dependencies run in stable dependency
+order; cyclic or unscheduled prerequisites are rejected.
+
+A lost response or ambiguous server error after a write stops execution with
+`ARAZZO_RECONCILIATION_REQUIRED`. Retry and goto actions cannot repeat that write,
+including through a nested workflow. Bounded read retries and explicit 401/429
+recovery remain supported. Provider reconciliation and durable payment state
+belong to the application; the workflow executor does not infer safe write retries.
+
+A per-run ledger also prevents returning to a completed write after a later read
+fails. For an operation that the application explicitly knows is repeatable,
+such as token refresh, pass `repeatable_operations` to the Ruby constructor:
+`[{ method: 'POST', url: 'https://provider.example/v1/refresh' }]`. Entries match
+the exact HTTP method and absolute URL. This trusted application option cannot
+be enabled by an imported Arazzo extension.
 
 The executor binds `$inputs`, `$steps`, `$workflows`, `$request`, `$response`,
 `$statusCode`, `$url`, `$method` and literal `$self` values.

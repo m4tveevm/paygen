@@ -95,4 +95,25 @@ RSpec.describe Paygen::Core::IR do
     expect(ir.profile).not_to have_key('auth')
     expect(ir.diagnostics).to be_empty
   end
+
+  it 'accepts empty idempotency as a conservative policy without inferring a provider header' do
+    expect(ir.config.fetch('idempotency')).to eq({})
+    expect(ir.diagnostics).to be_empty
+  end
+
+  it 'requires a declared provider identity before accepting a provider-key policy' do
+    profile['idempotency'] = { 'strategy' => 'provider_key', 'ttl_seconds' => 60 }
+    expect(ir.diagnostics.map { |item| item['code'] }).to include('IDEMPOTENCY_IDENTITY_REQUIRED')
+    profile['idempotency']['body'] = 'reference'
+    expect(ir.diagnostics).to be_empty
+  end
+
+  it 'rejects unknown strategies and non-positive or non-integer retention windows' do
+    profile['idempotency'] = { 'strategy' => 'assume_supported' }
+    expect(ir.diagnostics.map { |item| item['code'] }).to include('IDEMPOTENCY_STRATEGY_UNSUPPORTED')
+    [0, -1, '60', 60.0, nil].each do |ttl|
+      profile['idempotency'] = { 'header' => 'X-Request-Id', 'ttl_seconds' => ttl }
+      expect(ir.diagnostics.map { |item| item['code'] }).to include('INVALID_IDEMPOTENCY_TTL')
+    end
+  end
 end

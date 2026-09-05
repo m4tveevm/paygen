@@ -77,10 +77,22 @@ must be an integer or decimal string; floating-point money is rejected.
 
 ## Retry policy
 
-Use `idempotency.strategy: reconcile_before_retry` when the provider's duplicate
-submission guarantee is unconfirmed. Set `header: null` to omit an idempotency
-header. A confirmed create is cached; an ambiguous attempt requires status
-reconciliation. Neither HTTP 404 nor an unknown status permits another payout.
+The default is reconciliation before another create. Paygen sends an idempotency
+header only when the profile names it. An empty policy, a header alone, or an
+unconfirmed retention period cannot establish that repeating a payout is safe.
+
+A confirmed create is cached by merchant operation identity. A lost response,
+invalid successful response or other unresolved create requires status
+reconciliation. Neither HTTP 404, an unknown status, a different caller-supplied
+key nor expiry of a provider key permits another payout for the same operation.
+
+For a documented provider guarantee, set `strategy: provider_key`, a `header` or
+`body` key location, and positive integer `ttl_seconds`. Only an ambiguous retry
+within that retention window may reach the provider again. Concurrent attempts
+remain blocked and confirmed results stay cached beyond the retention window.
+Choose the retention period from the provider contract. All included profiles
+use conservative reconciliation when no retention period is configured.
+
 Multiple workers and restart recovery require a shared durable state store.
 
 ## Import corpus

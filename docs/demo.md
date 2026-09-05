@@ -121,8 +121,11 @@ bundle exec bin/paygen demo tmp/presentation --scenario timeout_after_commit --p
 
 Repeat the create, retry and evidence requests from step 4. Creation returns
 `transport_timeout` with `ambiguous: true`: the provider committed the operation
-before the connection failed. Retrying the NovaPay operation recovers its provider
-ID; `created_count` stays `1`. Retry policy comes from the provider profile.
+before the connection failed. Retrying returns `reconciliation_required` and
+sends no second create; `created_count` stays `1`. The NovaPay contract does not
+specify key retention, so the profile cannot promise a safe provider retry.
+Resolve the original operation through the provider's lookup or reconciliation
+process before recording its outcome.
 
 Stop this server before running the Bruno success collection again.
 

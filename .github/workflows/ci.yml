@@ -36,6 +36,7 @@ jobs:
           path: |
             Gemfile.lock
             coverage/
+            tmp/fuzz-verification/
           if-no-files-found: warn
   docs:
     runs-on: ubuntu-latest
@@ -77,8 +78,10 @@ jobs:
         shell: bash
         run: script/check | tee verification.log
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: integration-results
           path: |
             verification.log
             tmp/bruno-verification/
+            tmp/fuzz-verification/
