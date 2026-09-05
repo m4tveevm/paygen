@@ -1,0 +1,7 @@
+{
+  "name": "paygen-docs",
+  "private": true,
+  "scripts": {"docs:build": "yfm -i docs -o docs/_build"},
+  "devDependencies": {"@diplodoc/cli": "5.55.2"},
+  "engines": {"node": ">=22"}
+}

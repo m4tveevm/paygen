@@ -1,0 +1,8 @@
+title: Paygen
+items:
+  - name: Overview
+    href: index.md
+  - name: Five-minute demo
+    href: demo.md
+  - name: Architecture and safety
+    href: architecture.md

@@ -1,0 +1,16 @@
+version: 1
+provider: adyen
+fixture_file: fixtures.json
+scenarios:
+  booked_then_returned:
+    responses:
+    - created
+    - booked
+    - returned
+    webhooks:
+    - booked
+    - returned
+    expected_statuses:
+    - in_progress
+    - in_progress
+    - rejected

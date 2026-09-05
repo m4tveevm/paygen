@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "provider": "paypal",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "authored_curated_subset",
+  "source_url": "https://github.com/paypal/paypal-rest-api-specifications/blob/90e8041ffe02d80c452d2b476bedd59a8d219bdc/openapi/payments_payouts_batch_v1.json",
+  "api_version": "1.9 (Payouts v1)",
+  "upstream_commit": "90e8041ffe02d80c452d2b476bedd59a8d219bdc",
+  "upstream_license": "Apache-2.0",
+  "upstream_license_url": "https://github.com/paypal/paypal-rest-api-specifications/blob/90e8041ffe02d80c452d2b476bedd59a8d219bdc/LICENSE",
+  "local_license": "MIT for authored subset and fixtures; upstream snapshot remains Apache-2.0",
+  "upstream_files": [
+    "upstream/paypal.json"
+  ],
+  "documentation_urls": [
+    "https://developer.paypal.com/api/payments.payouts-batch/v1",
+    "https://developer.paypal.com/api/rest/webhooks/rest",
+    "https://developer.paypal.com/payouts/webhooks"
+  ],
+  "notes": [
+    "openapi.yaml is a Paygen-authored restricted representation, not the downloaded upstream specification.",
+    "One email recipient per batch; profile deliberately narrows currencies to EUR/USD.",
+    "Webhook path is the local receiver contract. Signature verification is a fail-closed application hook, not an invented HMAC implementation.",
+    "upstream/paypal.json preserves the retrieved complete official specification for audit."
+  ],
+  "files_sha256": {
+    "UPSTREAM-LICENSE": "64f571f57de3009d51fd9d5ca61509aaa36f62b7ef0092f482e06dd962ba0b19",
+    "fixtures.json": "adf32ee34a8bbb68dec65cd84a1e0088107226d4c0bc0187e09fe00cbed157e4",
+    "integration.yml": "01e854562a888b1a9c3687564f0a051b90a477c4771ea4a4e34804120cc9f331",
+    "openapi.yaml": "d27f868adadae112c939448295b7ba53b35ce583fb19d8c59c781959cdc0b5f5",
+    "overlay.yaml": "1bca0e2b000a741f99f7012e92183d3bff0f043fa58a4a6eb6a212fb151ab81b",
+    "scenarios.yml": "b86110fa11a8cd039c16552cf6c47133fe70fd37562347b49713a289092c56ed",
+    "upstream/paypal.json": "77da0559892d76d5060988f2f41144e539266a0162b8638c7467367ff02d5d35"
+  }
+}

@@ -1,0 +1,211 @@
+openapi: 3.0.3
+info:
+  title: Stripe Connect Payouts — external-bank subset
+  version: 2026-08-26.dahlia
+  description: Paygen-authored, intentionally restricted offline contract. See provenance.json
+    and README.md; this is not the complete upstream API.
+servers:
+- url: https://api.stripe.com
+security:
+- ProviderAuth: []
+paths:
+  /v1/payouts:
+    post:
+      operationId: PostPayouts
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: integer
+                  minimum: 1
+                currency:
+                  type: string
+                  enum:
+                  - eur
+                  - usd
+                destination:
+                  type: string
+                method:
+                  type: string
+                  enum:
+                  - standard
+                metadata:
+                  type: object
+                  properties:
+                    operation_id:
+                      type: string
+              required:
+              - amount
+              - currency
+  /v1/payouts/{payout}:
+    get:
+      operationId: GetPayoutsPayout
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      parameters:
+      - name: payout
+        in: path
+        required: true
+        schema:
+          type: string
+  /v1/payouts/{payout}/cancel:
+    post:
+      operationId: PostPayoutsPayoutCancel
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      parameters:
+      - name: payout
+        in: path
+        required: true
+        schema:
+          type: string
+  /webhooks/payout:
+    post:
+      operationId: payoutWebhook
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Webhook'
+      security: []
+components:
+  securitySchemes:
+    ProviderAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Payout:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum:
+          - payout
+        amount:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          enum:
+          - eur
+          - usd
+        status:
+          type: string
+          enum:
+          - pending
+          - in_transit
+          - paid
+          - failed
+          - canceled
+        livemode:
+          type: boolean
+        destination:
+          type: string
+        metadata:
+          type: object
+          properties:
+            operation_id:
+              type: string
+        failure_code:
+          type: string
+          nullable: true
+      required:
+      - id
+      - object
+      - amount
+      - currency
+      - status
+      - livemode
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        created:
+          type: integer
+        account:
+          type: string
+        livemode:
+          type: boolean
+        data:
+          type: object
+          properties:
+            object:
+              $ref: '#/components/schemas/Payout'
+          required:
+          - object
+      required:
+      - id
+      - type
+      - created
+      - account
+      - livemode
+      - data

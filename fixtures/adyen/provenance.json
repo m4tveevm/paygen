@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "provider": "adyen",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "authored_curated_subset",
+  "source_url": "https://github.com/Adyen/adyen-openapi/blob/f82d1fe674e536cc2c6b0d7946e0e827873a4fbf/json/TransferService-v4.json",
+  "api_version": "4",
+  "upstream_commit": "f82d1fe674e536cc2c6b0d7946e0e827873a4fbf",
+  "upstream_license": "MIT",
+  "upstream_license_url": "https://github.com/Adyen/adyen-openapi/blob/f82d1fe674e536cc2c6b0d7946e0e827873a4fbf/LICENSE",
+  "local_license": "MIT",
+  "upstream_files": [
+    "upstream/adyen.json",
+    "upstream/adyen-webhooks.json"
+  ],
+  "documentation_urls": [
+    "https://docs.adyen.com/api-explorer/transfers/4/post/transfers",
+    "https://docs.adyen.com/payouts/payout-service/pay-out-to-bank-accounts/payout-webhooks",
+    "https://docs.adyen.com/development-resources/webhooks/secure-webhooks/verify-hmac-signatures"
+  ],
+  "notes": [
+    "openapi.yaml is an authored restricted representation, not the full official specification.",
+    "Only category=bank, type=bankTransfer, regular priority, existing transferInstrumentId, EUR/USD.",
+    "booked is deliberately in_progress: booking is a debit and may be followed by returned or failed.",
+    "No synthetic approval is inferred from a booked event; reconciliation of credited tracking events is outside this subset.",
+    "Webhook receiver path is local; callback raw-body HMAC uses a hex-decoded key and base64 signature."
+  ],
+  "files_sha256": {
+    "UPSTREAM-LICENSE": "97f04093fcc19d44f2aa2cff74166dd19f519e65f01f7b2a861616067330e943",
+    "fixtures.json": "6debe184f6a74f3a643b8fbec3929d14f0ba25e5bda8f723c1656af4501804f4",
+    "integration.yml": "eed72d6649780dcbd0eb184ae6f45b85aedb9213c92b6d2c565645b820aae344",
+    "openapi.yaml": "fea2ed96afffa603c6386984325c812ef36b29c44d33ae65d64edfa2228e3ab3",
+    "overlay.yaml": "7522ae7f93d17799342948a731af5d9d127e9690c4952a460837aee9b156cdef",
+    "scenarios.yml": "db995d3542c38d17a79f4095c5d146c917f38a1ad6505cf4a5eb7c54de1f655e",
+    "upstream/adyen-webhooks.json": "639c48476c7d2e185b80477de6600b13d5188ebc2dc11070acb399ce92048889",
+    "upstream/adyen.json": "0ddd9083a86c84cdad5edca6fe10bd6568198ebeec17db3ddf5c0cbd94c93221"
+  }
+}
