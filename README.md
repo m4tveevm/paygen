@@ -12,7 +12,7 @@ bundle exec bin/paygen diff tmp/novapay --check
 bundle exec bin/paygen verify tmp/novapay --seed 42
 ```
 
-Requires Ruby >=3.3. Reference image: `ruby:4.0.6-slim`.
+Requires Ruby >=3.3. Documentation uses Node 22 and npm 11.9.0. Reference image: `ruby:4.0.6-slim`.
 
 Outputs: a `Provider::BaseService` subclass, `INTEGRATION.md`, `fixtures.json`,
 effective configuration, diagnostics and provenance. The real backend base class
@@ -80,7 +80,9 @@ coverage separately. No command in the default demo calls a live provider.
 bundle exec rspec
 script/smoke
 script/verify-complete
-npm ci --ignore-scripts
+npm install --global npm@11.9.0
+npm ci --ignore-scripts --engine-strict
+npm run docs:test
 npm run docs:build
 docker build -t paygen .
 docker run --rm paygen doctor
