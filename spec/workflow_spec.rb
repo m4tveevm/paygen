@@ -575,4 +575,114 @@ RSpec.describe Paygen::Core::Workflow do
     expect { engine.run('payout', inputs: { 'amount' => 1_500_000 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_RECONCILIATION_REQUIRED') }
     expect(transport).to have_received(:request).with(hash_including(method: 'POST')).once
   end
+
+  context 'when a repeated prerequisite changes the write payload' do
+    let(:quote_step) do
+      { 'stepId' => 'quote', 'operationId' => 'getQuote',
+        'outputs' => { 'token' => '$response.body#/token' } }
+    end
+    let(:observed) { { quotes: 0, polls: 0, attempts: [], committed: [], rejections: [] } }
+    let(:provider) do
+      evidence = observed
+      Object.new.tap do |instance|
+        instance.define_singleton_method(:request) do |**request|
+          if request[:url].end_with?('/quote')
+            evidence[:quotes] += 1
+            { status: 200, headers: {}, body: JSON.generate('token' => "quote-#{evidence[:quotes]}") }
+          elsif request[:method] == 'POST'
+            payload = JSON.parse(request.fetch(:body))
+            evidence[:attempts] << payload
+            rejection = evidence[:rejections].shift
+            evidence[:committed] << payload unless rejection
+            { status: rejection || 201, headers: {}, body: '{"id":"p_123"}' }
+          else
+            evidence[:polls] += 1
+            raise Timeout::Error, 'lost polling response' if evidence[:polls] == 1
+
+            { status: 200, headers: {}, body: '{"status":"completed"}' }
+          end
+        end
+      end
+    end
+    let(:runner) do
+      described_class.new(document, sources: { 'api' => api }, transport: provider,
+                          repeatable_operations: repeatable_operations)
+    end
+
+    before do
+      api['paths']['/quote'] = { 'get' => { 'operationId' => 'getQuote', 'responses' => { '200' => { 'description' => 'Quote' } } } }
+      create_step['dependsOn'] = ['quote']
+      create_step['requestBody']['payload'].merge!('reference' => 'merchant-1', 'quote' => '$steps.quote.outputs.token')
+      document['workflows'][0]['steps'].unshift(quote_step)
+    end
+
+    %w[goto retry].each do |action_type|
+      it "blocks #{action_type} from creating the same payment with a refreshed quote" do
+        action = { 'name' => 'requote', 'type' => action_type, 'stepId' => 'quote' }
+        if action_type == 'retry'
+          action['retryLimit'] = 1
+          quote_step['onSuccess'] = [{ 'name' => 'create', 'type' => 'goto', 'stepId' => 'create' }]
+        end
+        status_step['onFailure'] = [action]
+
+        expect { runner.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) do |error|
+          expect(error.code).to eq('ARAZZO_RECONCILIATION_REQUIRED')
+        end
+        expect(observed[:quotes]).to eq(2)
+        expect(observed[:committed]).to eq([{ 'amount' => 42, 'reference' => 'merchant-1', 'quote' => 'quote-1' }])
+        expect(observed[:attempts]).to eq(observed[:committed])
+      end
+    end
+
+    it 'retains logical write identity when an external workflow is invoked again with changed inputs' do
+      external = JSON.parse(JSON.generate(document))
+      nested = external['workflows'][0]
+      nested['steps'] = [nested['steps'].find { |step| step['stepId'] == 'create' }]
+      nested['steps'][0].delete('dependsOn')
+      nested['steps'][0]['requestBody']['payload']['quote'] = '$inputs.quote'
+      nested['outputs'] = { 'id' => '$steps.create.outputs.id' }
+      document['sourceDescriptions'] << { 'name' => 'other', 'url' => 'other.yaml', 'type' => 'arazzo' }
+      invocation = { 'stepId' => 'invoke', 'workflowId' => '$sourceDescriptions.other.payout',
+                     'parameters' => [{ 'name' => 'amount', 'value' => '$inputs.amount' },
+                                      { 'name' => 'quote', 'value' => '$steps.quote.outputs.token' }],
+                     'outputs' => { 'id' => '$response.body#/id' } }
+      document['workflows'][0]['steps'] = [quote_step, invocation, status_step]
+      status_step['parameters'][0]['value'] = '$steps.invoke.outputs.id'
+      status_step['onFailure'] = [{ 'name' => 'requote', 'type' => 'goto', 'stepId' => 'quote' }]
+      nested_runner = described_class.new(document, sources: { 'api' => api, 'other' => external }, transport: provider)
+
+      expect { nested_runner.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) do |error|
+        expect(error.code).to eq('ARAZZO_RECONCILIATION_REQUIRED')
+      end
+      expect(observed[:quotes]).to eq(2)
+      expect(observed[:attempts].map { |body| body['quote'] }).to eq(['quote-1'])
+      expect(observed[:committed].length).to eq(1)
+    end
+
+    [401, 429].each do |status|
+      it "releases logical and wire reservations after explicit HTTP #{status} rejection" do
+        observed[:rejections] << status
+        observed[:polls] = 1
+        create_step['onFailure'] = [{ 'name' => 'requote', 'type' => 'retry', 'stepId' => 'quote', 'retryLimit' => 1 }]
+
+        expect(runner.run('payout', inputs: { 'amount' => 42 })['success']).to be(true)
+        expect(observed[:attempts].map { |body| body['quote'] }).to eq(%w[quote-1 quote-2])
+        expect(observed[:committed].map { |body| body['quote'] }).to eq(['quote-2'])
+      end
+    end
+
+    it 'still allows repetition explicitly authorized by the trusted Ruby caller' do
+      repeatable_operations << { method: 'POST', url: 'https://provider.example/v1/payouts' }
+      status_step['onFailure'] = [{ 'name' => 'requote', 'type' => 'goto', 'stepId' => 'quote' }]
+
+      expect(runner.run('payout', inputs: { 'amount' => 42 })['success']).to be(true)
+      expect(observed[:committed].map { |body| body['quote'] }).to eq(%w[quote-1 quote-2])
+    end
+
+    it 'starts a separate write ledger for each top-level run' do
+      observed[:polls] = 1
+      2.times { expect(runner.run('payout', inputs: { 'amount' => 42 })['success']).to be(true) }
+      expect(observed[:committed].length).to eq(2)
+    end
+  end
 end
