@@ -23,7 +23,9 @@ RSpec.describe 'CLI process contract' do
     expect(output).to include('generate', 'verify')
     output, _error, status = cli('doctor')
     expect(status.exitstatus).to eq(0)
-    expect(JSON.parse(output)).to include('llm_runtime' => false)
+    diagnostics = JSON.parse(output)
+    expect(diagnostics).to include('paygen' => Paygen::VERSION, 'ruby' => RUBY_VERSION)
+    expect(diagnostics.fetch('gems')).to include('dry-cli' => Gem.loaded_specs.fetch('dry-cli').version.to_s)
   end
 
   it 'exports local HTML documentation and a Bruno collection through the CLI' do

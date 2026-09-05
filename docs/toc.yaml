@@ -2,8 +2,10 @@ title: Paygen
 items:
   - name: Overview
     href: index.md
-  - name: Five-minute demo
+  - name: Seven-minute demo
     href: demo.md
+  - name: CLI reference
+    href: cli.md
   - name: Architecture and safety
     href: architecture.md
   - name: Native API onboarding
@@ -12,3 +14,7 @@ items:
     href: ru-bank-examples.md
   - name: Bruno adapter demo
     href: bruno-demo.md
+  - name: Supported scope
+    href: scope.md
+  - name: Development
+    href: development.md

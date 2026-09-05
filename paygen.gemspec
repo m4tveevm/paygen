@@ -3,7 +3,7 @@ require_relative 'lib/paygen/version'
 Gem::Specification.new do |s|
   s.name = 'paygen'
   s.version = Paygen::VERSION
-  s.summary = 'Deterministic, auditable payout integration generator'
+  s.summary = 'Ruby payout integration generator for OpenAPI'
   s.authors = ['Paygen contributors']
   s.license = 'MIT'
   s.homepage = 'https://github.com/m4tveevm/paygen'
