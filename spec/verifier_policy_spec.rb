@@ -51,6 +51,9 @@ RSpec.describe Paygen::Runtime::Verifier do
 
   it 'catches an adapter that secretly redispatches strict-policy creates even if the simulator deduplicates them' do
     config['idempotency']['body'] = 'reference'
+    # The provider recognizes the reference, but its retention window is unknown.
+    # The adapter must still enforce reconciliation and count actual dispatches.
+    config['idempotency'].delete('strategy')
     instance = adapter
     instance.define_singleton_method(:reserve_create_request) do |_request, _operation, _role|
       nil
@@ -69,7 +72,7 @@ RSpec.describe Paygen::Runtime::Verifier do
     report = described_class.new(adapter: adapter).run(scenario_pack: 'transport')
     check = report['checks'].find { |entry| entry['name'] == 'create_and_fetch_status' }
     expect(check['passed']).to be(false)
-    expect(check['error']).to include('violates its source schema', '/bank_reference: pattern')
+    expect(check['error']).to include('invalid_provider_response', '/bank_reference: pattern')
   end
 
   it 'reports absent response schemas without treating undeclared validation as successful schema evidence' do

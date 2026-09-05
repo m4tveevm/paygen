@@ -16,15 +16,17 @@ module Paygen
     # executes anything. Unsupported execution dialects fail with a named error.
     class Workflow
       HTTP_METHODS = %w[get put post delete options head patch trace].freeze
+      READ_METHODS = %w[GET HEAD OPTIONS].freeze
       MAX_STEPS = 1_000
       MAX_NESTING = 16
       SCHEMA_PATH = File.expand_path('schemas/arazzo-1.1.json', __dir__)
       attr_reader :document
 
-      def initialize(document, sources: {}, transport: nil, sleeper: nil)
+      def initialize(document, sources: {}, transport: nil, sleeper: nil, repeatable_operations: [])
         @document = document
         @sources = sources.transform_keys(&:to_s)
-        @transport = transport || Paygen::Runtime::HTTPTransport.new
+        @transport = transport
+        @repeatable_operations = normalize_repeatable_operations(repeatable_operations)
         @sleeper = sleeper || ->(seconds) { sleep(seconds) }
       end
 
@@ -68,7 +70,10 @@ module Paygen
             validate_workflow_reference!(step['workflowId']) if step['workflowId']
             validate_operation_reference!(step)
           end
+          dependency_order(workflow)
+          validate_capabilities!(workflow, require_sources: false)
         end
+        validate_workflow_cycles!
         self
       rescue Timeout::Error
         Input.fail_security('ARAZZO_COMPLEXITY', 'Arazzo validation exceeded the time limit')
@@ -76,7 +81,9 @@ module Paygen
 
       def run(workflow_id, inputs: {}, seed: 0)
         validate!
-        state = { 'remaining' => MAX_STEPS, 'workflows' => {}.compare_by_identity, 'seed' => Integer(seed), 'trace' => [] }
+        invalid('ARAZZO_TRANSPORT', 'Supply an HTTP transport to run workflows') unless @transport.respond_to?(:request)
+        preflight!(workflow_id, [], {})
+        state = { 'remaining' => MAX_STEPS, 'workflows' => {}.compare_by_identity, 'seed' => Integer(seed), 'trace' => [], 'writes' => {} }
         execute(workflow_id, inputs, state, [])
       end
 
@@ -146,6 +153,267 @@ module Paygen
         operation_for(step)
       end
 
+      # Import checks locally decidable capabilities. Execution additionally
+      # walks every possible nested/action target with all sources bound. No
+      # request is sent until this entire graph has passed preflight.
+      def preflight!(workflow_id, stack, visited)
+        identity = [@document.object_id, workflow_id]
+        Input.fail_security('ARAZZO_CYCLE', 'Recursive workflow dependency detected') if stack.include?(identity)
+        Input.fail_security('ARAZZO_DEPTH', 'Workflow nesting exceeds the limit') if stack.length >= MAX_NESTING
+        return if visited[identity]
+        visited[identity] = true
+        workflow = find_workflow(workflow_id)
+        validate_capabilities!(workflow, require_sources: true)
+        workflow_references(workflow).each do |reference|
+          runner, target = workflow_target(reference)
+          runner.validate! unless runner.equal?(self)
+          runner.send(:preflight!, target, stack + [identity], visited)
+        end
+      end
+
+      def workflow_target(reference)
+        match = reference.match(/\A\$sourceDescriptions\.([^.]+)\.(.+)\z/)
+        return [self, reference] unless match
+        source = bound_source(source_declaration(match[1]))
+        invalid('ARAZZO_SOURCE', 'Nested Arazzo source must be supplied explicitly') unless source.is_a?(Hash) && source.key?('arazzo')
+        [self.class.new(source, sources: @sources, transport: @transport, sleeper: @sleeper,
+                        repeatable_operations: @repeatable_operations.map { |method, url| { 'method' => method, 'url' => url } }), match[2]]
+      end
+
+      def workflow_references(workflow)
+        actions = %w[successActions failureActions].flat_map { |field| workflow.fetch(field, []) }
+        workflow['steps'].each do |step|
+          actions.concat(%w[onSuccess onFailure].flat_map { |field| step.fetch(field, []) })
+        end
+        (workflow.fetch('dependsOn', []) + workflow['steps'].filter_map { |step| step['workflowId'] } +
+          actions.filter_map { |action| reusable(action)['workflowId'] }).uniq
+      end
+
+      def validate_workflow_cycles!
+        visited = {}
+        visit = lambda do |id, stack|
+          Input.fail_security('ARAZZO_CYCLE', 'Recursive workflow dependency detected') if stack.include?(id)
+          Input.fail_security('ARAZZO_DEPTH', 'Workflow nesting exceeds the limit') if stack.length >= MAX_NESTING
+          return if visited[id]
+          visited[id] = true
+          workflow_references(find_workflow(id)).reject { |reference| reference.start_with?('$') }.each do |reference|
+            visit.call(reference, stack + [id])
+          end
+        end
+        @document['workflows'].each { |workflow| visit.call(workflow['workflowId'], []) }
+      end
+
+      def validate_capabilities!(workflow, require_sources:)
+        validate_values!(workflow.fetch('outputs', {}))
+        parameters = workflow.fetch('parameters', []).map { |item| reusable(item) }
+        parameters.each { |parameter| validate_values!(parameter['value']) }
+        %w[successActions failureActions].each { |field| validate_action_capabilities!(workflow.fetch(field, [])) }
+        workflow['steps'].each do |step|
+          validate_values!(step.fetch('outputs', {}))
+          validate_criteria!(step.fetch('successCriteria', []))
+          %w[onSuccess onFailure].each { |field| validate_action_capabilities!(step.fetch(field, [])) }
+          merged = merge_parameters(workflow.fetch('parameters', []), step.fetch('parameters', []))
+          merged.each { |parameter| validate_values!(parameter['value']) }
+          if step['workflowId']
+            invalid('ARAZZO_PARAMETER', 'Workflow invocation parameters must not set in') if merged.any? { |parameter| parameter.key?('in') }
+          else
+            validate_http_capabilities!(step, merged, require_sources: require_sources)
+          end
+          body = step['requestBody']
+          next unless body
+          validate_values!(body['payload'])
+          body.fetch('replacements', []).each do |replacement|
+            validate_selector!(replacement.fetch('targetSelectorType', 'jsonpointer'), replacement['target'])
+            validate_values!(replacement['value'])
+          end
+        end
+      end
+
+      def validate_action_capabilities!(actions)
+        actions.each do |item|
+          action = reusable(item)
+          validate_criteria!(action.fetch('criteria', []))
+          action.fetch('parameters', []).each { |parameter| validate_values!(reusable(parameter)['value']) }
+          if action.fetch('retryLimit', 1) > 100 || action.fetch('retryAfter', 0) > 60
+            Input.fail_security('ARAZZO_RETRY_LIMIT', 'Retry policy exceeds execution bounds')
+          end
+        end
+      end
+
+      def validate_values!(value)
+        case value
+        when Hash
+          if value.key?('selector') && value.key?('context') && value.key?('type')
+            validate_expression!(value['context'])
+            validate_selector!(value['type'], value['selector'])
+          else
+            value.each_value { |child| validate_values!(child) }
+          end
+        when Array then value.each { |child| validate_values!(child) }
+        when String
+          if value.start_with?('$')
+            validate_expression!(value)
+          else
+            value.scan(/\{(\$[^{}]+)\}/).flatten.each { |reference| validate_expression!(reference) }
+          end
+        end
+      end
+
+      def validate_expression!(reference)
+        base, pointer = reference.split('#', 2)
+        unless base.match?(/\A\$(?:statusCode|url|method|self|(?:inputs|outputs|steps|workflows|sourceDescriptions|components|request|response)(?:\.[A-Za-z0-9_~%-]+|\[\d+\])*)\z/)
+          invalid('ARAZZO_EXPRESSION', 'Unsupported runtime expression')
+        end
+        validate_selector!('jsonpointer', pointer) if pointer
+      end
+
+      def validate_selector!(type, selector)
+        case expression_type(type)
+        when 'jsonpointer'
+          unless selector.empty? || (selector.start_with?('/') && !selector.match?(/~(?![01])/))
+            invalid('ARAZZO_EXPRESSION', 'Invalid JSON Pointer selector')
+          end
+        when 'jsonpath' then Janeway.parse(selector)
+        else unsupported('XPath selectors')
+        end
+      rescue Janeway::Error
+        invalid('ARAZZO_EXPRESSION', 'Invalid JSONPath selector')
+      end
+
+      def validate_criteria!(criteria)
+        criteria.each do |criterion|
+          type = expression_type(criterion.fetch('type', 'simple'))
+          condition = criterion['condition']
+          if type == 'simple'
+            Condition.new(condition, ->(reference) { validate_expression!(reference); 0 }).evaluate
+            next
+          end
+          unsupported('XPath criteria') unless %w[regex jsonpath].include?(type)
+          validate_expression!(criterion['context'])
+          # Interpolated predicates cannot be compiled statically, so this
+          # executor requires literal predicates with runtime context instead.
+          unsupported('Interpolated selector criteria') if condition.match?(/\{\$/)
+          type == 'regex' ? Regexp.new(condition, timeout: 0.1) : Janeway.parse(condition)
+        end
+      rescue RegexpError, Janeway::Error
+        invalid('ARAZZO_CRITERION', 'Invalid criterion syntax')
+      end
+
+      def validate_http_capabilities!(step, parameters, require_sources:)
+        unsupported('AsyncAPI broker operations') if step.key?('action') || step.key?('channelPath')
+        begin
+          source, path, _method, operation, path_item = operation_for(step)
+        rescue Error => error
+          raise unless !require_sources && error.code == 'ARAZZO_SOURCE'
+          return
+        end
+        timeout = step.fetch('timeout', 30_000)
+        Input.fail_security('ARAZZO_TIMEOUT', 'Step timeout must be between 1 ms and 60 seconds') unless timeout.positive? && timeout <= 60_000
+        server = (operation['servers'] || path_item['servers'] || source['servers'] || []).first
+        invalid('ARAZZO_SERVER', 'HTTP operation requires an absolute server URL') unless server.is_a?(Hash)
+        base = server.fetch('url')
+        server.fetch('variables', {}).each { |name, settings| base = base.gsub("{#{name}}", settings.fetch('default').to_s) }
+        parsed = URI.parse(base)
+        unless %w[http https].include?(parsed.scheme) && parsed.host && !parsed.userinfo && !parsed.fragment && !base.match?(/[{}\x00-\x20\x7f]/)
+          invalid('ARAZZO_SERVER', 'HTTP operation requires an absolute server URL without credentials or templates')
+        end
+        available = (path_item.fetch('parameters', []) + operation.fetch('parameters', [])).to_h { |parameter| [[parameter['name'], parameter['in']], parameter] }
+        parameters.each do |parameter|
+          definition = available[[parameter['name'], parameter['in']]]
+          invalid('ARAZZO_PARAMETER', 'Workflow parameter is not declared by its OpenAPI operation') unless definition
+          unsupported('Object and array OpenAPI parameter serialization') if %w[object array].include?(definition.dig('schema', 'type')) || parameter['value'].is_a?(Array) || (parameter['value'].is_a?(Hash) && !parameter['value'].key?('selector'))
+          unsupported("Parameter location #{parameter['in']}") unless %w[path query header cookie].include?(parameter['in'])
+          expected_style = %w[path header].include?(parameter['in']) ? 'simple' : 'form'
+          unsupported('Non-default OpenAPI parameter serialization') if definition.fetch('style', expected_style) != expected_style || definition['content'] || definition['allowReserved']
+          if parameter['in'] == 'header'
+            name = parameter['name']
+            invalid('ARAZZO_HEADER', 'Header value contains control characters') if parameter['value'].is_a?(String) && parameter['value'].match?(/[\x00-\x1f\x7f]/)
+            invalid('ARAZZO_HEADER', 'Unsafe HTTP transport header') if name.match?(/[\x00-\x20\x7f]/) || %w[host content-length transfer-encoding connection trailer upgrade te proxy-authorization proxy-connection].include?(name.downcase)
+          end
+        end
+        required = available.values.select { |definition| definition['required'] }.map { |definition| [definition['name'], definition['in']] }
+        required.concat(path.scan(/\{([^}]+)\}/).flatten.map { |name| [name, 'path'] })
+        supplied = parameters.map { |parameter| [parameter['name'], parameter['in']] }
+        invalid('ARAZZO_PARAMETER', 'A required operation parameter was not supplied') unless (required - supplied).empty?
+        body = step['requestBody']
+        if body
+          content_type = body['contentType'] || operation.dig('requestBody', 'content')&.keys&.first || 'application/json'
+          unless %w[application/json application/x-www-form-urlencoded].include?(content_type.split(';').first) || body['payload'].is_a?(String)
+            unsupported("Request media type #{content_type}")
+          end
+        end
+      rescue URI::InvalidURIError
+        invalid('ARAZZO_SERVER', 'Invalid HTTP server URL')
+      end
+
+      # Stable topological order preserves the author's order among ready
+      # steps. Explicit goto/retry actions still use the same execution loop.
+      def dependency_order(workflow)
+        remaining = workflow.fetch('steps').dup
+        ordered = []
+        until remaining.empty?
+          ready = remaining.index do |step|
+            step.fetch('dependsOn', []).all? do |reference|
+              local = local_dependency(workflow, reference)
+              !local || ordered.any? { |candidate| candidate['stepId'] == local }
+            end
+          end
+          invalid('ARAZZO_DEPENDENCY', 'Step dependencies contain a cycle') unless ready
+          ordered << remaining.delete_at(ready)
+        end
+        ordered
+      end
+
+      def local_dependency(workflow, reference)
+        return reference unless reference.start_with?('$')
+        match = reference.match(/\A\$workflows\.([^.]+)\.steps\.([^.]+)\z/)
+        return match[2] if match && match[1] == workflow['workflowId']
+        target = match ? match[1] : reference.sub(/\.steps\.[^.]+\z/, '')
+        unless workflow.fetch('dependsOn', []).include?(target)
+          invalid('ARAZZO_DEPENDENCY', 'Cross-workflow step dependencies require an explicit workflow dependsOn')
+        end
+        nil
+      end
+
+      # This policy comes only from the trusted Ruby caller. Arazzo extensions
+      # and operation IDs cannot authorize repeating a side-effecting request.
+      def normalize_repeatable_operations(operations)
+        invalid('ARAZZO_RETRY_POLICY', 'Repeatable operations must be a list of exact method/URL pairs') unless operations.is_a?(Array)
+        operations.map do |operation|
+          unless operation.is_a?(Hash) && operation.keys.map(&:to_s).sort == %w[method url]
+            invalid('ARAZZO_RETRY_POLICY', 'Repeatable operations require an exact method and URL')
+          end
+          pair = operation.transform_keys(&:to_s)
+          method, url = pair.values_at('method', 'url')
+          unless method.is_a?(String) && HTTP_METHODS.include?(method.downcase) && url.is_a?(String)
+            invalid('ARAZZO_RETRY_POLICY', 'Invalid repeatable operation method or URL')
+          end
+          parsed = URI.parse(url)
+          unless %w[http https].include?(parsed.scheme) && parsed.host && !parsed.userinfo && !parsed.fragment
+            invalid('ARAZZO_RETRY_POLICY', 'Repeatable operations require an absolute HTTP URL without credentials')
+          end
+          [method.upcase.freeze, url.dup.freeze].freeze
+        end.uniq.freeze
+      rescue URI::InvalidURIError
+        invalid('ARAZZO_RETRY_POLICY', 'Invalid repeatable operation URL')
+      end
+
+      def reserve_workflow_write!(method, url, body, state, repeatable)
+        return if READ_METHODS.include?(method)
+
+        key = Digest::SHA256.hexdigest(JSON.generate([method, url, body]))
+        if state['writes'].key?(key) && !repeatable
+          invalid('ARAZZO_RECONCILIATION_REQUIRED', 'This write already ran; use its existing output or reconcile outside the workflow')
+        end
+        state['writes'][key] = true
+        key
+      end
+
+      def check_retry_safety!(context)
+        return if !context['method'] || READ_METHODS.include?(context['method']) || context['repeatableWrite'] || [401, 429].include?(context['statusCode'])
+        invalid('ARAZZO_RECONCILIATION_REQUIRED', 'A write may have committed; reconcile it outside this workflow before another attempt')
+      end
+
       def execute(workflow_id, inputs, state, stack)
         Input.fail_security('ARAZZO_DEPTH', 'Workflow nesting exceeds the limit') if stack.length >= MAX_NESTING
         identity = [@document.object_id, workflow_id]
@@ -154,6 +422,7 @@ module Paygen
         validate_inputs!(workflow, inputs)
         document_workflows = (state['workflows'][@document] ||= {})
         context = { 'inputs' => inputs, 'steps' => {}, 'workflows' => document_workflows,
+                    'workflowDocuments' => state['workflows'],
                     'components' => @document.fetch('components', {}), 'self' => @document['$self'],
                     'sourceDescriptions' => @document.fetch('sourceDescriptions').to_h { |source| [source['name'], source] } }
         document_workflows[workflow_id] = { 'inputs' => inputs, 'outputs' => {}, 'steps' => context['steps'] }
@@ -163,7 +432,7 @@ module Paygen
         end
         index = 0
         retries = Hash.new(0)
-        steps = workflow.fetch('steps')
+        steps = dependency_order(workflow)
         success = true
         while index < steps.length
           step = steps[index]
@@ -175,6 +444,7 @@ module Paygen
             when 'end'
               break
             when 'goto'
+              check_retry_safety!(context) unless success
               if action['workflowId']
                 values = action_inputs(action, context)
                 return invoke_workflow(action['workflowId'], values, state, stack + [identity])
@@ -183,6 +453,7 @@ module Paygen
               invalid('ARAZZO_STEP_REF', 'Action references an unknown step') unless index
               next
             when 'retry'
+              check_retry_safety!(context)
               retry_key = [step['stepId'], action['name']]
               limit = action.fetch('retryLimit', 1)
               delay = action.fetch('retryAfter', 0)
@@ -206,13 +477,17 @@ module Paygen
         check_dependencies!(step, context)
         parameters = merge_parameters(workflow.fetch('parameters', []), step.fetch('parameters', []))
         if step['workflowId']
+          # A nested workflow can contain writes even when its last step is a
+          # read. Retrying the whole workflow requires external reconciliation.
+          context['method'] = 'WORKFLOW'
+          context['repeatableWrite'] = false
           values = parameters.to_h { |parameter| [parameter['name'], evaluate(parameter['value'], context)] }
           nested = invoke_workflow(step['workflowId'], values, state, stack)
           context['response'] = { 'body' => nested['outputs'], 'header' => {} }
           context['statusCode'] = nested['success'] ? 200 : 500
           success = nested['success']
         else
-          execute_http(step, parameters, context)
+          execute_http(step, parameters, context, state)
           success = context['statusCode'].positive?
         end
         success &&= criteria_met?(step.fetch('successCriteria', []), context)
@@ -248,11 +523,13 @@ module Paygen
           case next_action['type']
           when 'end' then return success
           when 'goto'
+            check_retry_safety!(context) unless success
             if next_action['workflowId']
               return invoke_workflow(next_action['workflowId'], action_inputs(next_action, context), state, stack)['success']
             end
             step_id = next_action['stepId']
           when 'retry'
+            check_retry_safety!(context)
             key = [step_id, next_action['name']]
             limit = next_action.fetch('retryLimit', 1)
             delay = next_action.fetch('retryAfter', 0)
@@ -273,13 +550,8 @@ module Paygen
       end
 
       def invoke_workflow(reference, inputs, state, stack)
-        match = reference.match(/\A\$sourceDescriptions\.([^.]+)\.(.+)\z/)
-        return execute(reference, inputs, state, stack) unless match
-        source = bound_source(source_declaration(match[1]))
-        invalid('ARAZZO_SOURCE', 'Nested Arazzo source must be supplied explicitly') unless source.is_a?(Hash) && source.key?('arazzo')
-        child = self.class.new(source, sources: @sources, transport: @transport, sleeper: @sleeper)
-        child.validate!
-        child.send(:execute, match[2], inputs, state, stack)
+        runner, target = workflow_target(reference)
+        runner.send(:execute, target, inputs, state, stack)
       end
 
       def find_workflow(id)
@@ -300,7 +572,7 @@ module Paygen
         invalid('ARAZZO_INPUT_REF', 'Workflow input schema has an unresolved reference')
       end
 
-      def execute_http(step, parameters, context)
+      def execute_http(step, parameters, context, state)
         unsupported('AsyncAPI broker operations') if step.key?('action') || step.key?('channelPath')
         source, path, method, operation, path_item = operation_for(step)
         server = (operation['servers'] || path_item['servers'] || source['servers'] || []).first
@@ -371,8 +643,13 @@ module Paygen
         invalid('ARAZZO_TRANSPORT', 'Supply an HTTP transport to run workflows') unless @transport
         timeout = step.fetch('timeout', 30_000) / 1000.0
         Input.fail_security('ARAZZO_TIMEOUT', 'Step timeout must be between 1 ms and 60 seconds') unless timeout.positive? && timeout <= 60
+        context['repeatableWrite'] = @repeatable_operations.include?([method.upcase, url])
+        write_key = reserve_workflow_write!(method.upcase, url, body, state, context['repeatableWrite'])
         response = Timeout.timeout(timeout) { @transport.request(method: method.upcase, url: url, headers: headers, body: body) }
         response = response.transform_keys(&:to_s)
+        # Explicit authentication/rate-limit rejection allows another attempt;
+        # every other write outcome remains reserved for the rest of this run.
+        state['writes'].delete(write_key) if write_key && [401, 429].include?(response['status'].to_i)
         response_body = response['body']
         response_body = JSON.parse(response_body) if response_body.is_a?(String) && !response_body.empty?
         context['statusCode'] = response.fetch('status').to_i
@@ -385,6 +662,7 @@ module Paygen
       rescue Timeout::Error, IOError, SystemCallError, SocketError, OpenSSL::SSL::SSLError
         context['statusCode'] = 0
         context['response'] = { 'body' => nil, 'header' => {} }
+        check_retry_safety!(context)
       end
 
       def form_pairs(value, prefix = nil, depth = 0)
@@ -454,7 +732,10 @@ module Paygen
 
       def check_dependencies!(step, context)
         step.fetch('dependsOn', []).each do |dependency|
-          record = if dependency.start_with?('$')
+          record = if (match = dependency.match(/\A\$sourceDescriptions\.([^.]+)\.([^.]+)\.steps\.([^.]+)\z/))
+                     source = bound_source(source_declaration(match[1]))
+                     context['workflowDocuments'].dig(source, match[2], 'steps', match[3])
+                   elsif dependency.start_with?('$')
                      evaluate(dependency, context)
                    else
                      context['steps'][dependency]

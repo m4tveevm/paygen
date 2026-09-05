@@ -84,6 +84,7 @@ requirements that need additional integration work.
 - [CLI reference](docs/cli.md): configuration, generation and exports.
 - [Native API onboarding](docs/native-onboarding.md): profiles and the API corpus.
 - [Bruno demo](docs/bruno-demo.md) and [Russian bank examples](docs/ru-bank-examples.md).
+- [Payment verification](docs/testing.md): seeded sequences, shrinking and replay.
 - [Architecture](docs/architecture.md), [supported scope](docs/scope.md) and [development](docs/development.md).
 
 The prototype demonstrates generation and local adapter behavior. Connecting a

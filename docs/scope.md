@@ -2,9 +2,9 @@
 
 Paygen generates a Ruby payout integration from an OpenAPI document and an
 explicit payment profile. The prototype covers parsing, service generation,
-integration documentation and local verification. NovaPay is the complete
-walkthrough for the supplied case; additional profiles exercise different API
-shapes and payment semantics.
+integration documentation and local verification. NovaPay demonstrates the SBP
+branch of the supplied case; its card branch is not implemented by the included
+profile. Additional profiles exercise different API shapes and payment semantics.
 
 ## Case requirements
 
@@ -18,6 +18,7 @@ shapes and payment semantics.
 | Process incoming notifications | Raw-body signature verification, event/status validation and replay handling | `runtime_security_spec.rb`, `runtime_demo_spec.rb` |
 | Produce `INTEGRATION.md` and `fixtures.json` | Configuration, methods, statuses, errors, named requests/responses and callbacks | `generated_docs_spec.rb` |
 | Provide a repeatable CLI workflow | `init`, `configure`, `generate`, `docs`, `collection`, `demo`, `verify` | `cli_spec.rb`, `collection_spec.rb`, CLI smoke checks |
+| Check payment sequences | Bounded seeded state fuzzing, shrinking and replay | Independent faulty-adapter regressions; NovaPay/Raiffeisen CI sequences |
 | Adapt to different providers and expose unsupported features | Declarative recipes/profiles, overlays, extension hooks and diagnostic codes | Seven executable profiles, native-contract tests and the import corpus |
 | Use Ruby and open-source components | Ruby parser, generator and runtime; dependency locks and MIT project license | `paygen.gemspec`, `LICENSE`, dependency audits |
 

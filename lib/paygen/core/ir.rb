@@ -142,6 +142,7 @@ module Paygen
           'summary' => operation['summary'], 'tags' => operation.fetch('tags', []),
           'parameters' => merge_parameters(item.fetch('parameters', []).map { |p| shallow(p) }, operation.fetch('parameters', []).map { |p| shallow(p) }),
           'request_schema' => content.dig(media_type, 'schema') || {},
+          'request_required' => shallow(operation.fetch('requestBody', {}))['required'] == true,
           'request_content' => content,
           'request_examples' => content[media_type] || {}, 'content_type' => media_type || 'application/json',
           'responses' => operation.fetch('responses', {}),
@@ -272,6 +273,19 @@ module Paygen
         strategy = profile.dig('idempotency', 'strategy')
         if strategy && !%w[provider_key reconcile_before_retry].include?(strategy)
           diagnostic('IDEMPOTENCY_STRATEGY_UNSUPPORTED', 'Use provider_key or reconcile_before_retry', 'idempotency.strategy')
+        end
+        idempotency = profile.fetch('idempotency', {})
+        %w[header body from].each do |field|
+          value = idempotency[field]
+          next if value.nil? || (value.is_a?(String) && !value.empty?)
+
+          diagnostic('INVALID_IDEMPOTENCY', 'Identity fields must be nonempty strings or null', "idempotency.#{field}")
+        end
+        if idempotency.key?('ttl_seconds') && !(idempotency['ttl_seconds'].is_a?(Integer) && idempotency['ttl_seconds'].positive?)
+          diagnostic('INVALID_IDEMPOTENCY_TTL', 'Provider key retention must be a positive integer number of seconds', 'idempotency.ttl_seconds')
+        end
+        if strategy == 'provider_key' && !%w[header body].any? { |field| idempotency[field].is_a?(String) && !idempotency[field].empty? }
+          diagnostic('IDEMPOTENCY_IDENTITY_REQUIRED', 'A provider-key policy requires an explicit header or body identity', 'idempotency')
         end
         statuses = profile['status_mapping']
         if statuses.is_a?(Hash) && statuses.values.any? { |status| !%w[in_progress approved rejected reversed unknown].include?(status) }
