@@ -57,6 +57,99 @@ RSpec.describe Paygen::Runtime::Simulator do
     expect(simulator.evidence['created_count']).to eq(1)
   end
 
+  it 'returns required and mapped values without unrelated optional error or completion placeholders' do
+    schema = {
+      'type' => 'object', 'required' => %w[id status],
+      'properties' => {
+        'id' => { 'type' => 'string' }, 'status' => { 'enum' => %w[pending paid] },
+        'amount' => { 'type' => 'integer' },
+        'error' => { 'type' => 'object', 'properties' => { 'code' => { 'type' => 'string' } } },
+        'completed_at' => { 'type' => 'string', 'format' => 'date-time' }
+      }
+    }
+    configuration['endpoints']['create']['responses']['201'] =
+      { 'content' => { 'application/json' => { 'schema' => schema } } }
+    configuration['endpoints']['status']['responses']['200'] =
+      { 'content' => { 'application/json' => { 'schema' => schema } } }
+    simulator = described_class.new(config: configuration)
+    created = parsed(payout(simulator))
+    settled = parsed(status(simulator, created.fetch('id')))
+
+    expect(created).to include('status' => 'pending', 'amount' => 100)
+    expect(settled).to include('status' => 'paid', 'amount' => 100)
+    [created, settled].each do |body|
+      expect(body.keys).to contain_exactly('id', 'status', 'amount')
+      expect(JSONSchemer.schema(schema).valid?(body)).to be(true)
+    end
+  end
+
+  it 'preserves required fields inside selected response objects and required error structures' do
+    schema = {
+      'type' => 'object', 'required' => %w[id error],
+      'properties' => {
+        'id' => { 'type' => 'string' },
+        'state' => {
+          'type' => 'object', 'required' => %w[value updated_at],
+          'properties' => { 'value' => { 'enum' => %w[pending paid] },
+                            'updated_at' => { 'type' => 'string', 'format' => 'date-time' } }
+        },
+        'error' => { 'type' => 'object', 'required' => ['code'],
+                     'properties' => { 'code' => { 'const' => 'NONE' }, 'message' => { 'type' => 'string' } } }
+      }
+    }
+    configuration['response']['status'] = 'state.value'
+    configuration['endpoints']['create']['responses']['201'] =
+      { 'content' => { 'application/json' => { 'schema' => schema } } }
+    body = parsed(payout(described_class.new(config: configuration)))
+
+    expect(body.dig('state', 'value')).to eq('pending')
+    expect(body.dig('state', 'updated_at')).to be_a(String)
+    expect(body['error']).to eq('code' => 'NONE')
+    expect(JSONSchemer.schema(schema).valid?(body)).to be(true)
+  end
+
+  it 'keeps values needed to satisfy conditional response requirements' do
+    schema = {
+      'type' => 'object', 'required' => %w[id status],
+      'properties' => {
+        'id' => { 'type' => 'string' }, 'status' => { 'enum' => %w[pending paid] },
+        'accepted_at' => { 'type' => 'string', 'format' => 'date-time' }
+      },
+      'if' => { 'properties' => { 'status' => { 'const' => 'pending' } } },
+      'then' => { 'required' => ['accepted_at'] }
+    }
+    configuration['endpoints']['create']['responses']['201'] =
+      { 'content' => { 'application/json' => { 'schema' => schema } } }
+    body = parsed(payout(described_class.new(config: configuration)))
+
+    expect(body['accepted_at']).to be_a(String)
+    expect(JSONSchemer.schema(schema).valid?(body)).to be(true)
+  end
+
+  it 'omits optional placeholders before signing callback bytes' do
+    schema = {
+      'type' => 'object', 'required' => %w[payout_id status event],
+      'properties' => {
+        'payout_id' => { 'type' => 'string' }, 'status' => { 'enum' => %w[pending paid] },
+        'event_id' => { 'type' => 'string' },
+        'event' => { 'type' => 'string' }, 'sequence' => { 'type' => 'integer' },
+        'error' => { 'type' => 'object', 'properties' => { 'code' => { 'type' => 'string' } } },
+        'completed_at' => { 'type' => 'string', 'format' => 'date-time' }
+      }
+    }
+    configuration['endpoints']['callback']['request_schema'] = schema
+    simulator = described_class.new(config: configuration)
+    payout(simulator)
+
+    simulator.callback_events.each do |event|
+      expect(event['payload'].keys).to contain_exactly('payout_id', 'status', 'event', 'event_id', 'sequence')
+      expect(JSONSchemer.schema(schema).valid?(event['payload'])).to be(true)
+      expect(JSON.parse(event['raw_body'])).to eq(event['payload'])
+      expected = OpenSSL::HMAC.hexdigest('SHA256', 'paygen-test-secret', event.fetch('raw_body'))
+      expect(event['headers']['X-Signature']).to eq(expected)
+    end
+  end
+
   it 'raises an actual timeout after persisting the operation and returns it on retry' do
     simulator = described_class.new(config: configuration, scenario: 'timeout_after_commit')
     expect { payout(simulator) }.to raise_error(Timeout::Error)

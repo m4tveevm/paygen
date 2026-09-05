@@ -34,10 +34,10 @@ module Paygen
 
       class Inspect < Base
         desc 'Inspect an OpenAPI contract and report unresolved integration semantics'
-        argument :input, required: true
-        option :profile, type: :string
-        option :format, default: 'text', values: %w[text json]
-        option :strict, type: :boolean, default: false
+        argument :input, required: true, desc: 'OpenAPI file, HTTPS URL, or - for standard input'
+        option :profile, type: :string, desc: 'Read an integration profile from YAML or JSON'
+        option :format, default: 'text', values: %w[text json], desc: 'Output format'
+        option :strict, type: :boolean, default: false, desc: 'Exit with code 4 when integration decisions remain unresolved'
         def call(input:, profile: nil, format: 'text', strict: false, **)
           document = Core::Input.load(input)
           result = Core::IR.new(document, profile: profile ? Core::Input.read(profile) : {})
@@ -56,9 +56,9 @@ module Paygen
 
       class Init < Base
         desc 'Create a project with pinned source, profile and user-owned extensions'
-        argument :input, required: true
-        option :output, required: true
-        option :profile, type: :string
+        argument :input, required: true, desc: 'OpenAPI file, HTTPS URL, or - for standard input'
+        option :output, required: true, desc: 'Write to a new output directory'
+        option :profile, type: :string, desc: 'Read an integration profile from YAML or JSON'
         def call(input:, output:, profile: nil, **)
           project = Project.init(input, output: output, profile: profile)
           emit({ 'status' => 'initialized', 'project' => project.root, 'diagnostics' => project.ir.diagnostics })
@@ -67,9 +67,9 @@ module Paygen
 
       class Configure < Base
         desc 'Review operation candidates and apply explicit semantic answers'
-        argument :project, required: true
-        option :answers, type: :string
-        option :set, type: :array, default: []
+        argument :project, required: true, desc: 'Generated project directory'
+        option :answers, type: :string, desc: 'Merge answers from a YAML or JSON profile'
+        option :set, type: :array, default: [], desc: 'Set dotted KEY=VALUE entries; use JSON for structured values'
         def call(project:, answers: nil, set: [], **)
           project = Project.new(project)
           edits = Paygen.deep_merge(answers ? Core::Input.read(answers) : {}, parse_sets(set))
@@ -86,11 +86,11 @@ module Paygen
 
       class Generate < Base
         desc 'Generate service, integration guide, fixtures and provenance'
-        argument :project, required: true
-        option :draft, type: :boolean, default: false
-        option :set, type: :array, default: []
-        option :save_profile, type: :string
-        option :watch, type: :boolean, default: false
+        argument :project, required: true, desc: 'Generated project directory'
+        option :draft, type: :boolean, default: false, desc: 'Write diagnostics even when an executable service cannot be generated'
+        option :set, type: :array, default: [], desc: 'Set dotted KEY=VALUE entries; use JSON for structured values'
+        option :save_profile, type: :string, desc: 'Save effective profile to a project-relative YAML or JSON file'
+        option :watch, type: :boolean, default: false, desc: 'Regenerate when project inputs change'
         def call(project:, draft: false, set: [], save_profile: nil, watch: false, **)
           project = Project.new(project)
           overrides = parse_sets(set)
@@ -133,8 +133,8 @@ module Paygen
 
       class Diff < Base
         desc 'Report source-driven changes and generated-file drift'
-        argument :project, required: true
-        option :check, type: :boolean, default: false
+        argument :project, required: true, desc: 'Generated project directory'
+        option :check, type: :boolean, default: false, desc: 'Exit with code 1 if generated files differ'
         def call(project:, check: false, **)
           files = Generator.new(project).diff
           emit({ 'changed' => !files.empty?, 'files' => files })
@@ -144,8 +144,8 @@ module Paygen
 
       class Update < Base
         desc 'Replace pinned OpenAPI after validating existing overlays'
-        argument :project, required: true
-        argument :new_input, required: true
+        argument :project, required: true, desc: 'Generated project directory'
+        argument :new_input, required: true, desc: 'Replacement OpenAPI file or HTTPS URL'
         def call(project:, new_input:, **)
           emit(Project.new(project).update(new_input))
         end
@@ -153,8 +153,8 @@ module Paygen
 
       class Explain < Base
         desc 'Show the winning source of a semantic fact'
-        argument :project, required: true
-        argument :fact_path, required: true
+        argument :project, required: true, desc: 'Generated project directory'
+        argument :fact_path, required: true, desc: 'Dotted configuration path, for example amount.scale'
         def call(project:, fact_path:, **)
           facts = Project.new(project).ir.provenance
           selected = facts.select { |path, _| path == fact_path || path.start_with?(fact_path + '.') }
@@ -165,11 +165,11 @@ module Paygen
 
       class Patch < Base
         desc 'Append an ordered Overlay 1.1 action'
-        argument :project, required: true
-        argument :target, required: true
-        option :value, type: :string
-        option :from, type: :string
-        option :file, default: 'overlays/999-user.yaml'
+        argument :project, required: true, desc: 'Generated project directory'
+        argument :target, required: true, desc: 'JSONPath selecting the contract nodes to modify'
+        option :value, type: :string, desc: 'JSON value for the add or replace action'
+        option :from, type: :string, desc: 'Source JSONPath for the copy action'
+        option :file, default: 'overlays/999-user.yaml', desc: 'Project-relative overlay file to modify'
         def call(project:, target:, value: nil, from: nil, file: 'overlays/999-user.yaml', **)
           project = Project.new(project)
           file = Pathname.new(project.path(file)).relative_path_from(Pathname.new(project.root)).to_s
@@ -255,7 +255,7 @@ module Paygen
       end
       class RecipeShow < Base
         desc 'Show an installed recipe'
-        argument :name, required: true
+        argument :name, required: true, desc: 'Installed recipe name'
         def call(name:, **)
           recipe = Project.available_recipes.find { |r| r['name'] == name }
           raise Error, 'Unknown recipe' unless recipe
@@ -264,8 +264,8 @@ module Paygen
       end
       class RecipeAdd < Base
         desc 'Select a recipe as project defaults'
-        argument :project, required: true
-        argument :name, required: true
+        argument :project, required: true, desc: 'Generated project directory'
+        argument :name, required: true, desc: 'Installed recipe name'
         def call(project:, name:, **)
           recipe = Project.available_recipes.find { |r| r['name'] == name }
           raise Error, 'Unknown recipe' unless recipe
@@ -279,7 +279,7 @@ module Paygen
       end
       class RecipeRemove < Base
         desc 'Remove selected recipe defaults'
-        argument :project, required: true
+        argument :project, required: true, desc: 'Generated project directory'
         def call(project:, **)
           project = Project.new(project)
           file = project.path('recipes/selected.yml')
@@ -290,9 +290,9 @@ module Paygen
 
       class Export < Base
         desc 'Export a detached, user-owned integration with runtime source'
-        argument :project, required: true
-        option :standalone, type: :boolean, default: false
-        option :output, required: true
+        argument :project, required: true, desc: 'Generated project directory'
+        option :standalone, type: :boolean, default: false, desc: 'Include runtime source in a detached integration'
+        option :output, required: true, desc: 'Write to a new output directory'
         def call(project:, output:, standalone: false, **)
           raise Error, 'Use --standalone to acknowledge detached regeneration semantics' unless standalone
           emit(Generator.new(project).export(output: output))
@@ -301,9 +301,9 @@ module Paygen
 
       class Docs < Base
         desc 'Export portable integration documentation and examples'
-        argument :project, required: true
-        option :format, default: 'html', values: %w[md html]
-        option :output, required: true
+        argument :project, required: true, desc: 'Generated project directory'
+        option :format, default: 'html', values: %w[md html], desc: 'Output format'
+        option :output, required: true, desc: 'Write to a new output directory'
         def call(project:, output:, format: 'html', **)
           emit(Generator.new(project).docs(format: format, output: output))
         end
@@ -311,9 +311,9 @@ module Paygen
 
       class Collection < Base
         desc 'Export a Bruno collection for the local generated-adapter demo'
-        argument :project, required: true
-        option :format, default: 'bruno', values: %w[bruno]
-        option :output, required: true
+        argument :project, required: true, desc: 'Generated project directory'
+        option :format, default: 'bruno', values: %w[bruno], desc: 'Output format'
+        option :output, required: true, desc: 'Write to a new output directory'
         def call(project:, output:, format: 'bruno', **)
           require_relative 'collection'
           emit(Paygen::Collection.new(project).export(output: output, format: format))
@@ -322,7 +322,7 @@ module Paygen
 
       class ArchitectureCheck < Base
         desc 'Check semantic consistency, input hashes and generated ownership'
-        argument :project, required: true
+        argument :project, required: true, desc: 'Generated project directory'
         def call(project:, **)
           project = Project.new(project)
           diagnostics = project.ir.diagnostics
@@ -337,17 +337,17 @@ module Paygen
         def call(**)
           gems = %w[dry-cli json_schemer janeway-jsonpath rack puma prop_check listen diff-lcs]
           versions = gems.to_h { |name| [name, Gem.loaded_specs[name]&.version&.to_s || Gem::Specification.find_all_by_name(name).first&.version&.to_s] }
-          emit({ 'paygen' => VERSION, 'ruby' => RUBY_VERSION, 'gems' => versions, 'llm_runtime' => false })
+          emit({ 'paygen' => VERSION, 'ruby' => RUBY_VERSION, 'gems' => versions })
           raise Error.new('Missing required gems', code: 'DEPENDENCY_MISSING', exit_code: 2) if versions.values.any?(&:nil?)
         end
       end
 
       class Serve < Base
         desc 'Run a deterministic local provider simulator'
-        argument :project, required: true
-        option :scenario, default: 'success'
-        option :seed, default: '0'
-        option :port, default: '9292'
+        argument :project, required: true, desc: 'Generated project directory'
+        option :scenario, default: 'success', desc: 'Provider simulator scenario, such as success or timeout_after_commit'
+        option :seed, default: '0', desc: 'Seed for reproducible simulation'
+        option :port, default: '9292', desc: 'Loopback HTTP port'
         def call(project:, scenario: 'success', seed: '0', port: '9292', **)
           require 'puma'
           require_relative 'runtime/simulator'
@@ -364,10 +364,10 @@ module Paygen
 
       class Demo < Base
         desc 'Run a local application that invokes the generated adapter and verifies callbacks'
-        argument :project, required: true
-        option :scenario, default: 'success'
-        option :seed, default: '0'
-        option :port, default: '9293'
+        argument :project, required: true, desc: 'Generated project directory'
+        option :scenario, default: 'success', desc: 'Provider simulator scenario, such as success or timeout_after_commit'
+        option :seed, default: '0', desc: 'Seed for reproducible simulation'
+        option :port, default: '9293', desc: 'Loopback HTTP port'
         def call(project:, scenario: 'success', seed: '0', port: '9293', **)
           require 'puma'
           require_relative 'runtime/demo'
@@ -390,10 +390,10 @@ module Paygen
 
       class Verify < Base
         desc 'Verify an adapter with deterministic offline faults or local HTTP smoke'
-        argument :project, required: true
-        option :target, type: :string
-        option :scenario_pack, default: 'default'
-        option :seed, default: '0'
+        argument :project, required: true, desc: 'Generated project directory'
+        option :target, type: :string, desc: 'Existing loopback provider simulator URL'
+        option :scenario_pack, default: 'default', desc: 'Verifier scenario pack'
+        option :seed, default: '0', desc: 'Seed for reproducible simulation'
         def call(project:, target: nil, scenario_pack: 'default', seed: '0', **)
           require_relative 'runtime/adapter'
           require_relative 'runtime/verifier'
@@ -412,7 +412,7 @@ module Paygen
             raise Error.new('A diagnostic-only draft has no adapter to verify', code: 'SEMANTIC_BLOCKERS', exit_code: 4)
           end
           source = File.binread(project.path("generated/#{service_file}"))
-          unless source == expected.fetch(service_file)
+          unless source == expected.fetch(service_file).b
             raise Error.new('Generated adapter bytes differ from the trusted render', code: 'GENERATED_DRIFT', exit_code: 1)
           end
           service = Runtime::ReferenceProvider.load_service(source: source, class_name: config.fetch('class_name'))

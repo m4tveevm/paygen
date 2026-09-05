@@ -1,109 +1,164 @@
-# Architecture and safety
+# Architecture
 
-OpenAPI source is pinned under source/. Ordered contract overlays are applied
-before inference, vendor extensions, recipe defaults, the explicit profile and
-ephemeral CLI overrides. Generated files are owned by Paygen; extensions are
-owned by the application. The lock tracks input and output hashes.
+Paygen is a Ruby CLI with a provider-neutral parser, generator and runtime.
+Provider-specific behavior lives in declarative profiles and optional Ruby
+extensions. Ruby 3.3 or later is required; Node 22 is used only for the manual
+build and the optional Bruno test runner.
 
-The core has no provider branches. Profiles specify operations, mappings,
-credentials references, amount units, statuses, retry and callback policy.
-Network responses and user-owned hooks are outside the generator's trust boundary.
+## Contract processing
 
-Inbound documents use safe YAML/JSON parsing, bounded reference resolution and
-validated path handling. HTTPS ingestion rejects private addresses and pins DNS
-resolution. Arbitrary Ruby in YAML is never evaluated.
+`source/openapi.json` pins the imported OpenAPI document. Paygen applies ordered
+overlays before building an intermediate representation (IR). Semantic settings
+are merged in this order, with later values taking precedence:
 
-Payout retries reuse stable idempotency identities. Timeouts may occur after a
-provider commits a payout, so the outcome stays ambiguous until reconciled.
-Unknown statuses and aggregate batch success cannot approve an individual payout.
+1. Inference from the effective OpenAPI document.
+2. Its `x-paygen` extension.
+3. Recipe defaults.
+4. The project's `integration.yml` profile.
+5. CLI overrides for the current generation.
 
-Webhook verification operates on exact raw bytes. Replay and transition state
-provided by the reference runtime is process-local; a production deployment must
-integrate durable deduplication, idempotency and operation state with its backend.
-The runtime exposes explicit hooks for that integration. Provider-specific
-verification requiring a remote public-key API is an explicit hook contract.
+`explain` reports the origin of a setting. Operation candidates include source
+pointers and selection evidence. Amount units, settlement rules and signing
+requirements need explicit configuration when the contract is ambiguous.
+Unresolved blockers prevent service generation; draft mode emits diagnostics
+and supporting files without an executable service.
 
-Only canonical operation attributes are read from application objects by default.
-Pass a Hash for arbitrary data, or explicitly add trusted backend attribute names
-with `configure_paygen(allowed_attributes: [...])`. A YAML profile cannot extend
-that list or invoke application methods. HTTP calls have a total 20-second deadline
-in addition to connection/read timeouts. An explicit base_url overrides all roles;
-otherwise operation-level server declarations take precedence.
+| Component | Responsibility |
+| --- | --- |
+| `Core::Input` | Parse YAML/JSON, validate OpenAPI 3.0/3.1 and bundle local references |
+| `Core::Overlay` | Apply ordered contract corrections |
+| `Core::IR` | Inventory operations, combine profiles and diagnose unsupported semantics |
+| `Project` | Manage source, profiles, extensions, hashes and generated-file ownership |
+| `Generator` | Render the Ruby service, guide, fixtures, effective contract and provenance |
+| `Runtime::Adapter` | Build requests, authenticate, map results and verify callbacks |
+| `Runtime::Simulator` and `Runtime::Demo` | Exercise provider behavior and the generated adapter locally |
 
-## Standards boundaries
+`Input.load(path_or_url, stdin: $stdin)` returns a validated reference graph.
+`Input.graph(document, base_dir:)` processes an in-memory document;
+`Input.resolve_fragment(document, value, base_dir:)` expands a selected contract.
+`Overlay.new(document).apply(overlay_hash)` returns the transformed document.
 
-Overlay 1.1 supports ordered update/remove/copy, recursive merging, extends
-identity and all RFC 9535 JSONPath selectors. Zero-match actions are warnings.
-The pinned upstream JSONPath compliance suite is executed by RSpec.
+Input limits are 10 MiB, 100,000 nodes, 100 nesting levels, 1,000 expanded
+references and 32 source files. Legal recursion in unused schemas can remain
+in the graph. Cycles or dynamic references requiring expansion in a selected
+operation produce an unsupported diagnostic. External network references are
+denied; local references must stay within the source directory.
 
-Arazzo 1.1 documents are structurally validated with the official schema offline.
-The payout executor supports HTTP/OpenAPI and nested workflows, runtime expressions,
-parameters, input/output mappings, success/failure actions, retries including helper
-steps, JSONPath and regular-expression criteria. The shipped four workflows replay
-create/status calls using offline fixtures.
+## Generated files and extensions
 
-XPath, legacy JSONPath dialects, object/array parameter serialization and AsyncAPI
-broker execution are explicitly unsupported by the executor. External network
-schema references, dynamic references and cyclic schema expansion are denied.
-Local references stay inside the source directory and are bundled safely.
+Generation writes `generated/` and updates `paygen.lock` with input and output
+SHA-256 hashes. It checks generated Ruby syntax and refuses to overwrite manually
+changed output. Edit the profile or `extensions/`, then regenerate. Extension
+files are preserved and never executed during generation.
 
-Run the tests and completion audit before making production claims. A local
-reference harness, offline mocks and generated code are not live-provider certification.
+The generated service is a `Provider::<Name>Service < Provider::BaseService`
+subclass that includes `Paygen::Runtime::Adapter`. Its `PAYGEN_CONFIG` constant
+contains the effective profile, resolved endpoint contracts and source hash.
+Endpoint records include method, path, parameters, request and response schemas,
+security and servers.
 
-## Arazzo Ruby API
+Profiles use versioned YAML/JSON data with string keys. They select operations
+and define request/parameter mappings, amount units, statuses, authentication,
+errors, idempotency and callback policy. See
+[provider configuration](native-onboarding.md) and the examples in `fixtures/`.
 
-`Paygen::Core::Workflow.import` parses and validates a workflow; `export` returns
-JSON or YAML; `run` executes a named workflow. Bind parsed source documents with
-`sources: { source_name => document }`, or use the exact declared URL as the key.
-Source descriptions are declarations: import, export and validation never fetch
-their URLs. Load OpenAPI documents explicitly with `Paygen::Core::Input.load`.
+## Backend interface
 
-Run this example from the repository root. Its transport replays the supplied
-NovaPay responses and makes no network calls:
+The public runtime methods are:
 
-```sh
-bundle exec ruby -Ilib <<'RUBY'
-require 'paygen'
-require 'json'
+```ruby
+check_conditions(operation, request_method = 'create')
+create_request(operation, request_method = 'create')
+fetch_status(operation)
+process_callback(payload, raw_body: nil, headers: {})
+cancel(operation)
+balance
+```
 
-fixtures = JSON.parse(File.read('fixtures/novapay/fixtures.json'))
+`check_conditions` calls the superclass and preserves a failed result. Runtime
+results are hashes with string keys, including `success`, canonical `status`,
+provider identity or structured error details. The application supplies its
+`Provider::BaseService`; repository tests use a compatibility harness.
+
+Configure an instance with:
+
+```ruby
+configure_paygen(credentials:, transport:, base_url:, mode:, account:,
+                token_provider:, state_store:, clock:, allow_local:,
+                allowed_attributes:)
+```
+
+All arguments are optional. The injected transport
+implements `request(method:, url:, headers:, body:)` and returns a hash containing
+`status`, `headers` and `body`.
+
+An explicit `base_url` overrides every role. Otherwise operation-level servers
+take precedence, with selection by mode. HTTP requests have a total 20-second
+deadline in addition to connection/read timeouts. Only canonical attributes are
+read from application objects; arbitrary data can be supplied as a Hash. Trusted
+application code can extend the object allowlist through `allowed_attributes`.
+
+Extensions can implement `paygen_validate`, `paygen_request`, `paygen_response`,
+`paygen_status`, `paygen_classify_error` and `paygen_retry_decision`.
+`paygen_verify_callback` supplies verification for provider-specific signatures
+and rejects them by default. To apply verified callbacks to backend operations,
+override `paygen_callback_result` and delegate to
+`paygen_backend_callback_result`, which calls `approve_operation` or
+`reject_operation`. Backend failure leaves the callback available for retry.
+
+## Payment state and input safety
+
+Money uses integer or decimal-string input and exact decimal conversion. Unknown
+statuses cannot approve a payment. Batch completion requires a matching item
+result before an individual payout is approved.
+
+Stable identities bind retries to the original operation. Where duplicate
+submission safety is unconfirmed, `reconcile_before_retry` requires a status
+check after an ambiguous result. Callback signatures are verified against exact
+raw bytes before state changes. Default replay and idempotency state is in memory;
+the host application must supply durable, coordinated state and idempotent
+backend mutations for deployment across workers or restarts.
+
+YAML/JSON parsing does not evaluate code. HTTPS ingestion rejects private
+addresses and pins DNS resolution. Request headers that control transport framing
+are denied, including changes from extensions. Runtime error output redacts
+credentials. `Paygen::Error` exposes a `code`, `exit_code` and `details` hash;
+diagnostics contain `code`, `severity`, `message` and `path`.
+
+## Overlay and Arazzo support
+
+Overlay 1.1 processing includes ordered update/remove/copy actions, recursive
+merging, `extends` identity and RFC 9535 JSONPath selection. Zero-match actions
+produce warnings. The test suite includes the pinned upstream JSONPath compliance
+cases.
+
+Arazzo 1.1 documents are validated against the bundled official schema. The
+executor supports HTTP/OpenAPI and nested workflows, runtime expressions,
+parameters, input/output mappings, success/failure actions, retries, JSONPath
+and regular-expression criteria. XPath, legacy JSONPath dialects, object/array
+parameter serialization and AsyncAPI broker execution are unsupported.
+
+```ruby
 source = Paygen::Core::Input.load('fixtures/novapay/openapi.yaml')
-responses = fixtures.fetch('workflow').fetch('response_names').map do |name|
-  fixtures.fetch('responses').fetch(name)
-end
-transport = Object.new
-transport.define_singleton_method(:request) do |method:, url:, headers:, body:|
-  responses.shift || raise('Unexpected additional HTTP request')
-end
-
 workflow = Paygen::Core::Workflow.import(
   'fixtures/novapay/workflows/payout.arazzo.yaml',
   sources: { 'provider' => source }, transport: transport
 )
-exported = workflow.export(format: :json) # Use :yaml for YAML output.
-raise 'Export changed the document' unless Paygen::Core::Input.parse(exported) == workflow.document
-result = workflow.run('payout', inputs: fixtures.fetch('workflow').fetch('inputs'), seed: 42)
-raise 'Replay failed' unless result.fetch('success') && responses.empty?
-puts JSON.pretty_generate(result.fetch('outputs'))
-RUBY
+workflow.export(format: :json) # Also supports :yaml.
+workflow.run('payout', inputs: inputs, seed: 42)
 ```
 
-`validate!` also checks local workflow/step dependencies and action targets.
-When a referenced source is supplied, it checks OpenAPI operation IDs/pointers
-and external workflow/step identities. Without that source, external target
-existence remains unresolved; successful validation alone does not establish
-that a workflow can run. The checks do not automatically load or validate other
-Arazzo documents recursively. Nested execution validates each supplied document
-when it enters it. HTTP credentials belong in the injected transport.
+Supply `transport` and the workflow's declared `inputs`. The transport owns HTTP
+authentication. `sources` accepts a declared source name or its exact URL as a
+key; import and validation never fetch source URLs. Validation checks local
+dependencies and supplied external targets. Unprovided external sources remain
+unresolved until execution.
 
 The executor binds `$inputs`, `$steps`, `$workflows`, `$request`, `$response`,
-`$statusCode`, `$url` and `$method` to execution state. `$sourceDescriptions`
-exposes declaration metadata such as `.url`; qualified operation/workflow IDs
-select explicitly supplied sources. HTTP `operationPath` currently requires
+`$statusCode`, `$url`, `$method` and literal `$self` values.
+`$sourceDescriptions` exposes declaration metadata. HTTP `operationPath` uses
 `{$sourceDescriptions.<name>.url}#/paths/<escaped-path>/<method>`.
-Cross-document runtime expressions such as
-`$sourceDescriptions.<name>.<workflowId>.outputs.<name>` or
-`$sourceDescriptions.<name>.<workflowId>.steps.<stepId>` are not bound by this
-executor. Pass nested workflow outputs through the invoking step's outputs.
-`$self` exposes the document's literal value; base-URI normalization, source
-fetching and asynchronous dependency scheduling are outside this executor.
+Cross-document expressions accessing another workflow's internal steps are not
+bound; pass nested results through the invoking step's outputs. Base-URI
+normalization, automatic source fetching and asynchronous scheduling are outside
+the executor's scope.
