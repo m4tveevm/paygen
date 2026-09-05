@@ -44,10 +44,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm ci --ignore-scripts
+      - run: npm install --global npm@11.9.0
+      - run: npm ci --ignore-scripts --engine-strict
       - name: Report documentation dependency advisories
         run: npm audit --json > npm-audit.json
-        continue-on-error: true
+      - run: npm run docs:test
       - run: npm run docs:build
       - uses: actions/upload-artifact@v4
         with:
@@ -73,7 +74,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm install --global npm@11.9.0
       - name: Complete verification gate
+        shell: bash
         run: script/verify-complete | tee verification-complete.log
       - name: Capture verified repository checkpoint
         run: git bundle create paygen-verified.bundle --all
