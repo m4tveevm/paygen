@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "provider": "tbank_payouts",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "native_embedded_openapi",
+  "source_url": "https://www.tbank.ru/business/online-payments/dev/payouts/",
+  "api_version": "1.46",
+  "openapi_version": "3.0.2",
+  "upstream_license": "Apache-2.0",
+  "upstream_license_url": "http://www.apache.org/licenses/LICENSE-2.0.html",
+  "source_page_sha256": "8b3a93953ba4d205ba5e2f383f0e03922a59832bb05dcf2f68b3487db316d874",
+  "extraction": "JSON parse __redoc_state.spec.data from the official HTML, then UTF-8 JSON with 2-space indentation and a trailing newline. No paths, schemas or examples were edited.",
+  "upstream_files": [
+    "upstream/openapi.json"
+  ],
+  "documentation_urls": [
+    "https://www.tbank.ru/business/online-payments/dev/payouts/"
+  ],
+  "notes": [
+    "The source URL is mutable; source-page and extracted-document SHA-256 identify the exact reviewed snapshot.",
+    "This full native contract is separate from Paygen-authored semantic profiles and synthetic offline fixtures."
+  ],
+  "files_sha256": {
+    "UPSTREAM-LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "fixtures.json": "af989396393b7fcd05bbab1c9bd2a2829c74a9c88415d15ff104f07a9c68138a",
+    "review.yml": "780a6bb826663ec7b5cf69773066231df125c37bbded412a8a8b41badf2c3542",
+    "upstream/openapi.json": "0fd239f3126aff0cf8e4fa958910e6365fbbe04723de5f7695acd9f65f26bcb5"
+  }
+}

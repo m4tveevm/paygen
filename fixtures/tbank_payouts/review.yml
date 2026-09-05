@@ -1,0 +1,35 @@
+version: 1
+kind: integration_review
+provider: tbank_payouts
+product: Outgoing card payouts, A2C/E2C
+source: upstream/openapi.json
+readiness: blocked
+native_contract_valid: true
+operation_sequence:
+  - operation_id: Init
+    purpose: Create and check a payout; CHECKED does not mean money was sent.
+  - operation_id: Payment
+    purpose: Confirm the checked payout using its PaymentId.
+  - operation_id: GetState
+    purpose: Reconcile the payout state; this is a POST with a signed JSON body.
+amount:
+  provider_unit: minor
+  currency: RUB
+  example_application: '17.51'
+  example_provider: 1751
+status_mapping:
+  CHECKED: in_progress
+  COMPLETED: approved
+blockers:
+  - code: REQUEST_CERTIFICATE_SIGNATURE_REQUIRED
+    reason: Payout methods require DigestValue, SignatureValue and X509SerialNumber. RSA or GOST signing is described outside securitySchemes.
+  - code: MULTISTEP_CONFIRMATION_REQUIRED
+    reason: The adapter must persist PaymentId and explicitly execute Payment after Init. HTTP 200 and Success=true from Init do not complete the payout.
+  - code: IDEMPOTENCY_POLICY_REVIEW
+    reason: OrderId must be durable; operation-specific repeat and reconciliation behavior must be established before automatic retries.
+  - code: BODY_ERROR_REVIEW
+    reason: Success and ErrorCode occur in HTTP 200 bodies. Status mapping alone does not establish successful request execution.
+unsupported:
+  - Card payout cancellation is not offered by this product.
+  - Token SHA-256 is documented for specified card-binding/3DS and receipt methods, not as a replacement for payout certificate signing.
+  - Native security=[] is not evidence that these payout methods accept unsigned requests.

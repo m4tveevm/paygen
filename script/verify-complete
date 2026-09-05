@@ -15,6 +15,14 @@ npm ci --ignore-scripts --engine-strict
 npm audit --audit-level=high
 npm run docs:test
 npm run docs:build
+npm ci --prefix tools/bruno --ignore-scripts --engine-strict
+npm audit --prefix tools/bruno --audit-level=high
+PAYGEN_BRUNO_REPORTS=$(mktemp -d)
+rmdir "$PAYGEN_BRUNO_REPORTS"
+bundle exec ruby script/verify-bruno.rb --cli tools/bruno/node_modules/@usebruno/cli/bin/bru.js --output "$PAYGEN_BRUNO_REPORTS"
+mkdir -p tmp/bruno-verification
+cp -R "$PAYGEN_BRUNO_REPORTS/." tmp/bruno-verification/
+rm -rf "$PAYGEN_BRUNO_REPORTS"
 docker build -t paygen-verification .
 docker run --rm paygen-verification doctor
 docker build -f Dockerfile.docs -t paygen-docs-verification .
@@ -29,4 +37,4 @@ trap cleanup_docs EXIT
 PAYGEN_DOCS_PORT=$(docker port "$PAYGEN_DOCS_CONTAINER" 80/tcp | sed 's/.*://')
 PAYGEN_DOCS_PAGE=$(curl --retry 5 --retry-all-errors --retry-delay 1 --retry-max-time 20 --connect-timeout 2 --max-time 5 --fail --silent --show-error "http://127.0.0.1:$PAYGEN_DOCS_PORT/")
 [[ "$PAYGEN_DOCS_PAGE" == *Paygen* ]]
-ruby -rjson -e 'puts JSON.pretty_generate(status: "PASS", ruby: RUBY_VERSION, checks: %w[rspec lint dependency_audit four_provider_smoke architecture diplodoc ruby_oci docs_oci])'
+ruby -rjson -e 'puts JSON.pretty_generate(status: "PASS", ruby: RUBY_VERSION, checks: %w[rspec lint dependency_audit seven_provider_smoke architecture diplodoc bruno ruby_oci docs_oci])'

@@ -14,7 +14,7 @@ bundle exec bin/paygen verify tmp/novapay --seed 42
 
 Requires Ruby >=3.3. Documentation uses Node 22 and npm 11.9.0. Reference image: `ruby:4.0.6-slim`.
 
-Outputs: a `Provider::BaseService` subclass, `INTEGRATION.md`, `fixtures.json`,
+Outputs: a `Provider::BaseService` subclass, `INTEGRATION.md`, `fixtures.json`, `effective-openapi.json`,
 effective configuration, diagnostics and provenance. The real backend base class
 is not published with the case; `spec/support/provider_harness.rb` is the
 reference seam, and runtime outcomes are structured hashes.
@@ -40,7 +40,8 @@ produces diagnostics when semantic blockers prevent executable output.
 
 ```text
 paygen inspect INPUT [--profile FILE] [--format text|json] [--strict]
-paygen init INPUT --output PROJECT
+paygen init INPUT --output PROJECT [--profile FILE]
+paygen configure PROJECT [--answers FILE] [--set KEY=VALUE]
 paygen generate PROJECT [--draft] [--set KEY=VALUE] [--save-profile FILE] [--watch]
 paygen diff PROJECT [--check]
 paygen update PROJECT NEW_INPUT
@@ -48,6 +49,9 @@ paygen explain PROJECT FACT_PATH
 paygen patch add|replace|remove|copy PROJECT TARGET [--value JSON] [--from JSONPATH]
 paygen recipe list|show|add|remove
 paygen serve PROJECT [--scenario NAME] [--seed N] [--port 9292]
+paygen demo PROJECT [--scenario NAME] [--seed N] [--port 9293]
+paygen docs PROJECT --format html|md --output DIR
+paygen collection PROJECT --format bruno --output DIR
 paygen verify PROJECT [--target http://127.0.0.1:9292] [--scenario-pack NAME] [--seed N]
 paygen export PROJECT --standalone --output DIR
 paygen architecture-check PROJECT
@@ -64,6 +68,18 @@ NovaPay uses the original supplied contract plus explicit corrections. PayPal
 Standard Payouts, Stripe Connect Payouts and Adyen Transfers v4 are curated
 subsets with source and license provenance. See `fixtures/README.md`.
 
+Full, unmodified native contracts now have independent offline examples for
+Paystack transfers, PayPal's single-item payout flow and Raiffeisen SBP payouts.
+Russian bank examples also include explicit T-Bank signing/workflow blockers
+and a Tochka payment-order review. See [native onboarding](docs/native-onboarding.md)
+and [Russian bank examples](docs/ru-bank-examples.md). An imported document is
+not automatically a configured or bank-approved integration.
+
+`configure` reports role candidates with evidence and unresolved semantic
+questions. Explicit profiles supply settlement status, money units, recipient
+mapping and retry policy. Full sources retain their bounded reference graphs;
+only selected operations expand. Unsupported selected recursion is diagnosed.
+
 The reference runtime supports exact decimal conversion, stable payout identities,
 ambiguous timeout results, explicit status transitions, callback verification and
 credential rotation. Production integrations must supply durable state storage and
@@ -73,6 +89,14 @@ an application hook; offline fixtures never pretend an unverified webhook passed
 The offline verifier exercises faults using real adapter calls. `--target` is
 restricted to an explicit loopback HTTP simulator and reports remote smoke
 coverage separately. No command in the default demo calls a live provider.
+
+`demo` exposes a local application that calls the generated adapter, validates
+its outgoing credentials in the simulator, and receives signed callbacks.
+`collection` exports a runnable Bruno collection for that application. `docs`
+exports portable Markdown or HTML with the effective specification and examples;
+neither generating HTML nor generating a collection needs Node or a hosted site.
+The project documentation under `docs/` and the generated integration guide serve
+different audiences. GitHub Pages is one optional publication destination.
 
 ## Verification and documentation
 

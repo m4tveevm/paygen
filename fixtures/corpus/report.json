@@ -1,0 +1,492 @@
+{
+  "corpus_version": 1,
+  "import_pass_count": 13,
+  "results": [
+    {
+      "bytes": 6409430,
+      "code": "INPUT_NODES",
+      "import": "blocked",
+      "phase": "parse",
+      "provider": "stripe",
+      "sha256": "2e0ce56f026b1862dd772061c839a2c8ca9cc3e180f8bb22d7694b8ba214d203",
+      "source_url": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.yaml"
+    },
+    {
+      "bytes": 75801,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 4,
+      "provider": "paypal",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "2a86549e2e7e42e9f082d9e43051fe55b83ef19dea1f76cff549377756374cc0",
+      "source_url": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/payments_payouts_batch_v1.json",
+      "version": "3.0.3"
+    },
+    {
+      "bytes": 251960,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 12,
+      "provider": "adyen",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "AUTH_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "86ddb9fb0723d82bc7d954f0d09936b3a7088c5e4c5895f4668935eef49d3a6e",
+      "source_url": "https://raw.githubusercontent.com/Adyen/adyen-openapi/main/json/TransferService-v4.json",
+      "version": "3.1.0"
+    },
+    {
+      "bytes": 732841,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 186,
+      "provider": "modern-treasury",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "d5e8dca15dd2427a35d24a4c50f9ec363cd8fd6901e55df490ea3998045b1983",
+      "source_url": "https://raw.githubusercontent.com/Modern-Treasury/modern-treasury-openapi/main/openapi/mt_openapi_spec_v1.yaml",
+      "version": "3.0.1"
+    },
+    {
+      "bytes": 1161898,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 283,
+      "provider": "lithic",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "63e4625129589eede6e1d9a58255461944a4f2cbd67f5a433a80dcfd0a38070f",
+      "source_url": "https://raw.githubusercontent.com/lithic-com/lithic-openapi/main/lithic-openapi.yml",
+      "version": "3.1.0"
+    },
+    {
+      "bytes": 617901,
+      "code": "OAS_INVALID",
+      "details": {
+        "errors": [
+          {
+            "path": "/paths/~1exchanges/post/responses/201/headers/Location/example",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1customers~1{id}~1exchanges/post/responses/201/headers/Location/example",
+            "rule": "schema"
+          }
+        ]
+      },
+      "import": "blocked",
+      "phase": "graph_validation",
+      "provider": "dwolla",
+      "sha256": "0e13062ae3bebbcc83550adeb56f880005347ad30bb365bb466d33a3d2a103dd",
+      "source_url": "https://raw.githubusercontent.com/Dwolla/dwolla-openapi/main/openapi.yml",
+      "version": "3.1.0"
+    },
+    {
+      "bytes": 520504,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 163,
+      "provider": "paystack",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "IDEMPOTENCY_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "4427de6c07533f3d4e2202560f53f7d959b3b71f0a7a33f6d270b375fb0187d1",
+      "source_url": "https://raw.githubusercontent.com/PaystackOSS/openapi/main/dist/paystack.yaml",
+      "version": "3.0.1"
+    },
+    {
+      "bytes": 1945498,
+      "code": "OAS_INVALID",
+      "details": {
+        "errors": [
+          {
+            "path": "/paths/~1v2~1balances/get/parameters/1/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1balances~1{balanceId}~1transactions/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1settlements/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1settlements~1{settlementId}~1captures/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1settlements~1{settlementId}~1refunds/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1settlements~1{settlementId}~1chargebacks/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1invoices/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1profiles/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1clients/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1clients/get/parameters/1/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1clients~1{organizationId}/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1webhooks/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1connect~1balance-transfers/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments/post/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments~1{paymentId}/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments~1{paymentId}/get/parameters/1/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1unmatched-credit-transfers/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1methods/get/parameters/8/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1methods~1all/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1methods~1{methodId}/get/parameters/3/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments~1{paymentId}~1refunds/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments~1{paymentId}~1refunds~1{refundId}/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1refunds/get/parameters/3/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments~1{paymentId}~1chargebacks/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments~1{paymentId}~1chargebacks~1{chargebackId}/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1chargebacks/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments~1{paymentId}~1captures/get/parameters/2/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payments~1{paymentId}~1captures~1{captureId}/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1terminals~1pairing-codes/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1terminals~1pairing-codes/post/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1terminals~1pairing-codes~1{pairingCodeId}/get/parameters/1/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1subscriptions/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1sales-invoices/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1business-accounts~1draft-transfers/get/parameters/0/schema",
+            "rule": "schema"
+          },
+          {
+            "path": "/paths/~1v2~1payouts/get/parameters/1/schema",
+            "rule": "schema"
+          }
+        ]
+      },
+      "import": "blocked",
+      "phase": "graph_validation",
+      "provider": "mollie",
+      "sha256": "b7497b77b18f19bd514a1041a489f930f2ad00b829843010bfccb6bf36f791d1",
+      "source_url": "https://raw.githubusercontent.com/mollie/openapi/main/specs.yaml",
+      "version": "3.1.0"
+    },
+    {
+      "bytes": 3163817,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 351,
+      "provider": "plaid",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "141de8aaaad29c9b81c4d9d3b681711562fb729fe6c45208aaba65fe94852846",
+      "source_url": "https://raw.githubusercontent.com/plaid/plaid-openapi/master/2020-09-14.yml",
+      "version": "3.0.0"
+    },
+    {
+      "bytes": 3279392,
+      "code": "REF_MISSING",
+      "import": "blocked",
+      "phase": "graph_validation",
+      "provider": "square",
+      "sha256": "a0d0db22c202f68282fd359772461697b3f635df03d3b19b11bb60add7f8ff7c",
+      "source_url": "https://raw.githubusercontent.com/square/connect-api-specification/master/api.json",
+      "version": "3.0.0"
+    },
+    {
+      "bytes": 987155,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 96,
+      "provider": "yapily",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "a8ca54f9eb9fc435601bc34be03b10ebcb93d38c359a4ec89817c6ff3ca77220",
+      "source_url": "https://raw.githubusercontent.com/yapily/yapily-openapi/main/openapi.json",
+      "version": "3.0.1"
+    },
+    {
+      "bytes": 73378,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 33,
+      "provider": "zbd",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "196b057870861751cb91e2eca706c1435a53a184dc8a1285d112423ffe1b5d2a",
+      "source_url": "https://raw.githubusercontent.com/zbdpay/payments-openapi/main/openapi.yml",
+      "version": "3.0.3"
+    },
+    {
+      "bytes": 886462,
+      "code": "OAS_VERSION",
+      "import": "blocked",
+      "phase": "graph_validation",
+      "provider": "currencycloud",
+      "sha256": "34f964ad1af12f6299e884c84dd3582cadbcd4300af5874f2dd2b90d30559dc6",
+      "source_url": "https://raw.githubusercontent.com/CurrencyCloud/currencycloud-swagger/master/src/reference.yaml",
+      "version": "2.0"
+    },
+    {
+      "bytes": 1203052,
+      "code": "INPUT_NUMBER",
+      "import": "blocked",
+      "phase": "parse",
+      "provider": "rapyd",
+      "sha256": "09330073052ff50c0af03a8d7f2aca42a13b309cd5b5d50d5c9c1ddf72f83ce0",
+      "source_url": "https://raw.githubusercontent.com/Rapyd-Samples/RapydOpenAPI/master/rapyd-openapi.yaml"
+    },
+    {
+      "bytes": 402421,
+      "code": "OAS_INVALID",
+      "details": {
+        "errors": [
+          {
+            "path": "/components/schemas/PaymentDowntime/properties/end/type",
+            "rule": "string"
+          },
+          {
+            "path": "/components/schemas/PaymentDowntime/properties/end/type",
+            "rule": "enum"
+          },
+          {
+            "path": "/components/schemas/PaymentDowntime/properties/end",
+            "rule": "required"
+          },
+          {
+            "path": "/components/schemas/PaymentDowntime",
+            "rule": "required"
+          },
+          {
+            "path": "/components/schemas/DisputeEvidence/properties/submitted_at/type",
+            "rule": "string"
+          },
+          {
+            "path": "/components/schemas/DisputeEvidence/properties/submitted_at/type",
+            "rule": "enum"
+          },
+          {
+            "path": "/components/schemas/DisputeEvidence/properties/submitted_at",
+            "rule": "required"
+          },
+          {
+            "path": "/components/schemas/DisputeEvidence",
+            "rule": "required"
+          }
+        ]
+      },
+      "import": "blocked",
+      "phase": "graph_validation",
+      "provider": "razorpay",
+      "sha256": "824ca9e6faef0f08da4670d219931a842a68e6c88a4015160e5f4815a5e6a9a4",
+      "source_url": "https://razorpay.com/openapi.json",
+      "version": "3.0.0"
+    },
+    {
+      "bytes": 74120,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 11,
+      "provider": "circle",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "IDEMPOTENCY_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "1bb54d44710fa1d87299cab7b5d1cf12975e94ad9fc1bc5aa60c6ba0a4e3baa1",
+      "source_url": "https://developers.circle.com/openapi/payouts.yaml",
+      "version": "3.0.2"
+    },
+    {
+      "bytes": 385295,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 54,
+      "provider": "transferzero",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "AUTH_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "e6dd3e0e80e80e6574e56c53205b56ff8c832670061cbe84bb6d218e4bac7026",
+      "source_url": "https://specification.transferzero.com/generated/openapi.json",
+      "version": "3.0.2"
+    },
+    {
+      "bytes": 4550140,
+      "code": "OAS_VERSION",
+      "import": "blocked",
+      "phase": "graph_validation",
+      "provider": "griffin",
+      "sha256": "2a6f46f88c8508aaa3b6f46316d37b060397e87a1a5e3dc6bc057767295ef4b9",
+      "source_url": "https://docs.griffin.com/redocusaurus/plugin-redoc-0.yaml",
+      "version": "2.0"
+    },
+    {
+      "bytes": 279050,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 22,
+      "provider": "nomupay",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "DUPLICATE_OPERATION_ID",
+        "IDEMPOTENCY_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "a354597147c2b9604e6c58f2423a30fddeae8f24a5bcb1a28cd3fd5dc4cd3256",
+      "source_url": "https://docs.nomupay.com/redocusaurus/payouts-api-v1.yaml",
+      "version": "3.1.0"
+    },
+    {
+      "bytes": 286320,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 22,
+      "provider": "raiffeisen",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "2b0c366e95da475ddd931474a2fc75fa22edc6087318f441082d6c7780d8f0d6",
+      "source_url": "https://pay.raif.ru/doc/payout.html",
+      "version": "3.0.3"
+    },
+    {
+      "bytes": 294071,
+      "generation": "not_run_without_reviewed_profile",
+      "import": "pass",
+      "operation_count": 27,
+      "provider": "tbank",
+      "semantic_blockers": [
+        "AMOUNT_SCALE_REQUIRED",
+        "CREATE_REQUIRED",
+        "CURRENCIES_REQUIRED",
+        "INVALID_CLASS",
+        "INVALID_PROVIDER",
+        "SEMANTIC_REQUIRED"
+      ],
+      "sha256": "0fd239f3126aff0cf8e4fa958910e6365fbbe04723de5f7695acd9f65f26bcb5",
+      "source_url": "https://www.tbank.ru/business/online-payments/dev/payouts/",
+      "version": "3.0.2"
+    }
+  ],
+  "scope": "Digest-verified native import and semantic inspection only; independent adapter replay is tested separately.",
+  "selection": "Purposive diverse sample of 21 API brands, not a statistically random sample. Bank payment orders, transfers, payouts and acquiring are distinct products.",
+  "source_count": 21
+}

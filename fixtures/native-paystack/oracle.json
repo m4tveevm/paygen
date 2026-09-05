@@ -1,0 +1,104 @@
+{
+  "operation": {
+    "id": "native_example_00000001",
+    "amount": "123.45",
+    "currency": "NGN",
+    "payout_requisite": {
+      "recipient_code": "RCP_test00000001"
+    }
+  },
+  "credentials": {
+    "secret_key": "sk_test_offline_fixture"
+  },
+  "create_url": "https://api.paystack.co/transfer",
+  "status_url": "https://api.paystack.co/transfer/TRF_test00000001",
+  "authorization": "Bearer sk_test_offline_fixture",
+  "expected_request": {
+    "source": "balance",
+    "amount": 12345,
+    "currency": "NGN",
+    "recipient": "RCP_test00000001",
+    "reference": "native_example_00000001"
+  },
+  "create_http_status": 200,
+  "create_response": {
+    "status": true,
+    "message": "Transfer initiated",
+    "data": {
+      "amount": 12345,
+      "createdAt": "2026-01-02T03:04:05.000Z",
+      "currency": "NGN",
+      "domain": "test",
+      "failures": null,
+      "id": 1001,
+      "integration": 1002,
+      "reason": "Offline contract test",
+      "reference": "native_example_00000001",
+      "source": "balance",
+      "source_details": null,
+      "status": "pending",
+      "titan_code": null,
+      "transfer_code": "TRF_test00000001",
+      "request": 1003,
+      "transferred_at": null,
+      "updatedAt": "2026-01-02T03:04:05.000Z",
+      "recipient": 1004,
+      "transfersessionid": [],
+      "transfertrials": []
+    }
+  },
+  "status_response": {
+    "status": true,
+    "message": "Transfer retrieved",
+    "data": {
+      "amount": 12345,
+      "createdAt": "2026-01-02T03:04:05.000Z",
+      "currency": "NGN",
+      "domain": "test",
+      "failures": null,
+      "id": 1001,
+      "integration": 1002,
+      "reason": "Offline contract test",
+      "reference": "native_example_00000001",
+      "source": "balance",
+      "source_details": null,
+      "status": "success",
+      "titan_code": null,
+      "transfer_code": "TRF_test00000001",
+      "request": 1003,
+      "transferred_at": null,
+      "updatedAt": "2026-01-02T03:04:05.000Z",
+      "recipient": {
+        "active": true,
+        "createdAt": "2026-01-02T03:04:05.000Z",
+        "currency": "NGN",
+        "description": "Offline recipient",
+        "domain": "test",
+        "email": "recipient@example.test",
+        "id": 1004,
+        "integration": 1002,
+        "name": "Test Recipient",
+        "recipient_code": "RCP_test00000001",
+        "type": "nuban",
+        "updatedAt": "2026-01-02T03:04:05.000Z",
+        "is_deleted": false,
+        "isDeleted": false,
+        "details": {
+          "authorization_code": null,
+          "account_number": "0000000000",
+          "account_name": "Test Recipient",
+          "bank_code": "000",
+          "bank_name": "Test Bank"
+        }
+      },
+      "session": {
+        "provider": null,
+        "id": null
+      },
+      "fee_charged": 0,
+      "fees_breakdown": null,
+      "gateway_response": null
+    }
+  },
+  "provider_id": "TRF_test00000001"
+}

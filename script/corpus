@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+require_relative '../lib/paygen'
+require 'time'
+
+# Read-only, network-free benchmark of a separately downloaded source cache.
+# A matching digest is mandatory; changing upstream sources cannot change results
+# without an explicit manifest update and review.
+cache = ARGV.fetch(0) { abort 'Usage: bundle exec ruby script/corpus SOURCE_CACHE' }
+manifest = JSON.parse(File.read(File.expand_path('../fixtures/corpus/manifest.json', __dir__)))
+results = manifest.fetch('sources').map do |source|
+  result = source.slice('provider', 'source_url', 'sha256', 'bytes')
+  filename = source.fetch('file')
+  abort 'Invalid corpus filename' unless filename == File.basename(filename) && filename.match?(/\A[a-z0-9_-]+\.native\z/)
+  path = File.join(cache, filename)
+  unless File.file?(path)
+    next result.merge('import' => 'not_run', 'code' => 'SOURCE_MISSING')
+  end
+  unless Digest::SHA256.file(path).hexdigest == source.fetch('sha256')
+    next result.merge('import' => 'not_run', 'code' => 'SOURCE_DIGEST_MISMATCH')
+  end
+  phase = 'parse'
+  begin
+    document = Paygen::Core::Input.read(path)
+    result['version'] = document['openapi'] || document['swagger']
+    phase = 'graph_validation'
+    graph = Paygen::Core::Input.graph(document)
+    result['import'] = 'pass'
+    phase = 'semantic_inspection'
+    ir = Paygen::Core::IR.new(graph)
+    result['operation_count'] = ir.operations.size
+    result['semantic_blockers'] = ir.diagnostics.select { |item| item['severity'] == 'blocker' }.map { |item| item['code'] }.uniq.sort
+    result['generation'] = 'not_run_without_reviewed_profile'
+  rescue Paygen::Error => e
+    result['import'] ||= 'blocked'
+    result['phase'] = phase
+    result['code'] = e.code
+    result['details'] = e.details unless e.details.empty?
+  end
+  result
+end
+puts Paygen.json({ 'corpus_version' => manifest.fetch('version'), 'selection' => manifest.fetch('selection'),
+                   'scope' => 'Digest-verified native import and semantic inspection only; independent adapter replay is tested separately.',
+                   'source_count' => results.size, 'import_pass_count' => results.count { |row| row['import'] == 'pass' },
+                   'results' => results })
