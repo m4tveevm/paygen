@@ -76,12 +76,6 @@ module Paygen
             invalid('OVERLAY_REMOVE', 'remove must be a boolean')
           end
           selector!(action['copy']) if action.key?('copy')
-          if action.key?('copy') && action.key?('update') && action['remove'] != true
-            invalid('OVERLAY_AMBIGUOUS', 'Specify either update or copy in an action')
-          end
-          unless action.key?('update') || action.key?('copy') || action.key?('remove')
-            invalid('OVERLAY_ACTION', 'An action must include update, remove, or copy')
-          end
         end
         overlay
       rescue Janeway::Error
@@ -100,6 +94,12 @@ module Paygen
           remove(matches)
           return
         end
+        if action.key?('update') && action.key?('copy')
+          # Overlay 1.1 defines both modifiers as having no effect when the
+          # other is present. The schema permits both; do not invent precedence.
+          @diagnostics << diagnostic('OVERLAY_MODIFIERS_IGNORED', 'update and copy suppress each other in the same action', "/actions/#{index}")
+          return
+        end
         return unless action.key?('update') || action.key?('copy')
         kinds = matches.map { |match| kind(match[0]) }.uniq
         invalid('OVERLAY_MIXED_TYPES', 'An action must select only objects, only arrays, or only primitives') unless kinds.size == 1
@@ -112,12 +112,17 @@ module Paygen
                  end
         # Compute all replacements before editing any selected target. This
         # preserves copy snapshots and prevents partially applied actions.
-        replacements = matches.map { |value, parent, key, path| [merge(value, update, path), parent, key] }
-        replacements.each do |replacement, parent, key|
-          if parent.nil?
-            document.replace(replacement)
-          else
-            parent[key] = replacement
+        matches.each { |value, _parent, _key, path| merge(value, update, path) }
+        matches.each do |_value, _parent, _key, path|
+          # Revisit the normalized location after an ancestor update. Keeping
+          # stale parent objects would lose updates to descendants.
+          select(document, path).each do |current, parent, key, _normalized|
+            replacement = merge(current, update, path)
+            if parent.nil?
+              document.replace(replacement)
+            else
+              parent[key] = replacement
+            end
           end
         end
       end

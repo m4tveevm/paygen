@@ -115,5 +115,24 @@
         "X-NovaPay-Signature": "17109ab8160107f1343857c7e53b675939a687f275da613419d9b46f014d4889"
       }
     }
+  },
+  "workflow": {
+    "inputs": {
+      "request_body": {
+        "amount": 1500000,
+        "currency": "RUB",
+        "external_id": "op_nova_001",
+        "recipient": {
+          "type": "sbp",
+          "phone": "79001234567",
+          "bank_code": "044525225"
+        }
+      }
+    },
+    "response_names": [
+      "created",
+      "completed"
+    ],
+    "expected_provider_status": "completed"
   }
 }

@@ -25,10 +25,11 @@
   ],
   "files_sha256": {
     "UPSTREAM-LICENSE": "48138ad66ad2db9a2076a4d3ffb248688e7ed7e5b66749b8d367647ded6780cb",
-    "fixtures.json": "9719cc953e60b4c073c94f9a0eba20fd42431603d8bd838096e8e73abcdae4ac",
+    "fixtures.json": "83985c4fb3de4d56c2955f801160ee9a83c961cf5e8c5b28ae455951fe9ceca8",
     "integration.yml": "6421aee4b7f3fcff69dbffe0b2992fe55afe7f8a4ebd66cb9ec5f1a6beff3169",
     "openapi.yaml": "6101f0a154aab76a4a107988a6e6b704233896d0648971384529117b03830674",
     "overlay.yaml": "e26bae05fafe754f6732b5fe6c062a110b2ee8e83040eca42f73b935ad0fe594",
-    "scenarios.yml": "0777772ba73a319b671a0a8f52a691b963726522cd687dbd231f763ed8203115"
+    "scenarios.yml": "0777772ba73a319b671a0a8f52a691b963726522cd687dbd231f763ed8203115",
+    "workflows/payout.arazzo.yaml": "93789f0f36c0a8700f6a4d700dfa138cae92d418d02c14199b344d41e15b867a"
   }
 }

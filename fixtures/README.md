@@ -24,6 +24,15 @@ The test suite builds the adapters through public project and generator APIs,
 uses an injected transport, and checks the exact request representation and
 callback behavior. No provider account or network access is required.
 
+Each `workflows/payout.arazzo.yaml` is an Arazzo 1.1 create/status workflow,
+also embedded in its recipe for project initialization. Supply the effective
+OpenAPI document under the `provider` source name and the native request body
+from `fixtures.json` when replaying it. The workflow transports native provider
+amounts; the generated adapter owns application-to-provider amount conversion.
+Authentication belongs to the injected workflow transport. A successful workflow
+means that its HTTP checks passed, including when the returned payout state is
+`FAILED` or still `booked`; inspect the output before deciding settlement state.
+
 The PayPal signature boundary requires an application-supplied verification
 hook. The default rejects callbacks. Tests substitute that boundary explicitly;
 they do not claim that synthetic messages have valid PayPal signatures.

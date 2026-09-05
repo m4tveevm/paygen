@@ -5,6 +5,7 @@ require 'ipaddr'
 require 'net/http'
 require 'openssl'
 require 'resolv'
+require 'timeout'
 require 'uri'
 
 module Paygen
@@ -29,7 +30,8 @@ module Paygen
         0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16
         172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16
         198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4
-        240.0.0.0/4 ::/128 ::1/128 fc00::/7 fe80::/10 ff00::/8 2001:db8::/32
+        240.0.0.0/4 ::/128 ::1/128 64:ff9b::/96 64:ff9b:1::/48 100::/64
+        2001::/23 2001:db8::/32 2002::/16 fc00::/7 fe80::/10 ff00::/8
       ].map { |range| IPAddr.new(range) }.freeze
       SENSITIVE = /(?:authorization|api[_-]?key|secret|token|password|card|pan|phone|email|recipient|iban)/i
 
@@ -90,16 +92,30 @@ module Paygen
     # keeps the original host for certificate verification and SNI. Redirects
     # are returned to the adapter and never followed with provider credentials.
     class HTTPTransport
-      def initialize(allow_local: false, open_timeout: 5, read_timeout: 15, maximum_bytes: 1_048_576)
+      def initialize(allow_local: false, open_timeout: 5, read_timeout: 15, total_timeout: 20,
+                     maximum_bytes: 1_048_576)
         @allow_local = allow_local
         @open_timeout = open_timeout
         @read_timeout = read_timeout
+        @total_timeout = Float(total_timeout)
+        raise ArgumentError, 'total_timeout must be positive and finite' unless @total_timeout.positive? && @total_timeout.finite?
+
         @maximum_bytes = maximum_bytes
       end
 
       def request(method:, url:, headers:, body:)
+        # A provider can keep a socket alive indefinitely by trickling bytes.
+        # Bound DNS, connection establishment and every response chunk together.
+        Timeout.timeout(@total_timeout) do
+          perform_request(method: method, url: url, headers: headers, body: body)
+        end
+      end
+
+      private
+
+      def perform_request(method:, url:, headers:, body:)
         target = Security.uri(url, allow_local: @allow_local)
-        addresses = Resolv.getaddresses(target.hostname)
+        addresses = Timeout.timeout(5) { Resolv.getaddresses(target.hostname) }
         raise SecurityError, 'Destination did not resolve' if addresses.empty?
         unless addresses.all? { |address| Security.permitted_address?(address, allow_local: @allow_local) }
           raise SecurityError, 'Destination resolves to a restricted address'

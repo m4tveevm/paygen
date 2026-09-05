@@ -7,3 +7,5 @@
 /docs/_build/
 /output/
 /.env
+/*.bundle
+/verification-complete.log

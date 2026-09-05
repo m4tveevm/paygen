@@ -39,7 +39,7 @@ RSpec.describe 'Offline provider golden packs' do
         credentials: fixture.fetch('credentials'), transport: transport,
         account: fixture['account'], clock: -> { Time.at(fixture.fetch('clock')) }
       )
-      yield adapter, fixture, requests, project, generator
+      yield adapter, fixture, requests, project, generator, transport
     ensure
       Provider.send(:remove_const, class_name) if class_name && Provider.const_defined?(class_name, false)
     end
@@ -119,6 +119,39 @@ RSpec.describe 'Offline provider golden packs' do
         with_adapter(provider, ['rate_limited']) do |adapter, fixture|
           result = adapter.create_request(fixture.fetch('operation'))
           expect(result.fetch('error')).to include('retryable' => true, 'retry_after' => 60)
+        end
+      end
+
+      it 'imports, exports, and replays its Arazzo create/status workflow' do
+        expected = pack_data(provider).fetch('workflow')
+        with_adapter(provider, expected.fetch('response_names')) do |_adapter, fixture, requests, project, _generator, transport|
+          document = Paygen::Core::Input.read(File.join(packs_root, provider, 'workflows/payout.arazzo.yaml'))
+          workflow = Paygen::Core::Workflow.new(document, sources: { 'provider' => project.effective_document }, transport: transport)
+          expect(JSON.parse(workflow.export(format: :json))).to eq(document)
+          result = workflow.run('payout', inputs: fixture.dig('workflow', 'inputs'), seed: 42)
+          expect(result).to include('success' => true, 'seed' => 42)
+          expect(result.dig('outputs', 'provider_status')).to eq(expected.fetch('expected_provider_status'))
+          expect(result.fetch('trace').map { |step| step.fetch('stepId') }).to eq(%w[create status])
+          expect(requests.map { |request| request.fetch(:method) }).to eq(%w[POST GET])
+          expect(requests.last.fetch(:url)).to end_with('/' + result.dig('outputs', 'provider_id'))
+          if provider == 'stripe'
+            expect(URI.decode_www_form(requests.first.fetch(:body)).to_h).to include(
+              'metadata[operation_id]' => fixture.dig('operation', 'id')
+            )
+          else
+            expect(JSON.parse(requests.first.fetch(:body))).to eq(fixture.dig('workflow', 'inputs', 'request_body'))
+          end
+        end
+      end
+
+      it 'ends its workflow when creation fails instead of polling a missing payout' do
+        with_adapter(provider, ['rate_limited']) do |_adapter, fixture, requests, project, _generator, transport|
+          document = Paygen::Core::Input.read(File.join(packs_root, provider, 'workflows/payout.arazzo.yaml'))
+          workflow = Paygen::Core::Workflow.new(document, sources: { 'provider' => project.effective_document }, transport: transport)
+          result = workflow.run('payout', inputs: fixture.dig('workflow', 'inputs'))
+          expect(result.fetch('success')).to be(false)
+          expect(result.fetch('outputs')).to be_empty
+          expect(requests.length).to eq(1)
         end
       end
     end

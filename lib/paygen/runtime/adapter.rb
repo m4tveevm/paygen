@@ -13,8 +13,14 @@ module Paygen
     # Backend seam: generated classes include this module below BaseService.
     # Public results always use string keys and never contain credential values.
     module Adapter
+      DEFAULT_OPERATION_ATTRIBUTES = %w[
+        id amount currency payout_requisite provider_operation_id provider_id
+        provider_payment_id provider_item_id idempotency_key balance_account_id
+      ].freeze
+
       def configure_paygen(credentials: {}, transport: nil, base_url: nil, mode: 'sandbox', account: nil,
-                           token_provider: nil, state_store: nil, clock: nil, allow_local: false)
+                           token_provider: nil, state_store: nil, clock: nil, allow_local: false,
+                           allowed_attributes: [])
         @paygen_credentials = stringify(credentials)
         @paygen_sensitive_values = []
         @paygen_allow_local = allow_local
@@ -24,7 +30,10 @@ module Paygen
         @paygen_token_provider = token_provider
         @paygen_store = state_store || MemoryStateStore.new
         @paygen_clock = clock || -> { Time.now }
-        @paygen_base_url = base_url || default_server
+        # Only trusted application code may extend object attribute access.
+        # Profile mappings can never opt into invoking arbitrary model methods.
+        @paygen_operation_attributes = (DEFAULT_OPERATION_ATTRIBUTES + Array(allowed_attributes).map(&:to_s)).uniq.freeze
+        @paygen_base_url_override = base_url
         @paygen_configured = true
         self
       end
@@ -101,7 +110,10 @@ module Paygen
 
         provider_status = read_path(parsed, config.fetch('status', 'status'))
         event = read_path(parsed, config.fetch('event', 'event'))
-        expected = config.fetch('events', {})[event]
+        events = config.fetch('events', {})
+        return failure('unsupported_event') if !events.empty? && !events.key?(event)
+
+        expected = events[event]
         return failure('event_status_mismatch') if expected && provider_status && expected != provider_status
 
         provider_status ||= expected
@@ -123,7 +135,7 @@ module Paygen
             state[key] = { 'events' => (previous['events'] + [event_id.to_s]).last(10_000),
                            'status' => result['status'], 'provider_status' => provider_status.to_s,
                            'order' => ordering || previous['order'] }
-            result['external_id'] = read_path(parsed, config['external_id']) if config['external_id']
+            result['external_id'] = safe(read_path(parsed, config['external_id'])) if config['external_id']
             result
           end
         end
@@ -138,7 +150,8 @@ module Paygen
       def paygen_request(request, _role, _operation) = request
       def paygen_response(response, _role, _operation) = response
       def paygen_status(status, _payload) = status
-      def paygen_verify_callback(_payload, raw_body:, headers:) = false
+      # Override with (_payload, raw_body:, headers:) to verify provider evidence.
+      def paygen_verify_callback(_payload, **_verification) = false
       def paygen_classify_error(error, _role, _response) = error
       def paygen_retry_decision(error, _role) = error['retryable']
 
@@ -167,6 +180,7 @@ module Paygen
           elsif object.is_a?(Array) && part.match?(/\A\d+\z/)
             object[part.to_i]
           elsif object && part.match?(/\A[a-zA-Z_]\w*\z/) &&
+                @paygen_operation_attributes.include?(part) &&
                 !Object.instance_methods.include?(part.to_sym) && object.respond_to?(part)
             object.public_send(part)
           end
@@ -175,6 +189,10 @@ module Paygen
 
       def write_path(object, path, value)
         parts = path.to_s.gsub(/\[(\d+)\]/, '.\1').split('.')
+        raise ArgumentError, 'mapping path exceeds limits' if parts.length > 32 || path.to_s.bytesize > 512
+        if parts.any? { |part| part.match?(/\A\d+\z/) && part.to_i > 1000 }
+          raise ArgumentError, 'mapping array index exceeds limit'
+        end
         cursor = object
         parts.each_with_index do |part, index|
           key = cursor.is_a?(Array) ? Integer(part, 10) : part
@@ -194,34 +212,73 @@ module Paygen
       # OAS 3.0's nullable and boolean exclusive bounds predate the JSON Schema
       # dialect used by OAS 3.1. Normalize those keywords without mutating source.
       def validation_schema(value)
-        case value
-        when Array then value.map { |child| validation_schema(child) }
-        when Hash
-          schema = value.to_h { |key, child| [key, validation_schema(child)] }
-          if schema.delete('nullable') == true && schema['type']
-            schema['type'] = (Array(schema['type']) + ['null']).uniq
-          end
-          %w[Minimum Maximum].each do |suffix|
-            key = "exclusive#{suffix}"
-            next unless [true, false].include?(schema[key])
+        return value if paygen_config.fetch('openapi', '').start_with?('3.1.')
+        return value unless value.is_a?(Hash)
 
-            exclusive = schema.delete(key)
-            bound = suffix.downcase
-            schema[key] = schema.delete(bound) if exclusive && schema.key?(bound)
-          end
-          schema
-        else value
+        schema = value.dup
+        %w[properties patternProperties $defs definitions dependentSchemas].each do |key|
+          next unless schema[key].is_a?(Hash)
+
+          schema[key] = schema[key].to_h { |name, child| [name, validation_schema(child)] }
         end
+        %w[additionalProperties unevaluatedProperties items contains propertyNames not if then else].each do |key|
+          schema[key] = validation_schema(schema[key]) if schema.key?(key)
+        end
+        %w[allOf anyOf oneOf prefixItems].each do |key|
+          schema[key] = schema[key].map { |child| validation_schema(child) } if schema[key].is_a?(Array)
+        end
+        if schema.delete('nullable') == true && schema['type']
+          schema['type'] = (Array(schema['type']) + ['null']).uniq
+        end
+        %w[Minimum Maximum].each do |suffix|
+          key = "exclusive#{suffix}"
+          next unless [true, false].include?(schema[key])
+
+          exclusive = schema.delete(key)
+          bound = suffix.downcase
+          schema[key] = schema.delete(bound) if exclusive && schema.key?(bound)
+        end
+        schema
       end
 
-      def default_server
-        servers = Array(paygen_config['servers'])
-        server = servers.find { |item| item.is_a?(Hash) && item['mode'] == @paygen_mode } || servers.first
+      def server_for(role)
+        return @paygen_base_url_override unless @paygen_base_url_override.nil?
+
+        servers = Array(endpoint(role)['servers'])
+        servers = Array(paygen_config['servers']) if servers.empty?
+        raise ArgumentError, "no server configured for #{role}" if servers.empty?
+
+        annotated = servers.map { |item| [item, server_mode(item)] }
+        server = annotated.find { |_item, mode| mode == @paygen_mode }&.first
+        if server.nil? && annotated.any? { |_item, mode| mode }
+          raise ArgumentError, "no #{@paygen_mode} server configured for #{role}"
+        end
+        server ||= servers.first
         server.is_a?(Hash) ? server['url'] : server
+      end
+
+      def server_mode(server)
+        if server.is_a?(Hash)
+          explicit = server['mode'] || server['x-paygen-mode']
+          return explicit.to_s unless explicit.to_s.empty?
+
+          description = server['description'].to_s
+          return 'sandbox' if description.match?(/\b(?:sandbox|test|testing)\b/i)
+          return 'production' if description.match?(/\b(?:production|prod|live)\b/i)
+        end
+        url = server.is_a?(Hash) ? server['url'] : server
+        host = URI.parse(url.to_s).hostname.to_s
+        return 'sandbox' if host.match?(/(?:\A|[.-])(?:sandbox|test|testing)(?:[.-]|\z)/i)
+        return 'production' if host.match?(/(?:\A|[.-])(?:production|prod|live)(?:[.-]|\z)/i)
+
+        nil
+      rescue URI::InvalidURIError
+        raise SecurityError, 'Invalid server URL'
       end
 
       def minor_amount(value)
         raise ArgumentError, 'amount must be a decimal string or Integer' if value.is_a?(Float) || value.nil?
+        raise ArgumentError, 'amount exceeds precision limit' if value.to_s.length > 64
         raise ArgumentError, 'invalid decimal amount' unless value.to_s.match?(/\A-?\d+(?:\.\d+)?\z/)
 
         amount = BigDecimal(value.to_s)
@@ -281,7 +338,7 @@ module Paygen
 
         request = build_request(role, operation)
         request = paygen_request(request, role, operation)
-        validate_request_destination!(request)
+        validate_request_destination!(request, role)
         if role == 'create'
           conflict = @paygen_store.synchronize do |state|
             key = "request:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{idempotency_key(operation)}"
@@ -295,7 +352,7 @@ module Paygen
         response = stringify(@paygen_transport.request(**request))
         response = stringify(paygen_response(response, role, operation))
         interpret_response(response, role, operation)
-      rescue Net::OpenTimeout, Net::ReadTimeout, Timeout::Error, EOFError, Errno::ECONNRESET
+      rescue Timeout::Error, EOFError, Errno::ECONNRESET
         failure('transport_timeout', retryable: role != 'create', ambiguous: role == 'create',
                 details: role == 'create' ? { 'action' => 'reconcile_before_retry', 'idempotency_key' => idempotency_key(operation) } : {})
       rescue SecurityError
@@ -323,7 +380,7 @@ module Paygen
 
           URI.encode_www_form_component(value.to_s).gsub('+', '%20')
         end
-        base = Security.uri(@paygen_base_url, allow_local: @paygen_allow_local)
+        base = Security.uri(server_for(role), allow_local: @paygen_allow_local)
         url = "#{base.to_s.sub(%r{/$}, '')}#{path}"
         headers = { 'Accept' => 'application/json' }
         headers[paygen_config.fetch('idempotency', {}).fetch('header', 'Idempotency-Key')] = idempotency_key(operation) if role == 'create'
@@ -422,9 +479,12 @@ module Paygen
         url
       end
 
-      def validate_request_destination!(request)
+      def validate_request_destination!(request, role)
+        unless %w[GET POST PUT PATCH DELETE HEAD OPTIONS].include?(request.fetch(:method).to_s.upcase)
+          raise SecurityError, 'Unsupported HTTP method'
+        end
         target = Security.uri(request.fetch(:url), allow_local: @paygen_allow_local)
-        base = Security.uri(@paygen_base_url, allow_local: @paygen_allow_local)
+        base = Security.uri(server_for(role), allow_local: @paygen_allow_local)
         unless [target.scheme, target.hostname, target.port] == [base.scheme, base.hostname, base.port]
           raise SecurityError, 'Request hook changed destination origin'
         end
@@ -472,7 +532,7 @@ module Paygen
           provider_status = read_path(matching.first, mapping.fetch('item_status', 'status'))
         end
         result = status_result(provider_status, provider_id, payload)
-        result['provider_item_id'] = read_path(matching.first, mapping['item_id']) if mapping['items'] && mapping['item_id']
+        result['provider_item_id'] = safe(read_path(matching.first, mapping['item_id'])) if mapping['items'] && mapping['item_id']
         # Batch acceptance never proves that a recipient received money.
         if mapping['scope'] == 'batch' && !mapping['items'] && result['status'] == 'approved'
           result['status'] = 'in_progress'
@@ -489,12 +549,12 @@ module Paygen
         mapped = paygen_config.fetch('status_mapping', {})[provider_status.to_s]
         unless mapped
           return failure('unknown_status', details: { 'provider_status' => provider_status,
-                                                      'action' => 'reconcile' }).merge('provider_id' => provider_id.to_s)
+                                                      'action' => 'reconcile' }).merge('provider_id' => safe(provider_id.to_s))
         end
 
         mapped = paygen_status(mapped, payload)
-        { 'success' => true, 'status' => mapped, 'provider_id' => provider_id.to_s,
-          'provider_status' => provider_status.to_s, 'data' => safe(payload) }
+        safe({ 'success' => true, 'status' => mapped, 'provider_id' => provider_id.to_s,
+               'provider_status' => provider_status.to_s, 'data' => payload })
       end
 
       def identity_mismatch(payload, mapping)
@@ -522,7 +582,8 @@ module Paygen
                    end
         overrides = paygen_config.fetch('errors', {})
         rule = overrides.fetch(status.to_s, {}).merge(overrides.fetch('roles', {}).fetch(role, {}).fetch(status.to_s, {}))
-        error = { 'code' => rule.fetch('code', defaults[0]), 'retryable' => rule.fetch('action', nil) == 'retry' || defaults[1],
+        retryable = rule.key?('action') ? rule['action'] == 'retry' : defaults[1]
+        error = { 'code' => rule.fetch('code', defaults[0]), 'retryable' => retryable,
                   'http_status' => status, 'provider_code' => read_path(payload, response_config(role).fetch('error', 'error.code')) }
         if status == 429
           value = header(response['headers'] || {}, 'Retry-After')
@@ -556,6 +617,7 @@ module Paygen
 
         provided = header(headers, signature.fetch('header', 'X-Signature')).to_s
         secrets = signature.fetch('credentials', [signature.fetch('credential', 'callback_secret')])
+        return false unless secrets.is_a?(Array) && %w[hex base64].include?(signature.fetch('encoding', 'hex'))
         signed = raw_body
         candidates = [provided.delete_prefix(signature.fetch('prefix', ''))]
         if algorithm == 'stripe-v1'
@@ -571,7 +633,7 @@ module Paygen
           secret = @paygen_credentials[name.to_s]
           next false if secret.to_s.empty?
           if signature['key_encoding'] == 'hex'
-            next false unless secret.match?(/\A(?:[0-9a-fA-F]{2})+\z/)
+            next false unless secret.is_a?(String) && secret.match?(/\A(?:[0-9a-fA-F]{2})+\z/)
 
             secret = [secret].pack('H*')
           end

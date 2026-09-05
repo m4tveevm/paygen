@@ -45,7 +45,7 @@ paths:
                   - sender_batch_id
                 items:
                   type: array
-                  items: &id001
+                  items:
                     type: object
                     properties:
                       recipient_type:
@@ -209,7 +209,7 @@ components:
           - batch_status
         items:
           type: array
-          items: &id002
+          items:
             type: object
             properties:
               payout_item_id:
@@ -228,7 +228,38 @@ components:
                 - BLOCKED
                 - REFUNDED
                 - REVERSED
-              payout_item: *id001
+              payout_item:
+                type: object
+                properties:
+                  recipient_type:
+                    type: string
+                    enum:
+                    - EMAIL
+                  amount:
+                    type: object
+                    properties:
+                      currency:
+                        type: string
+                        enum:
+                        - EUR
+                        - USD
+                      value:
+                        type: string
+                        pattern: ^\d+\.\d{2}$
+                    required:
+                    - currency
+                    - value
+                  receiver:
+                    type: string
+                    format: email
+                  sender_item_id:
+                    type: string
+                    maxLength: 127
+                required:
+                - recipient_type
+                - amount
+                - receiver
+                - sender_item_id
               errors:
                 type: object
                 properties:
@@ -242,7 +273,68 @@ components:
             - transaction_status
       required:
       - batch_header
-    Item: *id002
+    Item:
+      type: object
+      properties:
+        payout_item_id:
+          type: string
+        payout_batch_id:
+          type: string
+        transaction_status:
+          type: string
+          enum:
+          - SUCCESS
+          - FAILED
+          - PENDING
+          - UNCLAIMED
+          - RETURNED
+          - ONHOLD
+          - BLOCKED
+          - REFUNDED
+          - REVERSED
+        payout_item:
+          type: object
+          properties:
+            recipient_type:
+              type: string
+              enum:
+              - EMAIL
+            amount:
+              type: object
+              properties:
+                currency:
+                  type: string
+                  enum:
+                  - EUR
+                  - USD
+                value:
+                  type: string
+                  pattern: ^\d+\.\d{2}$
+              required:
+              - currency
+              - value
+            receiver:
+              type: string
+              format: email
+            sender_item_id:
+              type: string
+              maxLength: 127
+          required:
+          - recipient_type
+          - amount
+          - receiver
+          - sender_item_id
+        errors:
+          type: object
+          properties:
+            name:
+              type: string
+            message:
+              type: string
+      required:
+      - payout_item_id
+      - payout_batch_id
+      - transaction_status
     Webhook:
       type: object
       properties:

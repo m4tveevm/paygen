@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'simulator'
+require_relative 'adapter'
 
 module Paygen
   module Runtime
@@ -205,11 +206,11 @@ module Paygen
       end
 
       def verify_scope(scenario)
-        check(scenario, scenario) do |_simulator, operation|
+        check(scenario, scenario) do |simulator, operation|
           result = @adapter.create_request(operation)
           if @config.dig('callback', scenario == 'account_mismatch' ? 'account_field' : 'mode_field')
             assert_result(result, success: true)
-            events = _simulator.callback_events(provider_id: result['provider_id'])
+            events = simulator.callback_events(provider_id: result['provider_id'])
             result = deliver(events.last)
           end
           assert_result(result, success: false)
@@ -224,11 +225,10 @@ module Paygen
                       Simulator.new(config: @config, scenario: scenario, seed: @seed)
                     end
         settings = { credentials: simulator.credentials, transport: simulator,
-                     base_url: Array(@config['servers']).first || 'https://simulator.example',
                      mode: @config.fetch('mode', 'sandbox'), account: 'test-account',
                      clock: -> { Time.at(1_800_000_002) }, state_store: MemoryStateStore.new }
         @adapter.configure_paygen(**settings)
-        operation = simulator.sample_operation(id: "verify-#{@seed}-#{name}")
+        operation = simulator.sample_operation(id: "verify-#{Digest::SHA256.hexdigest("#{@seed}:#{name}")[0, 24]}")
         details = yield simulator, operation
         @checks << { 'name' => name, 'passed' => true, 'observed' => details,
                      'evidence' => simulator.evidence }
@@ -277,6 +277,7 @@ module Paygen
         unless %w[127.0.0.1 ::1 localhost].include?(target.hostname) && !target.query
           raise SecurityError, 'Verification target must be an explicit loopback test server without a query'
         end
+        target.hostname = '127.0.0.1' if target.hostname == 'localhost'
         unless scenario_pack == 'default'
           raise ArgumentError, 'Remote targets support the explicitly reported smoke verification only; fault packs run offline'
         end
@@ -287,7 +288,7 @@ module Paygen
         @adapter.configure_paygen(credentials: simulator.credentials, transport: transport,
                                   base_url: target.to_s, allow_local: true,
                                   account: 'test-account', mode: @config.fetch('mode', 'sandbox'))
-        operation = simulator.sample_operation(id: "remote-verify-#{@seed}")
+        operation = simulator.sample_operation(id: "remote-#{Digest::SHA256.hexdigest(@seed.to_s)[0, 24]}")
         observed = {}
         begin
           observed['created'] = summary(@adapter.create_request(operation))

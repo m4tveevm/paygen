@@ -2,6 +2,7 @@
 
 require 'spec_helper'
 require 'paygen/runtime/adapter'
+require 'prop_check'
 require_relative 'support/provider_harness'
 
 RSpec.describe Paygen::Runtime::Adapter do
@@ -109,6 +110,34 @@ RSpec.describe Paygen::Runtime::Adapter do
     expect(transport).to have_received(:request).once
   end
 
+  it 'reads canonical operation objects without allowing profile-controlled method execution' do
+    model = Struct.new(:id, :amount, :currency, :payout_requisite) do
+      attr_reader :destroy_calls
+
+      def destroy
+        @destroy_calls = (@destroy_calls || 0) + 1
+        'destroyed'
+      end
+
+      def merchant_reference
+        'trusted-reference'
+      end
+    end
+    object = model.new(*operation.values_at('id', 'amount', 'currency', 'payout_requisite'))
+    expect(adapter.check_conditions(object)['success']).to be(true)
+    config['request_mapping']['currency'] = { 'from' => 'destroy' }
+    config['allowed_attributes'] = ['destroy']
+    expect(transport).not_to receive(:request)
+    expect(adapter.create_request(object).dig('error', 'code')).to eq('validation_error')
+    expect(object.destroy_calls).to be_nil
+    config['request_mapping']['currency'] = { 'from' => 'currency' }
+    config['request_mapping']['external_id'] = { 'from' => 'merchant_reference' }
+    expect(adapter.check_conditions(object)['success']).to be(false)
+    adapter.configure_paygen(transport: transport, allowed_attributes: ['merchant_reference'])
+    expect(adapter.check_conditions(object)['success']).to be(true)
+    expect(object.destroy_calls).to be_nil
+  end
+
   it 'marks timeout-after-commit as ambiguous and requires reconciliation without automatic retry' do
     allow(transport).to receive(:request).and_raise(Timeout::Error)
     result = adapter.create_request(operation)
@@ -209,6 +238,23 @@ RSpec.describe Paygen::Runtime::Adapter do
     expect(adapter.process_callback(payload, raw_body: raw, headers: { 'X-Signature' => signature })['success']).to be(true)
   end
 
+  it 'normalizes OAS 3.0 nullable schema fields without dropping a property named nullable' do
+    config['endpoints']['callback']['request_schema'] = {
+      'type' => 'object', 'properties' => { 'failure_code' => { 'type' => 'string', 'nullable' => true },
+                                           'nullable' => { 'type' => 'integer' } }
+    }
+    expect(deliver(callback(extra: { 'failure_code' => nil, 'nullable' => 1 }))['success']).to be(true)
+    expect(deliver(callback(event_id: 'bad-field', extra: { 'failure_code' => nil, 'nullable' => 'invalid' })).dig('error', 'code')).to eq('invalid_callback')
+    config['openapi'] = '3.1.0'
+    expect(deliver(callback(event_id: 'oas31', extra: { 'failure_code' => nil })).dig('error', 'code')).to eq('invalid_callback')
+  end
+
+  it 'enforces boolean OAS 3.0 exclusive amount bounds' do
+    config['endpoints']['create']['request_schema']['properties']['amount']['exclusiveMinimum'] = true
+    expect(adapter.check_conditions(operation.merge('amount' => '1000'))['success']).to be(false)
+    expect(adapter.check_conditions(operation.merge('amount' => '1000.01'))['success']).to be(true)
+  end
+
   it 'requires an explicit verifier hook for provider verification callbacks' do
     config['callback']['signature'] = { 'algorithm' => 'provider_verification' }
     expect(deliver(callback).dig('error', 'code')).to eq('invalid_signature')
@@ -239,6 +285,24 @@ RSpec.describe Paygen::Runtime::Adapter do
     expect(adapter.create_request(operation)['success']).to be(true)
   end
 
+  it 'sends Basic authentication and query API keys through their configured locations' do
+    config['auth'] = { 'type' => 'basic' }
+    adapter.configure_paygen(credentials: { username: 'merchant', password: 'private-password' }, transport: transport)
+    expect(transport).to receive(:request) do |**request|
+      expect(request[:headers]['Authorization']).to eq("Basic #{Base64.strict_encode64('merchant:private-password')}")
+      response({ 'id' => 'p-1', 'status' => 'pending' })
+    end
+    expect(adapter.create_request(operation)['success']).to be(true)
+    config['auth'] = { 'type' => 'apiKey', 'in' => 'query', 'name' => 'key', 'credential' => 'api_key' }
+    adapter.configure_paygen(credentials: { api_key: 'a+secret/key' }, transport: transport)
+    expect(transport).to receive(:request) do |**request|
+      expect(URI.decode_www_form(URI.parse(request[:url]).query)).to eq([['key', 'a+secret/key']])
+      expect(request[:headers]).not_to have_key('Authorization')
+      response({ 'id' => 'p-1', 'status' => 'pending' })
+    end
+    expect(adapter.create_request(operation)['success']).to be(true)
+  end
+
   it 'rejects HTTP, userinfo, header injection and hook origin changes' do
     adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, base_url: 'http://api.example.test')
     expect(adapter.create_request(operation).dig('error', 'code')).to eq('security_denial')
@@ -249,13 +313,68 @@ RSpec.describe Paygen::Runtime::Adapter do
     expect(adapter.create_request(operation).dig('error', 'code')).to eq('security_denial')
   end
 
+  it 'binds requests and post-hook origin checks to the selected operation server' do
+    config['endpoints']['status']['servers'] = [{ 'url' => 'https://status.example.org/v2' }]
+    expect(transport).to receive(:request) do |**request|
+      expect(request[:url]).to eq('https://status.example.org/v2/payouts/p-1')
+      response({ 'id' => 'p-1', 'status' => 'paid' })
+    end
+    expect(adapter.fetch_status('provider_id' => 'p-1')['success']).to be(true)
+    adapter.define_singleton_method(:paygen_request) do |request, _role, _operation|
+      request.merge(url: 'https://api.example.test/v1/payouts/p-1')
+    end
+    expect(adapter.fetch_status('provider_id' => 'p-1').dig('error', 'code')).to eq('security_denial')
+  end
+
+  it 'uses a trusted explicit base URL override for every operation role' do
+    config['endpoints']['status']['servers'] = [{ 'url' => 'https://status.example.org/v2' }]
+    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, base_url: 'https://mock.example.org/v3')
+    requests = []
+    allow(transport).to receive(:request) do |**request|
+      requests << request[:url]
+      response({ 'id' => 'p-1', 'status' => 'pending' })
+    end
+    expect(adapter.create_request(operation)['success']).to be(true)
+    expect(adapter.fetch_status('provider_id' => 'p-1')['success']).to be(true)
+    expect(requests).to eq(['https://mock.example.org/v3/payouts', 'https://mock.example.org/v3/payouts/p-1'])
+  end
+
+  it 'selects the requested mode from server descriptions or explicit mode fields' do
+    config['mode'] = 'production'
+    config['servers'] = [{ 'url' => 'https://sandbox.example.org/v1', 'description' => 'Sandbox' },
+                         { 'url' => 'https://payments.example.org/v1', 'description' => 'Production' }]
+    config['endpoints']['status']['servers'] = [
+      { 'url' => 'https://status-sandbox.example.org/v2', 'mode' => 'sandbox' },
+      { 'url' => 'https://status.example.org/v2', 'mode' => 'production' }
+    ]
+    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, mode: 'production')
+    requests = []
+    allow(transport).to receive(:request) do |**request|
+      requests << request[:url]
+      response({ 'id' => 'p-1', 'status' => 'pending' })
+    end
+    expect(adapter.create_request(operation)['success']).to be(true)
+    expect(adapter.fetch_status('provider_id' => 'p-1')['success']).to be(true)
+    expect(requests).to eq(['https://payments.example.org/v1/payouts', 'https://status.example.org/v2/payouts/p-1'])
+  end
+
+  it 'fails closed when production is requested but only sandbox is configured' do
+    config['mode'] = 'production'
+    config['servers'] = [{ 'url' => 'https://api.example.org/v1', 'description' => 'Sandbox' }]
+    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, mode: 'production')
+    expect(transport).not_to receive(:request)
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('configuration_error')
+    config['servers'] = ['https://sandbox.example.org/v1']
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('configuration_error')
+  end
+
   it 'redacts secret fields and PAN-shaped strings in structured error output' do
     allow(transport).to receive(:request).and_return(response({ 'error' => { 'code' => 'private-api-value 4111111111111111' } }, status: 400))
     result = adapter.create_request(operation)
     expect(JSON.generate(result)).not_to include('private-api-value', '4111111111111111')
   end
 
-  it 'preserves decimal conversion over deterministic boundary fuzz cases' do
+  it 'preserves exact minor units over boundaries and seeded shrinking property cases' do
     config['amount']['minimum'] = 1
     config['endpoints']['create'].delete('request_schema')
     random = Random.new(7)
@@ -264,12 +383,19 @@ RSpec.describe Paygen::Runtime::Adapter do
       observed << JSON.parse(request[:body])['amount']
       response({ 'id' => 'p-1', 'status' => 'pending' })
     end
-    minor_values = [1, 99, 100, 101, 2**53 + 1] + Array.new(100) { random.rand(1..10**12) }
+    minor_values = [1, 99, 100, 101, (2**53) + 1]
     config['amount']['maximum'] = 10**20
     minor_values.each_with_index do |minor, index|
       major = "#{minor / 100}.#{(minor % 100).to_s.rjust(2, '0')}"
       expect(adapter.create_request(operation.merge('id' => "fuzz-#{index}", 'amount' => major))['success']).to be(true)
     end
     expect(observed).to eq(minor_values)
+    amounts = PropCheck::Generators.choose(1..(10**12))
+    seeded = PropCheck::Generator.new { |**args| amounts.generate(**args.merge(rng: random)) }
+    PropCheck.forall(seeded).with_config(n_runs: 100, max_shrink_steps: 100).check do |minor|
+      major = "#{minor / 100}.#{(minor % 100).to_s.rjust(2, '0')}"
+      expect(adapter.create_request(operation.merge('id' => "property-#{minor}", 'amount' => major))['success']).to be(true)
+      expect(observed.last).to eq(minor)
+    end
   end
 end

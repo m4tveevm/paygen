@@ -41,7 +41,7 @@ paths:
             schema:
               type: object
               properties:
-                amount: &id001
+                amount:
                   type: object
                   properties:
                     value:
@@ -173,7 +173,20 @@ components:
           type: string
           enum:
           - outgoing
-        amount: *id001
+        amount:
+          type: object
+          properties:
+            value:
+              type: integer
+              minimum: 1
+            currency:
+              type: string
+              enum:
+              - EUR
+              - USD
+          required:
+          - value
+          - currency
         balanceAccountId:
           type: string
         reference:

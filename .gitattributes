@@ -1,0 +1,2 @@
+fixtures/*/upstream/** linguist-vendored
+lib/paygen/core/schemas/** linguist-vendored

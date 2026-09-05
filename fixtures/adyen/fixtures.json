@@ -154,5 +154,28 @@
         "hmacsignature": "CWU6jAzfghgY/xMRomaKQxhs4meULxtR+CGpKnpIg8k="
       }
     }
+  },
+  "workflow": {
+    "inputs": {
+      "request_body": {
+        "amount": {
+          "value": 1234,
+          "currency": "EUR"
+        },
+        "balanceAccountId": "BA_FIXTURE_001",
+        "category": "bank",
+        "counterparty": {
+          "transferInstrumentId": "TI_FIXTURE_001"
+        },
+        "priority": "regular",
+        "reference": "op_adyen_001",
+        "type": "bankTransfer"
+      }
+    },
+    "response_names": [
+      "created",
+      "booked"
+    ],
+    "expected_provider_status": "booked"
   }
 }
