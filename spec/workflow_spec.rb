@@ -240,6 +240,100 @@ RSpec.describe Paygen::Core::Workflow do
     expect(engine.run('wrapper')['outputs']).to eq('state' => 'completed')
   end
 
+  it 'serializes embedded structured inputs as JSON and keeps scalar strings unquoted' do
+    create_step['requestBody']['payload'] = '{"payout":{$inputs.payout},"items":{$inputs.items},"reference":"{$inputs.reference}"}'
+    inputs = {
+      'amount' => 1_500_000, 'payout' => { 'amount' => 42 },
+      'items' => [{ 'id' => 'item_1' }], 'reference' => 'ref_1'
+    }
+    body = '{"payout":{"amount":42},"items":[{"id":"item_1"}],"reference":"ref_1"}'
+    allow(transport).to receive(:request).with(hash_including(method: 'POST', body: body)).and_return(status: 201, headers: {}, body: '{"id":"p_123"}')
+
+    expect(engine.run('payout', inputs: inputs)['success']).to be(true)
+    expect(transport).to have_received(:request).with(hash_including(body: body)).once
+  end
+
+  it 'embeds unparsed XML string values without JSON quoting or escaping' do
+    create_step['requestBody'] = { 'contentType' => 'application/xml', 'payload' => '<Envelope>{$inputs.message}</Envelope>' }
+    inputs = { 'amount' => 1_500_000, 'message' => '<Payout amount="42"/>' }
+    body = '<Envelope><Payout amount="42"/></Envelope>'
+    allow(transport).to receive(:request).with(hash_including(method: 'POST', body: body)).and_return(status: 201, headers: {}, body: '{"id":"p_123"}')
+
+    expect(engine.run('payout', inputs: inputs)['success']).to be(true)
+    expect(transport).to have_received(:request).with(hash_including(body: body)).once
+  end
+
+  it 'resolves workflow inputs, outputs and dependencies with hyphenated identifiers' do
+    setup_step = JSON.parse(JSON.generate(create_step)).merge('stepId' => 'refresh-token')
+    document['workflows'] << {
+      'workflowId' => 'setup-token', 'steps' => [setup_step],
+      'outputs' => { 'token-value.v1' => '$steps.refresh-token.outputs.id' }
+    }
+    document['workflows'][0]['dependsOn'] = ['setup-token']
+    create_step['requestBody']['payload']['amount'] = '$workflows.setup-token.inputs.amount'
+    status_step['dependsOn'] = ['$workflows.setup-token.steps.refresh-token']
+    document['workflows'][0]['outputs']['token'] = '$workflows.setup-token.outputs.token-value.v1'
+
+    expect(engine.run('payout', inputs: { 'amount' => 1_500_000 })['outputs']).to eq(
+      'state' => 'completed', 'token' => 'p_123'
+    )
+  end
+
+  it 'keeps workflow state local to each document when nested workflow IDs coincide' do
+    external = JSON.parse(JSON.generate(document))
+    external['workflows'][0]['outputs'] = { 'amount' => '$workflows.payout.inputs.amount' }
+    document['sourceDescriptions'] << { 'name' => 'other', 'url' => 'other.yaml', 'type' => 'arazzo' }
+    document['workflows'][0]['steps'] << {
+      'stepId' => 'invoke', 'workflowId' => '$sourceDescriptions.other.payout',
+      'parameters' => [{ 'name' => 'amount', 'value' => 42 }],
+      'outputs' => { 'amount' => '$response.body#/amount' }
+    }
+    document['workflows'][0]['outputs'] = {
+      'parentAmount' => '$workflows.payout.inputs.amount',
+      'childAmount' => '$steps.invoke.outputs.amount'
+    }
+    allow(transport).to receive(:request).with(hash_including(method: 'POST', body: '{"amount":42}')).and_return(status: 201, headers: {}, body: '{"id":"p_123"}')
+    runner = described_class.new(document, sources: { 'api' => api, 'other' => external }, transport: transport)
+
+    expect(runner.run('payout', inputs: { 'amount' => 1_500_000 })['outputs']).to eq(
+      'parentAmount' => 1_500_000, 'childAmount' => 42
+    )
+  end
+
+  it 'applies payload replacements without changing inputs used by later requests' do
+    create_step['requestBody'] = {
+      'contentType' => 'application/json', 'payload' => '$inputs.payout',
+      'replacements' => [{ 'target' => '/amount', 'value' => '$inputs.amount' }]
+    }
+    document['workflows'][0]['steps'] = [create_step, {
+      'stepId' => 'second', 'operationId' => 'createPayout',
+      'requestBody' => { 'contentType' => 'application/json', 'payload' => '$inputs.payout' }
+    }]
+    document['workflows'][0].delete('outputs')
+    inputs = { 'amount' => 1_500_000, 'payout' => { 'amount' => 42 } }
+    allow(transport).to receive(:request).with(hash_including(method: 'POST', body: '{"amount":42}')).and_return(status: 201, headers: {}, body: '{}')
+
+    expect(engine.run('payout', inputs: inputs)['success']).to be(true)
+    expect(inputs['payout']).to eq('amount' => 42)
+    expect(transport).to have_received(:request).with(hash_including(body: '{"amount":1500000}')).once
+    expect(transport).to have_received(:request).with(hash_including(body: '{"amount":42}')).once
+  end
+
+  it 'copies replacement values before later replacements modify their children' do
+    create_step['requestBody'] = {
+      'contentType' => 'application/json', 'payload' => { 'payout' => {} },
+      'replacements' => [
+        { 'target' => '/payout', 'value' => '$inputs.payout' },
+        { 'target' => '/payout/amount', 'value' => '$inputs.amount' }
+      ]
+    }
+    inputs = { 'amount' => 1_500_000, 'payout' => { 'amount' => 42 } }
+    allow(transport).to receive(:request).with(hash_including(method: 'POST', body: '{"payout":{"amount":1500000}}')).and_return(status: 201, headers: {}, body: '{"id":"p_123"}')
+
+    expect(engine.run('payout', inputs: inputs)['success']).to be(true)
+    expect(inputs['payout']).to eq('amount' => 42)
+  end
+
   it 'rejects recursive workflow calls' do
     document['workflows'] << { 'workflowId' => 'loop', 'steps' => [{ 'stepId' => 'again', 'workflowId' => 'loop' }] }
     expect { engine.run('loop') }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_CYCLE') }

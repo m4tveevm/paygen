@@ -56,7 +56,8 @@ module Paygen
       if project.input_hashes != inputs_before
         raise Error.new('Project inputs changed during generation; retry', code: 'INPUT_CHANGED', exit_code: 1)
       end
-      lock = { 'version' => 1, 'paygen_version' => VERSION, 'source_uri' => project.lock['source_uri'], 'inputs' => project.input_hashes,
+      lock = { 'version' => 1, 'paygen_version' => VERSION, 'source_uri' => project.lock['source_uri'],
+               'source_sha256' => inputs_before.fetch('source/openapi.json'), 'inputs' => inputs_before,
                'generated' => files.to_h { |name, body| [name, Digest::SHA256.hexdigest(body)] },
                'overrides' => overrides, 'draft' => draft }
       project.replace_generated(files, lock)

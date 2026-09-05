@@ -11,6 +11,8 @@ require 'uri'
 module Paygen
   module Runtime
     class SecurityError < StandardError; end
+    # Unlike preflight denials, a response limit can occur after a payout commits.
+    class ResponseSizeError < SecurityError; end
 
     # An injectable store may implement this same synchronized Hash interface
     # using a durable transaction. The built-in store is process-local only.
@@ -137,7 +139,7 @@ module Paygen
             bytes = +''
             response.read_body do |chunk|
               bytes << chunk
-              raise SecurityError, 'Response exceeds size limit' if bytes.bytesize > @maximum_bytes
+              raise ResponseSizeError, 'Response exceeds size limit' if bytes.bytesize > @maximum_bytes
             end
             result = { status: response.code.to_i, headers: response.to_hash.transform_values(&:first), body: bytes }
           end

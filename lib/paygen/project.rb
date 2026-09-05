@@ -189,15 +189,28 @@ module Paygen
       base_dir = remote ? nil : File.dirname(File.realpath(input))
       document = Core::Input.bundle(document, base_dir: base_dir)
       Core::Input.validate!(Core::Input.resolve(document))
-      # Validate overlays against the replacement before making any change.
-      effective = document
-      Dir[path('overlays/*.{json,yml,yaml}')].sort.each do |file| # rubocop:disable Lint/RedundantDirGlobSort
-        relative = Pathname.new(file).relative_path_from(Pathname.new(root)).to_s
-        effective = Core::Overlay.new(effective, source_uri: lock['source_uri']).apply(Core::Input.read(path(relative)), overlay_uri: file)
+      source_uri = remote ? input.to_s : File.expand_path(input)
+      source_body = Paygen.json(document)
+      source_sha256 = Digest::SHA256.hexdigest(source_body)
+      transaction do
+        # Validate overlays against the replacement identity before changing either file.
+        effective = document
+        Dir[path('overlays/*.{json,yml,yaml}')].sort.each do |file| # rubocop:disable Lint/RedundantDirGlobSort
+          relative = Pathname.new(file).relative_path_from(Pathname.new(root)).to_s
+          effective = Core::Overlay.new(effective, source_uri: source_uri).apply(Core::Input.read(path(relative)), overlay_uri: file)
+        end
+        Core::Input.validate!(Core::Input.resolve(effective))
+        manifest = lock.merge('source_uri' => source_uri, 'source_sha256' => source_sha256)
+        previous_source = File.read(path('source/openapi.json'))
+        write('source/openapi.json', source_body)
+        begin
+          write('paygen.lock', Paygen.json(manifest))
+        rescue StandardError
+          write('source/openapi.json', previous_source)
+          raise
+        end
       end
-      Core::Input.validate!(Core::Input.resolve(effective))
-      write('source/openapi.json', Paygen.json(document))
-      { 'status' => 'updated', 'source_sha256' => Digest::SHA256.hexdigest(Paygen.json(document)) }
+      { 'status' => 'updated', 'source_uri' => source_uri, 'source_sha256' => source_sha256 }
     end
   end
 end

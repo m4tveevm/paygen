@@ -85,6 +85,64 @@ RSpec.describe 'Project generation lifecycle' do
     expect(project.effective_document.dig('info', 'version')).to eq('2.0.0')
   end
 
+  context 'replacement source identity' do
+    let(:replacement) { File.join(@directory, 'replacement.json') }
+    before do
+      document = Paygen::Core::Input.read(project.path('source/openapi.json'))
+      document['info']['version'] = '2.0.0'
+      File.write(replacement, Paygen.json(document))
+    end
+
+    def source_overlay(identity)
+      { 'overlay' => '1.1.0', 'info' => { 'title' => 'Identity', 'version' => '1' },
+        'extends' => identity, 'actions' => [{ 'target' => '$.info', 'update' => { 'description' => 'Reviewed contract' } }] }
+    end
+
+    it 'rejects an overlay tied to the old source without changing source or lock' do
+      project.write('overlays/900-identity.yaml', YAML.dump(source_overlay(source)))
+      before_source = File.read(project.path('source/openapi.json'))
+      before_lock = File.read(project.path('paygen.lock'))
+      expect { project.update(replacement) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('OVERLAY_EXTENDS') }
+      expect(File.read(project.path('source/openapi.json'))).to eq(before_source)
+      expect(File.read(project.path('paygen.lock'))).to eq(before_lock)
+    end
+
+    it 'accepts the new identity and retains it and its hash through generation' do
+      generator.generate
+      generated_before = project.lock['generated']
+      project.write('overlays/900-identity.yaml', YAML.dump(source_overlay(replacement)))
+      result = project.update(replacement)
+      expect(result).to include('source_uri' => replacement, 'source_sha256' => Digest::SHA256.file(replacement).hexdigest)
+      expect(project.lock).to include(result.slice('source_uri', 'source_sha256'))
+      expect(project.lock['generated']).to eq(generated_before)
+      expect(project.effective_document.dig('info', 'description')).to eq('Reviewed contract')
+      generator.generate
+      expect(project.lock).to include(result.slice('source_uri', 'source_sha256'))
+      expect(generator.diff).to be_empty
+    end
+
+    it 'uses a replacement URL as the persisted identity' do
+      url = 'https://contracts.example.test/v2/openapi.json'
+      document = Paygen::Core::Input.read(replacement)
+      allow(Paygen::Core::Input).to receive(:read).and_call_original
+      expect(Paygen::Core::Input).to receive(:read).with(url).and_return(document)
+      project.write('overlays/900-identity.yaml', YAML.dump(source_overlay(url)))
+      project.update(url)
+      expect(project.lock['source_uri']).to eq(url)
+      expect(project.effective_document.dig('info', 'version')).to eq('2.0.0')
+    end
+
+    it 'restores the source if persisting its new identity fails' do
+      before_source = File.read(project.path('source/openapi.json'))
+      before_lock = File.read(project.path('paygen.lock'))
+      allow(project).to receive(:write).and_call_original
+      expect(project).to receive(:write).with('paygen.lock', anything).and_raise(IOError, 'disk full')
+      expect { project.update(replacement) }.to raise_error(IOError, 'disk full')
+      expect(File.read(project.path('source/openapi.json'))).to eq(before_source)
+      expect(File.read(project.path('paygen.lock'))).to eq(before_lock)
+    end
+  end
+
   it 'rejects forged manifests attempting to delete user-owned extensions' do
     generator.generate
     project.write('extensions/owned.rb', '# keep')

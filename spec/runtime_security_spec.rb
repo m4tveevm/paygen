@@ -63,7 +63,7 @@ RSpec.describe Paygen::Runtime::Security do
     limited = Paygen::Runtime::HTTPTransport.new(allow_local: true, maximum_bytes: 5)
     expect do
       limited.request(method: 'GET', url: "http://127.0.0.1:#{port}/capture", headers: {}, body: nil)
-    end.to raise_error(Paygen::Runtime::SecurityError, /size limit/)
+    end.to raise_error(Paygen::Runtime::ResponseSizeError, /size limit/)
   ensure
     server&.stop(true)
   end

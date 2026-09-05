@@ -59,6 +59,7 @@ RSpec.describe Paygen::Runtime::Adapter do
   def callback(status: 'paid', sequence: 1, event_id: 'evt-1', secret: 'active-secret', extra: {})
     payload = { 'payout_id' => 'p-1', 'event' => "payout.#{status}", 'status' => status,
                 'sequence' => sequence, 'event_id' => event_id }.merge(extra)
+    payload.delete('sequence') if sequence.nil?
     raw = JSON.generate(payload)
     signature = OpenSSL::HMAC.hexdigest('SHA256', secret, raw)
     [payload, raw, { 'x-signature' => signature }]
@@ -146,6 +147,15 @@ RSpec.describe Paygen::Runtime::Adapter do
     expect(transport).to have_received(:request).once
   end
 
+  it 'requires reconciliation when a create response exceeds the transport limit after commit' do
+    allow(transport).to receive(:request).and_raise(Paygen::Runtime::ResponseSizeError, 'Response exceeds size limit')
+    result = adapter.create_request(operation)
+    expect(result['error']).to include('code' => 'security_denial', 'ambiguous' => true,
+                                       'retryable' => false, 'action' => 'reconcile_before_retry')
+    expect(result.dig('error', 'idempotency_key')).not_to be_empty
+    expect(adapter.fetch_status('provider_id' => 'p-1').dig('error', 'ambiguous')).to be(false)
+  end
+
   it 'maps create 409 to the existing payout and cancel 409 to a state conflict' do
     allow(transport).to receive(:request).and_return(response({ 'id' => 'p-1', 'status' => 'pending' }, status: 409))
     expect(adapter.create_request(operation)).to include('success' => true, 'duplicate' => true)
@@ -204,6 +214,27 @@ RSpec.describe Paygen::Runtime::Adapter do
     config['callback'].delete('sequence')
     expect(deliver(callback)['status']).to eq('approved')
     expect(deliver(callback(status: 'pending', event_id: 'late'))).to include('ignored' => 'invalid_transition', 'status' => 'approved')
+  end
+
+  it 'compares callback timestamps when one event omits its optional sequence number' do
+    config['callback']['timestamp'] = 'created_at'
+    first = callback(sequence: nil, extra: { 'created_at' => '2026-09-05T10:00:00Z' })
+    reversal = callback(status: 'failed', sequence: 3, event_id: 'reversal',
+                        extra: { 'created_at' => '2026-09-05T10:00:01Z' })
+    expect(deliver(first)['status']).to eq('approved')
+    expect(deliver(reversal)).to include('status' => 'rejected')
+    expect(deliver(callback(status: 'failed', sequence: nil, event_id: 'older',
+                            extra: { 'created_at' => '2026-09-05T09:59:59Z' })))
+      .to include('status' => 'rejected', 'ignored' => 'out_of_order')
+  end
+
+  it 'keeps provider sequence ordering authoritative when both callbacks provide it' do
+    config['callback']['timestamp'] = 'created_at'
+    first = callback(sequence: 2, extra: { 'created_at' => '2026-09-05T10:00:01Z' })
+    reversal = callback(status: 'failed', sequence: 3, event_id: 'reversal',
+                        extra: { 'created_at' => '2026-09-05T10:00:00Z' })
+    expect(deliver(first)['status']).to eq('approved')
+    expect(deliver(reversal)['status']).to eq('rejected')
   end
 
   it 'rejects mismatched event/status, tenant, mode and callback scope' do
@@ -356,6 +387,39 @@ RSpec.describe Paygen::Runtime::Adapter do
     expect(adapter.create_request(operation)['success']).to be(true)
     expect(adapter.fetch_status('provider_id' => 'p-1')['success']).to be(true)
     expect(requests).to eq(['https://payments.example.org/v1/payouts', 'https://status.example.org/v2/payouts/p-1'])
+  end
+
+  it 'expands server variable defaults before mode inference and operation origin checks' do
+    config['servers'] = %w[production sandbox].map do |environment|
+      { 'url' => 'https://{environment}.example.org/{version}',
+        'variables' => { 'environment' => { 'default' => environment }, 'version' => { 'default' => 'v1' } } }
+    end
+    config['endpoints']['status']['servers'] = [{
+      'url' => 'https://status-{environment}.example.org:{port}/{version}',
+      'variables' => { 'environment' => { 'default' => 'sandbox' }, 'port' => { 'default' => '8443' },
+                       'version' => { 'default' => 'v2' } }
+    }]
+    requests = []
+    allow(transport).to receive(:request) do |**request|
+      requests << request[:url]
+      response({ 'id' => 'p-1', 'status' => 'pending' })
+    end
+    expect(adapter.create_request(operation)['success']).to be(true)
+    expect(adapter.fetch_status('provider_id' => 'p-1')['success']).to be(true)
+    expect(requests).to eq(['https://sandbox.example.org/v1/payouts',
+                            'https://status-sandbox.example.org:8443/v2/payouts/p-1'])
+    adapter.define_singleton_method(:paygen_request) do |request, _role, _operation|
+      request.merge(url: 'https://sandbox.example.org/v1/payouts/p-1')
+    end
+    expect(adapter.fetch_status('provider_id' => 'p-1').dig('error', 'code')).to eq('security_denial')
+  end
+
+  it 'rejects missing server defaults and unsafe expanded URLs before sending' do
+    config['servers'] = [{ 'url' => 'https://{host}/v1', 'variables' => { 'host' => {} } }]
+    expect(transport).not_to receive(:request)
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('configuration_error')
+    config['servers'].first['variables']['host']['default'] = 'user:secret@example.org'
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('security_denial')
   end
 
   it 'fails closed when production is requested but only sandbox is configured' do

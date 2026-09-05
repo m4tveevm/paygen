@@ -127,7 +127,7 @@ module Paygen
           previous = state[key] || { 'events' => [], 'status' => nil, 'provider_status' => nil, 'order' => nil }
           if previous['events'].include?(event_id.to_s)
             result.merge('status' => previous['status'], 'ignored' => 'duplicate')
-          elsif ordering && previous['order'] && ordering < previous['order']
+          elsif callback_out_of_order?(ordering, previous['order'])
             result.merge('status' => previous['status'], 'ignored' => 'out_of_order')
           elsif !allowed_transition?(previous['provider_status'], provider_status.to_s)
             result.merge('status' => previous['status'], 'ignored' => 'invalid_transition')
@@ -254,10 +254,11 @@ module Paygen
           raise ArgumentError, "no #{@paygen_mode} server configured for #{role}"
         end
         server ||= servers.first
-        server.is_a?(Hash) ? server['url'] : server
+        server_url(server)
       end
 
       def server_mode(server)
+        url = server_url(server)
         if server.is_a?(Hash)
           explicit = server['mode'] || server['x-paygen-mode']
           return explicit.to_s unless explicit.to_s.empty?
@@ -266,7 +267,6 @@ module Paygen
           return 'sandbox' if description.match?(/\b(?:sandbox|test|testing)\b/i)
           return 'production' if description.match?(/\b(?:production|prod|live)\b/i)
         end
-        url = server.is_a?(Hash) ? server['url'] : server
         host = URI.parse(url.to_s).hostname.to_s
         return 'sandbox' if host.match?(/(?:\A|[.-])(?:sandbox|test|testing)(?:[.-]|\z)/i)
         return 'production' if host.match?(/(?:\A|[.-])(?:production|prod|live)(?:[.-]|\z)/i)
@@ -274,6 +274,20 @@ module Paygen
         nil
       rescue URI::InvalidURIError
         raise SecurityError, 'Invalid server URL'
+      end
+
+      def server_url(server)
+        return server unless server.is_a?(Hash)
+
+        server.fetch('url').gsub(/\{([^{}]+)\}/) do
+          name = Regexp.last_match(1)
+          variable = server.fetch('variables', {})[name]
+          unless variable.is_a?(Hash) && variable['default'].is_a?(String)
+            raise ArgumentError, "missing server variable default #{name}"
+          end
+
+          variable['default']
+        end
       end
 
       def minor_amount(value)
@@ -354,6 +368,9 @@ module Paygen
         interpret_response(response, role, operation)
       rescue Timeout::Error, EOFError, Errno::ECONNRESET
         failure('transport_timeout', retryable: role != 'create', ambiguous: role == 'create',
+                details: role == 'create' ? { 'action' => 'reconcile_before_retry', 'idempotency_key' => idempotency_key(operation) } : {})
+      rescue ResponseSizeError
+        failure('security_denial', ambiguous: role == 'create',
                 details: role == 'create' ? { 'action' => 'reconcile_before_retry', 'idempotency_key' => idempotency_key(operation) } : {})
       rescue SecurityError
         failure('security_denial')
@@ -645,12 +662,20 @@ module Paygen
 
       def callback_order(payload, config)
         sequence = read_path(payload, config['sequence'])
-        return Integer(sequence) unless sequence.nil?
-
         value = read_path(payload, config['timestamp'])
-        return nil if value.nil?
+        order = {}
+        order['sequence'] = Integer(sequence) unless sequence.nil?
+        order['timestamp'] = value.is_a?(Numeric) ? value : Time.iso8601(value).to_f unless value.nil?
+        order unless order.empty?
+      end
 
-        value.is_a?(Numeric) ? value : Time.iso8601(value).to_f
+      def callback_out_of_order?(current, previous)
+        return false unless current.is_a?(Hash) && previous.is_a?(Hash)
+
+        # Sequence numbers and Unix timestamps have unrelated units. Compare
+        # the same evidence on both events, preferring the provider sequence.
+        field = %w[sequence timestamp].find { |name| current.key?(name) && previous.key?(name) }
+        field && current[field] < previous[field]
       end
 
       def allowed_transition?(previous, current)

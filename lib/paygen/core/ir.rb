@@ -17,11 +17,11 @@ module Paygen
         end
         @document = document
         @diagnostics = []
-        inferred = infer
         vendor = document.fetch('x-paygen', {})
         unless vendor.is_a?(Hash)
           raise Error.new('x-paygen must be an object', code: 'INVALID_PROFILE', exit_code: 3)
         end
+        inferred = infer([vendor, recipe, profile, overrides])
         @profile = [vendor, recipe, profile, overrides].reduce(inferred) { |memo, layer| Paygen.deep_merge(memo, layer) }
         %w[operations request_mapping status_mapping amount response idempotency auth callback errors parameter_mapping].each do |key|
           next unless @profile.key?(key)
@@ -81,7 +81,7 @@ module Paygen
 
       private
 
-      def infer
+      def infer(layers)
         title = document.dig('info', 'title').to_s
         slug = title.downcase.gsub(/[^a-z0-9]+/, '_').sub(/_+\z/, '')
         roles = ROLES.to_h do |role, regex|
@@ -90,13 +90,24 @@ module Paygen
         end.compact
         result = { 'version' => 1, 'provider' => slug, 'class_name' => slug.split('_').map(&:capitalize).join + 'Service',
                    'operations' => roles }
+        selected_roles = layers.reduce(roles) do |selected, layer|
+          layer['operations'].is_a?(Hash) ? Paygen.deep_merge(selected, layer['operations']) : selected
+        end
+        outgoing_ids = selected_roles.reject { |role, _| role == 'callback' }.values
         schemes = document.dig('components', 'securitySchemes') || {}
         if schemes.size == 1
-          auth = schemes.values.first
+          scheme_name, auth = schemes.first
           if auth['type'] == 'apiKey'
             result['auth'] = auth.slice('type', 'in', 'name').merge('credential' => 'api_key')
           elsif auth['type'] == 'http'
             result['auth'] = { 'type' => auth['scheme'], 'credential' => 'token' }
+          elsif auth['type'] == 'oauth2'
+            requirements = operations.select { |op| !op['inbound'] && outgoing_ids.include?(op['operation_id']) }
+                                     .flat_map { |op| op['security'] }.select { |requirement| requirement.key?(scheme_name) }
+            unless requirements.empty?
+              result['auth'] = { 'type' => 'oauth2', 'credential' => 'access_token',
+                                 'scopes' => requirements.flat_map { |requirement| requirement.fetch(scheme_name) }.uniq.sort }
+            end
           end
         end
         result
@@ -119,6 +130,17 @@ module Paygen
         diagnostic('CREATE_REQUIRED', 'Select the outgoing create operation', 'operations.create') unless operation_map['create']
         operation_map.each do |role, operation_id|
           diagnostic('UNKNOWN_OPERATION', "Unknown operation selected for #{role}", "operations.#{role}") unless operations.any? { |op| op['operation_id'] == operation_id }
+        end
+        authenticated = profile.dig('auth', 'type') && profile.dig('auth', 'type') != 'none'
+        unless authenticated
+          outgoing_ids = operation_map.reject { |role, _| role == 'callback' }.values
+          protected_operations = operations.select do |op|
+            !op['inbound'] && outgoing_ids.include?(op['operation_id']) &&
+              !op['security'].empty? && op['security'].none?(&:empty?)
+          end
+          unless protected_operations.empty?
+            diagnostic('AUTH_REQUIRED', 'Configure authentication for the selected protected operations', 'auth')
+          end
         end
         if operation_map['callback'] && !profile.dig('callback', 'signature')
           diagnostic('CALLBACK_SIGNATURE_REQUIRED', 'Configure raw-body callback verification', 'callback.signature')
