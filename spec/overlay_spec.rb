@@ -93,6 +93,20 @@ RSpec.describe Paygen::Core::Overlay do
     expect(described_class.new(source, source_uri: '/tmp/source.yaml').apply(doc, overlay_uri: '/tmp/overlay.yaml')['added']).to be(true)
   end
 
+  it 'resolves root-relative extends paths against an HTTPS overlay origin' do
+    doc = overlay('target' => '$', 'update' => { 'added' => true }).merge('extends' => '/source.yaml')
+    engine = described_class.new(source, source_uri: 'https://provider.example/source.yaml')
+
+    expect(engine.apply(doc, overlay_uri: 'https://provider.example/overlays/fix.yaml')['added']).to be(true)
+  end
+
+  it 'keeps absolute local extends paths absolute for local overlays' do
+    doc = overlay('target' => '$', 'update' => { 'added' => true }).merge('extends' => '/tmp/source.yaml')
+    engine = described_class.new(source, source_uri: '/tmp/source.yaml')
+
+    expect(engine.apply(doc, overlay_uri: '/tmp/overlays/fix.yaml')['added']).to be(true)
+  end
+
   it 'rejects executable or non-RFC selectors' do
     expect { described_class.new(source).apply(overlay('target' => '$.objects[(@.length - 1)]', 'update' => {})) }.to raise_error(Paygen::Error)
   end

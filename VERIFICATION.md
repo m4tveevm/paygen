@@ -2,14 +2,26 @@
 
 Status: COMPLETE
 
-Verified implementation and verification-script commit:
+Initial verified implementation and verification-script commit:
 `c4097a085ff9cd4fd5491ec2248bcf96dc5a7a4c`.
 [Full completion run](https://github.com/m4tveevm/paygen/actions/runs/33954587927)
 completed successfully. The completion job ran `script/verify-complete` with
 explicit Bash pipefail and emitted its final `PASS` JSON. The status/checklist
 commit after this run records evidence; it changes no application or test code.
 
-## Executed gates
+## Review follow-up
+
+The ten reproduced findings in REVIEW.md are fixed with 25 additional examples.
+The complete local Ruby 3.3.12 run passed **913 examples, 0 failures** (seed
+19407), including the same 703 pinned RFC 9535 compliance cases. Local coverage
+was 85.93% of lines and 67.14% of branches. Lint/Security checked 31 Ruby files
+without offenses; the four-provider CLI smoke and architecture audit passed.
+
+The latest commit's full remote completion gates are recorded in
+[PR #1 checks](https://github.com/m4tveevm/paygen/pull/1/checks). The historical
+run below predates these follow-up fixes and is not their remote evidence.
+
+## Initial executed gates
 
 | Gate | Result |
 | --- | --- |
@@ -42,15 +54,16 @@ The supplied NovaPay contract remains byte-identical to the attachment. SHA-256:
 
 ## Independent audits and limits
 
-Architecture, security and coverage reviews found no remaining concrete
-P0/P1/P2 findings in the inspected scope. Confirmed fixes cover forged manifest
+The initial architecture, security and coverage reviews found no remaining
+concrete P0/P1/P2 findings at that time. Subsequent PR review identified the ten
+additional defects documented and fixed in REVIEW.md. Earlier fixes cover forged manifest
 traversal, arbitrary operation-method invocation, extension export, atomic
 generation, overlay symlinks, mixed-extension overlay ordering, hidden output
 drift, per-operation server routing and total HTTP deadlines. A reviewer
 separately passed 65 project/runtime/security/CLI regressions (seed 39674).
 The completion pipeline was also reviewed for failure propagation.
 
-Coverage limits remain in external nested Arazzo execution, some dependency/goto
+Coverage limits remain in some external nested Arazzo, dependency/goto
 and payload-replacement branches, actual post-swap filesystem rollback, CLI
 watch, balance and HTTP-date retry parsing. These are untested branches, not
 observed failures. Earlier CI runs that lacked the final PASS record are not

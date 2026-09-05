@@ -208,7 +208,7 @@ module Paygen
       end
 
       def resolve_uri(reference, overlay_uri)
-        return reference if reference.match?(/\A[a-z][a-z0-9+.-]*:/i) || reference.start_with?('/')
+        return reference if reference.match?(/\A[a-z][a-z0-9+.-]*:/i)
         return File.expand_path(reference) unless overlay_uri
         if overlay_uri.match?(/\Ahttps:/i)
           URI.join(overlay_uri, reference).to_s

@@ -76,7 +76,7 @@ module Paygen
 
       def run(workflow_id, inputs: {}, seed: 0)
         validate!
-        state = { 'remaining' => MAX_STEPS, 'workflows' => {}, 'seed' => Integer(seed), 'trace' => [] }
+        state = { 'remaining' => MAX_STEPS, 'workflows' => {}.compare_by_identity, 'seed' => Integer(seed), 'trace' => [] }
         execute(workflow_id, inputs, state, [])
       end
 
@@ -152,10 +152,11 @@ module Paygen
         Input.fail_security('ARAZZO_CYCLE', 'Recursive workflow dependency detected') if stack.include?(identity)
         workflow = find_workflow(workflow_id)
         validate_inputs!(workflow, inputs)
-        context = { 'inputs' => inputs, 'steps' => {}, 'workflows' => state['workflows'],
+        document_workflows = (state['workflows'][@document] ||= {})
+        context = { 'inputs' => inputs, 'steps' => {}, 'workflows' => document_workflows,
                     'components' => @document.fetch('components', {}), 'self' => @document['$self'],
                     'sourceDescriptions' => @document.fetch('sourceDescriptions').to_h { |source| [source['name'], source] } }
-        state['workflows'][workflow_id] = { 'inputs' => inputs, 'outputs' => {}, 'steps' => context['steps'] }
+        document_workflows[workflow_id] = { 'inputs' => inputs, 'outputs' => {}, 'steps' => context['steps'] }
         workflow.fetch('dependsOn', []).each do |dependency|
           outcome = invoke_workflow(dependency, inputs, state, stack + [identity])
           return result(workflow_id, false, context, workflow, state) unless outcome['success']
@@ -266,7 +267,7 @@ module Paygen
 
       def result(id, success, context, workflow, state)
         outputs = success ? evaluate(workflow.fetch('outputs', {}), context) : {}
-        state['workflows'][id]['outputs'] = outputs
+        context['workflows'][id]['outputs'] = outputs
         { 'workflowId' => id, 'success' => success, 'outputs' => outputs,
           'steps' => context['steps'], 'trace' => state['trace'].dup, 'seed' => state['seed'] }
       end
@@ -495,8 +496,15 @@ module Paygen
         when Array then value.map { |child| evaluate(child, context) }
         when String
           return expression(value, context) if value.start_with?('$')
-          value.gsub(/\{(\$[^{}]+)\}/) { expression(Regexp.last_match(1), context).to_s }
+          interpolate(value, context)
         else value
+        end
+      end
+
+      def interpolate(value, context)
+        value.gsub(/\{(\$[^{}]+)\}/) do
+          resolved = expression(Regexp.last_match(1), context)
+          resolved.is_a?(Hash) || resolved.is_a?(Array) ? JSON.generate(resolved) : resolved.to_s
         end
       end
 
@@ -512,6 +520,8 @@ module Paygen
                   context[match[1]][match[2]]
                 elsif (match = base.match(/\A\$steps\.([\w-]+)\.outputs\.(.+)\z/)) && context.dig('steps', match[1], 'outputs')&.key?(match[2])
                   context.dig('steps', match[1], 'outputs', match[2])
+                elsif (match = base.match(/\A\$workflows\.([\w-]+)\.(inputs|outputs|steps)\.(.+)\z/)) && context.dig('workflows', match[1], match[2])&.key?(match[3])
+                  context.dig('workflows', match[1], match[2], match[3])
                 else
                   matches = Janeway.enum_for('$.' + base.delete_prefix('$'), context).search
                   invalid('ARAZZO_EXPRESSION', 'Runtime expression must resolve to one value') unless matches.size == 1
@@ -542,9 +552,13 @@ module Paygen
       end
 
       def replace_payload(payload, replacements, context)
+        return payload if replacements.empty?
+        # Runtime expressions may return input or output objects by reference.
+        # Request replacements must only modify the outgoing payload.
+        payload = JSON.parse(JSON.generate(payload))
         replacements.each do |replacement|
           type = expression_type(replacement.fetch('targetSelectorType', 'jsonpointer'))
-          value = evaluate(replacement['value'], context)
+          value = JSON.parse(JSON.generate(evaluate(replacement['value'], context)))
           target = replacement['target']
           case type
           when 'jsonpointer'
@@ -578,7 +592,7 @@ module Paygen
             if type == 'simple'
               Condition.new(condition, ->(reference) { expression(reference, context) }).evaluate
             else
-              condition = condition.gsub(/\{(\$[^{}]+)\}/) { expression(Regexp.last_match(1), context).to_s }
+              condition = interpolate(condition, context)
               source = expression(criterion['context'], context)
               case type
               when 'regex' then !source.nil? && Regexp.new(condition, timeout: 0.1).match?(source.to_s)
