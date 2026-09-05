@@ -22,4 +22,5 @@ Gem::Specification.new do |s|
   s.add_dependency 'diff-lcs', '~> 1.6'
   s.add_dependency 'bigdecimal', '>= 3.1'
   s.add_dependency 'logger', '>= 1.6'
+  s.add_dependency 'base64', '~> 0.2'
 end

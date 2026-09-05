@@ -40,6 +40,7 @@ module Paygen
 
         def read(path_or_url, stdin: $stdin)
           source = path_or_url.to_s
+          fail_security('INPUT_PATH', 'Input path contains a NUL byte') if source.include?("\0")
           text = if source == '-'
                    bounded_read(stdin)
                  elsif source.match?(/\A[a-z][a-z0-9+.-]*:/i)
@@ -88,11 +89,32 @@ module Paygen
           Resolver.new(document, base_dir: base_dir).resolve
         end
 
+        # Keep root-document pointers so source overlays retain their intended
+        # locations, while resolving external refs in their own document scope.
+        # Call resolve+validate! separately to validate cycles and target shapes.
+        def bundle(document, base_dir: nil)
+          Resolver.new(document, base_dir: base_dir, preserve_internal: true).resolve
+        end
+
         # RFC 6901 pointer lookup; missing is different from a JSON null value.
         def pointer(document, fragment)
           decoded = URI::DEFAULT_PARSER.unescape(fragment.to_s)
           return document if decoded.empty?
-          fail_input('REF_POINTER', 'Reference fragment must be a JSON Pointer') unless decoded.start_with?('/')
+          unless decoded.start_with?('/')
+            matches = []
+            queue = [document]
+            until queue.empty?
+              node = queue.pop
+              if node.is_a?(Hash)
+                matches << node if node['$anchor'] == decoded
+                queue.concat(node.values)
+              elsif node.is_a?(Array)
+                queue.concat(node)
+              end
+            end
+            fail_input('REF_ANCHOR', 'Reference anchor must identify exactly one schema') unless matches.size == 1
+            return matches.first
+          end
           decoded.split('/', -1).drop(1).reduce(document) do |value, token|
             fail_input('REF_POINTER', 'Invalid JSON Pointer escape') if token.match?(/~(?![01])/)
             key = token.gsub('~1', '/').gsub('~0', '~')
@@ -193,6 +215,7 @@ module Paygen
             fail_security('YAML_TAG', 'Nonstandard YAML mapping tag') if node.tag && node.tag != 'tag:yaml.org,2002:map'
             node.children.each_slice(2).each_with_object({}) do |(key, value), hash|
               fail_input('INPUT_KEY', 'Mapping keys must be scalars') unless key.is_a?(Psych::Nodes::Scalar)
+              fail_security('YAML_TAG', 'Mapping keys cannot carry object tags') if key.tag && key.tag != 'tag:yaml.org,2002:str'
               name = key.value
               fail_security('YAML_MERGE', 'YAML merge keys are not allowed') if name == '<<'
               fail_input('INPUT_DUPLICATE', 'Duplicate mapping key') if hash.key?(name)
@@ -221,6 +244,7 @@ module Paygen
           return nil if value.empty? || value.match?(/\A(?:null|Null|NULL|~)\z/)
           return true if value.match?(/\A(?:true|True|TRUE)\z/)
           return false if value.match?(/\A(?:false|False|FALSE)\z/)
+          fail_security('INPUT_NUMBER', 'Numeric scalar exceeds the resource limit') if value.bytesize > 1024 && value.match?(/\A[-+0-9.eE]+\z/)
           return Integer(value, 10) if value.match?(/\A-?(?:0|[1-9]\d*)\z/)
           if value.match?(/\A-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\z/)
             result = Float(value)
@@ -234,7 +258,8 @@ module Paygen
       end
 
       class Resolver
-        def initialize(document, base_dir:)
+        def initialize(document, base_dir:, preserve_internal: false)
+          @preserve_internal = preserve_internal
           @document = document
           @base_dir = base_dir && File.realpath(base_dir)
           @documents = { '<root>' => document }
@@ -248,20 +273,25 @@ module Paygen
 
         private
 
-        def visit(value, location, stack, depth, schema_context)
+        def visit(value, location, stack, depth, schema_context, map_container = false)
           @nodes += 1
           Input.fail_security('REF_LIMIT', 'Resolved document exceeds resource limits') if @nodes > MAX_NODES || depth > MAX_DEPTH
           case value
           when Hash
-            if value.key?('$dynamicRef')
+            if !map_container && value.key?('$dynamicRef')
               Input.fail_input('REF_DYNAMIC_UNSUPPORTED', 'Dynamic references require explicit schema normalization')
             end
-            if value.key?('$ref')
+            if !map_container && value.key?('$ref')
               resolve_ref(value, location, stack, depth, schema_context)
             else
               value.each_with_object({}) do |(key, child), hash|
+                if !map_container && (%w[example value].include?(key) || (schema_context && %w[default enum const].include?(key)) || key.start_with?('x-'))
+                  hash[key] = child
+                  next
+                end
                 child_schema = schema_context || key == 'schema' || key == 'schemas' || key == '$defs'
-                hash[key] = visit(child, location, stack, depth + 1, child_schema)
+                child_map = %w[properties patternProperties dependentSchemas $defs schemas].include?(key)
+                hash[key] = visit(child, location, stack, depth + 1, child_schema, child_map)
               end
             end
           when Array
@@ -275,8 +305,13 @@ module Paygen
           @refs += 1
           Input.fail_security('REF_LIMIT', 'Too many expanded references') if @refs > MAX_REFS
           ref = value['$ref']
-          Input.fail_input('REF_TYPE', 'Reference must be a string') unless ref.is_a?(String)
+          Input.fail_input('REF_TYPE', 'Reference must be a string') unless ref.is_a?(String) && !ref.empty?
           resource, fragment = ref.split('#', 2)
+          if @preserve_internal && location == '<root>' && resource.empty?
+            return value.each_with_object({}) do |(key, child), result|
+              result[key] = key == '$ref' ? child : visit(child, location, stack, depth + 1, schema_context)
+            end
+          end
           target_location = resource.empty? ? location : local_resource(resource, location)
           identity = [target_location, fragment.to_s]
           Input.fail_security('REF_CYCLE', 'Cyclic references are not supported by the generator') if stack.include?(identity)

@@ -163,5 +163,23 @@
         "Stripe-Signature": "t=1788602400,v1=fcccd4fa7b1820646ddf98803ea92ca3f7b161db60ec309d9dfe5dc1dd81edc6"
       }
     }
+  },
+  "workflow": {
+    "inputs": {
+      "request_body": {
+        "amount": 1234,
+        "currency": "eur",
+        "destination": "ba_fixture_001",
+        "method": "standard",
+        "metadata": {
+          "operation_id": "op_stripe_001"
+        }
+      }
+    },
+    "response_names": [
+      "created",
+      "paid"
+    ],
+    "expected_provider_status": "paid"
   }
 }

@@ -104,6 +104,17 @@ RSpec.describe Paygen::Runtime::Simulator do
     expect(payout(simulator)[:status]).to eq(201)
   end
 
+  it 'uses a supported webhook event when an HTTP pending status has no webhook event' do
+    configuration['status_mapping']['processing'] = 'in_progress'
+    configuration['callback']['events'] = { 'payment.processing' => 'processing', 'payment.paid' => 'paid' }
+    configuration['simulator'] = { 'scenarios' => { 'success' => { 'statuses' => %w[pending paid] } } }
+    simulator = described_class.new(config: configuration)
+    payout(simulator)
+    event = simulator.callback_events.first.fetch('payload')
+    expect(event['event']).to eq('payment.processing')
+    expect(event['status']).to eq('processing')
+  end
+
   it 'distinguishes an invalid cancellation conflict from idempotent create replay' do
     simulator = described_class.new(config: configuration)
     id = parsed(payout(simulator)).fetch('id')

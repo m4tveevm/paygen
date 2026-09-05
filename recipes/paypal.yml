@@ -134,3 +134,49 @@ overlays:
   - target: $.info
     update:
       x-paygen-subset: true
+workflows:
+  payout.arazzo.yaml:
+    arazzo: 1.1.0
+    info:
+      title: paypal payout create/status replay
+      version: 1.0.0
+      description: Offline workflow using native provider request bodies. Workflow
+        success means both HTTP steps completed; it does not imply successful settlement.
+        Authentication belongs to the injected transport.
+    sourceDescriptions:
+    - name: provider
+      url: ../source/openapi.json
+      type: openapi
+    workflows:
+    - workflowId: payout
+      summary: Create a payout and inspect its latest provider status
+      inputs:
+        type: object
+        properties:
+          request_body:
+            type: object
+        required:
+        - request_body
+      steps:
+      - stepId: create
+        operationId: payouts.post
+        requestBody:
+          contentType: application/json
+          payload: $inputs.request_body
+        successCriteria:
+        - condition: $statusCode == 201
+        outputs:
+          provider_id: $response.body#/batch_header/payout_batch_id
+      - stepId: status
+        operationId: payouts.get
+        parameters:
+        - name: id
+          in: path
+          value: $steps.create.outputs.provider_id
+        successCriteria:
+        - condition: $statusCode == 200
+        outputs:
+          provider_status: $response.body#/items/0/transaction_status
+      outputs:
+        provider_id: $steps.create.outputs.provider_id
+        provider_status: $steps.status.outputs.provider_status

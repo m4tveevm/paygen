@@ -50,6 +50,22 @@ RSpec.describe Paygen::Core::Overlay do
     expect { described_class.new(source).apply(overlay('target' => '$.objects[0]', 'update' => { 'tags' => 'no' })) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('OVERLAY_TYPE') }
   end
 
+  it 'accepts update and copy together and applies their mutual suppression' do
+    [nil, 'replacement', { 'added' => true }].each do |value|
+      engine = described_class.new(source)
+      action = { 'target' => '$.destination', 'update' => value, 'copy' => '$.objects[0]' }
+      expect(engine.validate!(overlay(action))).to be_a(Hash)
+      expect(engine.apply(overlay(action))).to eq(source)
+      expect(engine.diagnostics.first).to include('code' => 'OVERLAY_MODIFIERS_IGNORED')
+    end
+  end
+
+  it 'lets remove suppress both update and copy without resolving copy matches' do
+    action = { 'target' => '$.title', 'remove' => true, 'update' => {}, 'copy' => '$.absent' }
+    result = described_class.new(source).apply(overlay(action))
+    expect(result).not_to have_key('title')
+  end
+
   it 'rejects mixed selected node kinds and non-single copy sources' do
     expect { described_class.new(source).apply(overlay('target' => '$.*', 'update' => {})) }.to raise_error(Paygen::Error)
     expect { described_class.new(source).apply(overlay('target' => '$.destination', 'copy' => '$.objects[*]')) }.to raise_error(Paygen::Error)
@@ -58,6 +74,17 @@ RSpec.describe Paygen::Core::Overlay do
   it 'applies updates to the document root' do
     result = described_class.new(source).apply(overlay('target' => '$', 'update' => { 'added' => 1 }))
     expect(result['added']).to eq(1)
+  end
+
+  it 'keeps descendant updates when a selector also matches their ancestors' do
+    nested = { 'a' => { 'child' => {} } }
+    result = described_class.new(nested).apply(overlay('target' => '$..*', 'update' => { 'marked' => true }))
+    expect(result['a']['marked']).to be(true)
+    expect(result['a']['child']['marked']).to be(true)
+  end
+
+  it 'accepts a target-only action as a no-op' do
+    expect(described_class.new(source).apply(overlay('target' => '$.title'))).to eq(source)
   end
 
   it 'checks extends against the selected document URI' do

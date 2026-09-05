@@ -11,4 +11,5 @@ for provider in novapay paypal stripe adyen; do
   bundle exec bin/paygen generate "$project"
   bundle exec bin/paygen diff "$project" --check
   bundle exec bin/paygen architecture-check "$project"
+  bundle exec bin/paygen verify "$project" --seed 42
 done

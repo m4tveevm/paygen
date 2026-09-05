@@ -7,7 +7,6 @@ require 'openssl'
 require 'base64'
 require 'timeout'
 require 'stringio'
-require 'thread'
 require 'time'
 require 'bigdecimal'
 
@@ -46,6 +45,7 @@ module Paygen
           return response(404, error_body('not_found')) unless match
 
           role, parameters = match
+          parameters = URI.decode_www_form(uri.query.to_s).to_h.merge(parameters)
           parsed = parse_body(body, headers)
           result = dispatch(role, parameters, parsed, headers)
           @requests << { 'method' => method.to_s.upcase, 'path' => path,
@@ -128,7 +128,7 @@ module Paygen
           return [] unless record
 
           callbacks = callback_states.each_with_index.map do |status, index|
-            callback_event(record, status, index + 1, secret: secret)
+            callback_event(record, callback_status(status), index + 1, secret: secret)
           end
           callbacks.reverse! if out_of_order
           callbacks << JSON.parse(JSON.generate(callbacks.last)) if duplicate && callbacks.any?
@@ -209,7 +209,8 @@ module Paygen
       end
 
       def endpoint_match(method, request_path)
-        prefixes = Array(config['servers']).filter_map do |server|
+        all_servers = Array(config['servers']) + config.fetch('endpoints', {}).values.flat_map { |item| Array(item['servers']) }
+        prefixes = all_servers.filter_map do |server|
           URI.parse(server.is_a?(Hash) ? server.fetch('url') : server).path.sub(%r{/$}, '')
         rescue URI::InvalidURIError
           nil
@@ -313,6 +314,14 @@ module Paygen
         end
       end
 
+      def callback_status(status)
+        events = config.dig('callback', 'events') || {}
+        return status if events.empty? || events.value?(status) || events.value?(nil)
+
+        mapping = config.fetch('status_mapping', {})
+        events.values.find { |candidate| mapping[candidate] == mapping[status] } || status
+      end
+
       def mapped_status(internal)
         config.fetch('status_mapping', {}).find do |_external, value|
           (value.is_a?(Hash) ? value['status'] : value) == internal
@@ -402,6 +411,7 @@ module Paygen
         return JSON.parse(JSON.generate(schema['enum'].first)) if schema['enum'].is_a?(Array) && !schema['enum'].empty?
 
         type = schema['type'] || (schema['properties'] ? 'object' : nil)
+        type = type.find { |candidate| candidate != 'null' } if type.is_a?(Array)
         case type
         when 'object'
           schema.fetch('properties', {}).each_with_object({}) do |(name, value), result|
@@ -410,7 +420,12 @@ module Paygen
         when 'array' then [sample_schema(schema.fetch('items', {}), depth + 1)]
         when 'integer', 'number' then schema.fetch('minimum', 1)
         when 'boolean' then false
-        when 'string' then schema['format'] == 'date-time' ? '2027-01-15T08:00:00Z' : 'test-value'
+        when 'string'
+          { 'date-time' => '2027-01-15T08:00:00Z', 'date' => '2027-01-15',
+            'email' => 'sample@example.test', 'uuid' => '00000000-0000-4000-8000-000000000001',
+            'uri' => 'https://simulator.example', 'uri-reference' => '/test',
+            'hostname' => 'simulator.example', 'ipv4' => '203.0.113.1',
+            'ipv6' => '2001:db8::1' }.fetch(schema['format'], 'test-value')
         else {}
         end
       end

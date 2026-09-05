@@ -201,5 +201,30 @@
       "raw_body": "{\"id\":\"WH_FIXTURE_RETURNED\",\"event_type\":\"PAYMENT.PAYOUTS-ITEM.RETURNED\",\"create_time\":\"2026-09-05T10:00:00Z\",\"resource\":{\"payout_item_id\":\"ITEM_FIXTURE_001\",\"payout_batch_id\":\"BATCH_FIXTURE_001\",\"transaction_status\":\"RETURNED\",\"payout_item\":{\"recipient_type\":\"EMAIL\",\"amount\":{\"currency\":\"EUR\",\"value\":\"12.34\"},\"receiver\":\"receiver@example.test\",\"sender_item_id\":\"op_paypal_001\"}}}",
       "headers": {}
     }
+  },
+  "workflow": {
+    "inputs": {
+      "request_body": {
+        "sender_batch_header": {
+          "sender_batch_id": "op_paypal_001"
+        },
+        "items": [
+          {
+            "recipient_type": "EMAIL",
+            "amount": {
+              "value": "12.34",
+              "currency": "EUR"
+            },
+            "receiver": "receiver@example.test",
+            "sender_item_id": "op_paypal_001"
+          }
+        ]
+      }
+    },
+    "response_names": [
+      "created",
+      "batch_success_item_failed"
+    ],
+    "expected_provider_status": "FAILED"
   }
 }

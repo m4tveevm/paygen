@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require 'tempfile'
+require 'tmpdir'
 
 module Paygen
   class Project
@@ -9,7 +10,11 @@ module Paygen
     def self.init(input, output:, stdin: $stdin)
       destination = File.expand_path(output)
       raise Error, 'Output already exists; choose an empty project path' if File.exist?(destination)
-      document = Core::Input.load(input, stdin: stdin)
+      raw_document = Core::Input.read(input, stdin: stdin)
+      remote = input.to_s == '-' || input.to_s.match?(/\Ahttps?:/i)
+      base_dir = remote ? nil : File.dirname(File.realpath(input))
+      document = Core::Input.bundle(raw_document, base_dir: base_dir)
+      Core::Input.validate!(Core::Input.resolve(document))
       project = new(destination, create: true)
       DIRECTORIES.each { |directory| FileUtils.mkdir_p(project.path(directory)) }
       project.write('source/openapi.json', Paygen.json(document))
@@ -21,9 +26,13 @@ module Paygen
         recipe.fetch('overlays', []).each_with_index do |overlay, index|
           project.write(format('overlays/%03d-recipe.yaml', index + 1), YAML.dump(overlay))
         end
+        recipe.fetch('workflows', {}).each do |name, workflow|
+          raise Error, 'Workflow filename must be a basename' unless name == File.basename(name)
+          project.write("workflows/#{name}", YAML.dump(workflow))
+        end
       end
       project.write('extensions/README.md', "# User-owned extensions\n\nAdd trusted Ruby hooks here. Paygen never executes or overwrites these files during generation.\n")
-      project.write('paygen.lock', Paygen.json({ 'version' => 1, 'source_sha256' => Digest::SHA256.hexdigest(Paygen.json(document)), 'generated' => {} }))
+      project.write('paygen.lock', Paygen.json({ 'version' => 1, 'source_uri' => remote ? input.to_s : File.expand_path(input), 'source_sha256' => Digest::SHA256.hexdigest(Paygen.json(document)), 'generated' => {} }))
       project
     rescue StandardError
       FileUtils.remove_entry(destination) if defined?(project) && project && File.directory?(destination)
@@ -31,7 +40,7 @@ module Paygen
     end
 
     def self.available_recipes
-      Dir[File.expand_path('../../recipes/*.yml', __dir__)].sort.map { |file| Core::Input.read(file) }
+      Dir[File.expand_path('../../recipes/*.yml', __dir__)].map { |file| Core::Input.read(file) }
     end
 
     def self.matches?(recipe, document)
@@ -73,8 +82,54 @@ module Paygen
       end
     end
 
+    def transaction
+      File.open(path('.paygen-write.lock'), File::RDWR | File::CREAT, 0o600) do |file|
+        file.flock(File::LOCK_EX)
+        yield
+      ensure
+        file&.flock(File::LOCK_UN)
+      end
+    end
+
+    def replace_generated(files, manifest)
+      destination = path('generated')
+      files.each_key do |name|
+        target = path("generated/#{name}")
+        if File.exist?(target) && !File.file?(target)
+          raise Error.new('A generated output path is occupied by a directory', code: 'GENERATED_DRIFT', exit_code: 1)
+        end
+      end
+      staging = Dir.mktmpdir('.paygen-staging-', root)
+      backup = Dir.mktmpdir('.paygen-backup-', root)
+      Dir.rmdir(backup)
+      files.each { |name, body| File.write(File.join(staging, name), body) }
+      File.rename(destination, backup) if File.exist?(destination)
+      begin
+        File.rename(staging, destination)
+        write('paygen.lock', Paygen.json(manifest))
+      rescue StandardError
+        FileUtils.remove_entry(destination) if File.directory?(destination)
+        File.rename(backup, destination) if File.directory?(backup)
+        raise
+      end
+    ensure
+      FileUtils.remove_entry(staging) if staging && File.directory?(staging)
+      FileUtils.remove_entry(backup) if backup && File.directory?(backup)
+    end
+
     def lock
-      File.file?(path('paygen.lock')) ? Core::Input.read(path('paygen.lock')) : { 'version' => 1, 'generated' => {} }
+      result = File.file?(path('paygen.lock')) ? Core::Input.read(path('paygen.lock')) : { 'version' => 1, 'generated' => {} }
+      unless result['version'] == 1 && result['generated'].is_a?(Hash)
+        raise Error.new('Invalid project lock manifest', code: 'INVALID_LOCK', exit_code: 3)
+      end
+      result['generated'].each do |name, checksum|
+        unless name.is_a?(String) && !name.empty? && !name.start_with?('/') &&
+               name.split('/').none? { |part| ['.', '..', ''].include?(part) } &&
+               !name.match?(/[\\\x00-\x1f]/) && checksum.is_a?(String) && checksum.match?(/\A[0-9a-f]{64}\z/)
+          raise Error.new('Unsafe generated-file manifest entry', code: 'INVALID_LOCK', exit_code: 5)
+        end
+      end
+      result
     end
 
     def profile
@@ -82,16 +137,17 @@ module Paygen
     end
 
     def effective_document
-      document = Core::Input.load(path('source/openapi.json'))
+      document = Core::Input.read(path('source/openapi.json'))
       @overlay_diagnostics = []
-      Dir[path('overlays/*.{json,yaml,yml}')].sort.each do |file|
+      # Brace globs sort each extension group separately; overlay order is global.
+      Dir[path('overlays/*.{json,yaml,yml}')].sort.each do |file| # rubocop:disable Lint/RedundantDirGlobSort
         relative = Pathname.new(file).relative_path_from(Pathname.new(root)).to_s
-        overlay = Core::Overlay.new(document, source_uri: path('source/openapi.json'))
+        overlay = Core::Overlay.new(document, source_uri: lock['source_uri'] || path('source/openapi.json'))
         document = overlay.apply(Core::Input.read(path(relative)), overlay_uri: file)
         @overlay_diagnostics.concat(overlay.diagnostics)
       end
+      document = Core::Input.resolve(document, base_dir: File.dirname(path('source/openapi.json')))
       Core::Input.validate!(document)
-      document
     end
 
     def ir(overrides: {})
@@ -100,6 +156,10 @@ module Paygen
       defaults = File.file?(selected) ? Core::Input.read(selected).fetch('profile', {}) : {}
       result = Core::IR.new(document, recipe: defaults, profile: profile, overrides: overrides)
       result.diagnostics.concat(@overlay_diagnostics)
+      Dir[path('workflows/*.{json,yaml,yml}')].each do |file|
+        relative = Pathname.new(file).relative_path_from(Pathname.new(root)).to_s
+        Core::Workflow.new(Core::Input.read(path(relative))).validate!
+      end
       result
     end
 
@@ -116,18 +176,26 @@ module Paygen
         next if File.file?(file) && Digest::SHA256.file(file).hexdigest == checksum
         { 'path' => relative, 'reason' => File.exist?(file) ? 'modified' : 'missing' }
       end
-      actual = Dir[path('generated/**/*')].select { |file| File.file?(file) }.map { |file| file.delete_prefix(path('generated') + '/') }
+      actual = Dir.glob(path('generated/**/*'), File::FNM_DOTMATCH).select do |file|
+        relative = Pathname.new(file).relative_path_from(Pathname.new(root)).to_s
+        File.file?(path(relative))
+      end.map { |file| file.delete_prefix(path('generated') + '/') }
       differences + (actual - expected.keys).map { |file| { 'path' => file, 'reason' => 'untracked' } }
     end
 
     def update(input)
-      document = Core::Input.load(input)
+      document = Core::Input.read(input)
+      remote = input.to_s == '-' || input.to_s.match?(/\Ahttps?:/i)
+      base_dir = remote ? nil : File.dirname(File.realpath(input))
+      document = Core::Input.bundle(document, base_dir: base_dir)
+      Core::Input.validate!(Core::Input.resolve(document))
       # Validate overlays against the replacement before making any change.
       effective = document
-      Dir[path('overlays/*.{json,yml,yaml}')].sort.each do |file|
-        effective = Core::Overlay.new(effective).apply(Core::Input.read(file))
+      Dir[path('overlays/*.{json,yml,yaml}')].sort.each do |file| # rubocop:disable Lint/RedundantDirGlobSort
+        relative = Pathname.new(file).relative_path_from(Pathname.new(root)).to_s
+        effective = Core::Overlay.new(effective, source_uri: lock['source_uri']).apply(Core::Input.read(path(relative)), overlay_uri: file)
       end
-      Core::Input.validate!(effective)
+      Core::Input.validate!(Core::Input.resolve(effective))
       write('source/openapi.json', Paygen.json(document))
       { 'status' => 'updated', 'source_sha256' => Digest::SHA256.hexdigest(Paygen.json(document)) }
     end

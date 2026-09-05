@@ -12,6 +12,9 @@ module Paygen
       attr_reader :document, :profile, :diagnostics, :provenance
 
       def initialize(document, profile: {}, recipe: {}, overrides: {})
+        unless [profile, recipe, overrides].all? { |layer| layer.is_a?(Hash) }
+          raise Error.new('Semantic configuration must be an object', code: 'INVALID_PROFILE', exit_code: 3)
+        end
         @document = document
         @diagnostics = []
         inferred = infer
@@ -20,6 +23,12 @@ module Paygen
           raise Error.new('x-paygen must be an object', code: 'INVALID_PROFILE', exit_code: 3)
         end
         @profile = [vendor, recipe, profile, overrides].reduce(inferred) { |memo, layer| Paygen.deep_merge(memo, layer) }
+        %w[operations request_mapping status_mapping amount response idempotency auth callback errors parameter_mapping].each do |key|
+          next unless @profile.key?(key)
+          unless @profile[key].is_a?(Hash)
+            raise Error.new("#{key} must be an object", code: 'INVALID_PROFILE', exit_code: 3)
+          end
+        end
         @provenance = {}
         [['inference', inferred], ['vendor-extension', vendor], ['recipe', recipe],
          ['integration-profile', profile], ['cli-override', overrides]].each do |origin, layer|
@@ -29,7 +38,9 @@ module Paygen
       end
 
       def operations
-        @operations ||= document.fetch('paths', {}).flat_map do |path, item|
+        @operations ||= document.fetch('paths', {}).map { |path, item| [path, item, false] }.concat(
+          document.fetch('webhooks', {}).map { |name, item| [name, item, true] }
+        ).flat_map do |path, item, inbound|
           next [] unless item.is_a?(Hash)
           item.filter_map do |method, operation|
             next unless METHODS.include?(method) && operation.is_a?(Hash)
@@ -38,6 +49,8 @@ module Paygen
             {
               'operation_id' => operation['operationId'] || "#{method}:#{path}",
               'method' => method.upcase, 'path' => path,
+              'inbound' => inbound,
+              'servers' => operation.fetch('servers', item.fetch('servers', document.fetch('servers', []))),
               'summary' => operation['summary'],
               'parameters' => merge_parameters(item.fetch('parameters', []), operation.fetch('parameters', [])),
               'request_schema' => content.dig(media_type, 'schema') || {},
@@ -53,9 +66,11 @@ module Paygen
       def config
         endpoints = profile.fetch('operations', {}).to_h do |role, operation_id|
           operation = operations.find { |item| item['operation_id'] == operation_id }
+          operation = operation.merge('servers' => profile['servers']) if operation && profile.key?('servers')
           [role, operation]
         end.compact
-        profile.merge('endpoints' => endpoints, 'servers' => document.fetch('servers', []).map { |s| s['url'] },
+        create_servers = endpoints.dig('create', 'servers') || document.fetch('servers', [])
+        profile.merge('openapi' => document['openapi'], 'endpoints' => endpoints, 'servers' => profile.fetch('servers', create_servers),
                       'source_hash' => Digest::SHA256.hexdigest(Paygen.json(document)))
       end
 
@@ -70,7 +85,7 @@ module Paygen
         title = document.dig('info', 'title').to_s
         slug = title.downcase.gsub(/[^a-z0-9]+/, '_').sub(/_+\z/, '')
         roles = ROLES.to_h do |role, regex|
-          candidates = operations.select { |operation| operation['operation_id'].match?(regex) }
+          candidates = operations.select { |operation| operation['operation_id'].match?(regex) || (role == 'callback' && operation['inbound']) }
           [role, candidates.one? ? candidates.first['operation_id'] : nil]
         end.compact
         result = { 'version' => 1, 'provider' => slug, 'class_name' => slug.split('_').map(&:capitalize).join + 'Service',
@@ -107,6 +122,34 @@ module Paygen
         end
         if operation_map['callback'] && !profile.dig('callback', 'signature')
           diagnostic('CALLBACK_SIGNATURE_REQUIRED', 'Configure raw-body callback verification', 'callback.signature')
+        end
+        amount = profile.fetch('amount', {})
+        unless amount['scale'].is_a?(Integer) && amount['scale'].positive? && amount['scale'].to_s.match?(/\A10*\z/)
+          diagnostic('AMOUNT_SCALE_REQUIRED', 'Declare an integer power-of-ten amount scale', 'amount.scale')
+        end
+        unless amount['currencies'].is_a?(Array) && !amount['currencies'].empty? && amount['currencies'].all? { |c| c.is_a?(String) && c.match?(/\A[A-Z]{3}\z/) }
+          diagnostic('CURRENCIES_REQUIRED', 'Declare supported ISO currency codes', 'amount.currencies')
+        end
+        %w[minimum maximum].each do |bound|
+          next unless amount.key?(bound)
+          diagnostic('INVALID_AMOUNT_BOUND', 'Amount bounds must be nonnegative integer provider units', "amount.#{bound}") unless amount[bound].is_a?(Integer) && amount[bound] >= 0
+        end
+        if amount['minimum'].is_a?(Integer) && amount['maximum'].is_a?(Integer) && amount['minimum'] > amount['maximum']
+          diagnostic('INVALID_AMOUNT_BOUND', 'Minimum exceeds maximum', 'amount')
+        end
+        if amount['input_unit'] && !%w[major minor].include?(amount['input_unit'])
+          diagnostic('INVALID_AMOUNT_UNIT', 'input_unit must be major or minor', 'amount.input_unit')
+        end
+        profile.fetch('request_mapping', {}).each do |target, rule|
+          unless rule.is_a?(Hash) && (rule.key?('from') ^ rule.key?('value')) && (!rule.key?('from') || rule['from'].is_a?(String))
+            diagnostic('INVALID_MAPPING', 'Each mapping declares exactly one source field or literal value', "request_mapping.#{target}")
+          end
+        end
+        if operation_map['callback']
+          signature = profile.dig('callback', 'signature')
+          if !signature.is_a?(Hash) || !signature['algorithm'].is_a?(String) || signature['algorithm'].empty?
+            diagnostic('SIGNATURE_ALGORITHM_REQUIRED', 'Declare a callback verification algorithm', 'callback.signature.algorithm')
+          end
         end
         if operation_map['create'] && !profile['idempotency'].is_a?(Hash)
           diagnostic('IDEMPOTENCY_REQUIRED', 'Configure a stable idempotency key before generating payouts', 'idempotency')

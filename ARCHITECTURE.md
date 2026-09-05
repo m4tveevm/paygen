@@ -74,8 +74,10 @@ errors:
 ```
 
 Generated runtime config merges the profile with `endpoints`:
-role => {method, path, request_schema, responses, parameters, security};
-`servers` => URL list and `source_hash` => SHA256.
+role => {method, path, request_schema, responses, parameters, security, servers};
+`servers` accepts URL strings or OpenAPI server objects. Operation servers take
+precedence, with mode selection; an explicit runtime base_url overrides all roles.
+`source_hash` is SHA256.
 Never hardcode any provider in runtime or core. Profile extension fields must be
 documented and tested. Runtime failures are structured results, secrets redacted.
 

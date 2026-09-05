@@ -33,7 +33,7 @@ RSpec.describe Paygen::Core::Input do
 
   it 'bounds document input, nesting, and nonfinite numbers' do
     expect { described_class.parse('x' * (described_class::MAX_BYTES + 1)) }.to raise_error(Paygen::Error)
-    expect { described_class.parse('{"x":' * 110 + '0' + '}' * 110) }.to raise_error(Paygen::Error)
+    expect { described_class.parse(('{"x":' * 110) + '0' + ('}' * 110)) }.to raise_error(Paygen::Error)
     expect { described_class.parse('a: .nan') }.to raise_error(Paygen::Error)
   end
 
@@ -76,9 +76,39 @@ RSpec.describe Paygen::Core::Input do
     expect(JSONSchemer.schema(schema).valid?(10)).to be(true)
   end
 
+  it 'bundles external refs while preserving editable root pointers' do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, 'defs.yaml'), "type: object\nproperties:\n  id:\n    $ref: '#/$defs/id'\n$defs:\n  id: {type: string}\n")
+      original = document.merge('components' => { 'schemas' => { 'External' => { '$ref' => 'defs.yaml' }, 'Alias' => { '$ref' => '#/components/schemas/External' } } })
+      bundled = described_class.bundle(original, base_dir: dir)
+      expect(bundled.dig('components', 'schemas', 'Alias', '$ref')).to eq('#/components/schemas/External')
+      expect(bundled.dig('components', 'schemas', 'External', 'properties', 'id', 'type')).to eq('string')
+      expect(described_class.resolve(bundled).dig('components', 'schemas', 'Alias', 'properties', 'id', 'type')).to eq('string')
+    end
+  end
+
+  it 'keeps example data and dollar-ref property names out of reference traversal' do
+    original = document.merge('components' => { 'schemas' => { 'Record' => { 'type' => 'object', 'properties' => { '$ref' => { 'type' => 'string' } }, 'example' => { '$ref' => 'literal user data' } } } })
+    expect(described_class.resolve(original)).to eq(original)
+  end
+
   it 'rejects private DNS answers even mixed with public addresses' do
     allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34', '127.0.0.1'])
     expect { described_class.public_addresses('provider.example') }.to raise_error(Paygen::Error) { |error| expect(error.exit_code).to eq(5) }
+  end
+
+  it 'downloads HTTPS through a validated DNS address and parses the result' do
+    allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+    stub_request(:get, 'https://provider.example/openapi.json').to_return(body: JSON.generate(document))
+    expect(described_class.load('https://provider.example/openapi.json')).to eq(document)
+  end
+
+  it 'revalidates redirected destinations and denies private targets' do
+    allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+    allow(Resolv).to receive(:getaddresses).with('metadata.internal').and_return(['169.254.169.254'])
+    stub_request(:get, 'https://provider.example/openapi.json').to_return(status: 302, headers: { 'Location' => 'https://metadata.internal/latest' })
+    expect { described_class.load('https://provider.example/openapi.json') }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('SSRF_DENIED') }
+    expect(WebMock).not_to have_requested(:get, 'https://metadata.internal/latest')
   end
 
   it 'rejects unsafe source URLs before a connection is made' do

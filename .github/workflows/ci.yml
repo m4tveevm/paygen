@@ -29,17 +29,6 @@ jobs:
           bundle exec rspec
       - name: CLI and generation smoke
         run: script/smoke
-      - name: Package test runtime for restricted development environments
-        if: always() && matrix.ruby == '3.3.12'
-        run: |
-          tar -C "$(ruby -rrbconfig -e 'print RbConfig::CONFIG["prefix"]')" -czf ruby-toolchain.tar.gz .
-          test ! -d vendor/bundle || tar -C vendor/bundle -czf ruby-gems.tar.gz .
-      - uses: actions/upload-artifact@v4
-        if: always() && matrix.ruby == '3.3.12'
-        with:
-          name: development-ruby-runtime
-          path: ruby-*.tar.gz
-          retention-days: 1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -61,3 +50,32 @@ jobs:
         with:
           name: documentation
           path: docs/_build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-lock
+          path: package-lock.json
+  completion:
+    needs: [ruby, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0.6'
+          bundler-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --package-lock-only --ignore-scripts
+      - name: Complete verification gate
+        run: script/verify-complete | tee verification-complete.log
+      - name: Capture verified repository checkpoint
+        run: git bundle create paygen-verified.bundle --all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: completion-evidence
+          path: |
+            verification-complete.log
+            paygen-verified.bundle

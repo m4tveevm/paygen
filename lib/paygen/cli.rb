@@ -74,15 +74,30 @@ module Paygen
         def call(project:, draft: false, set: [], save_profile: nil, watch: false, **)
           project = Project.new(project)
           overrides = parse_sets(set)
+          generator = Generator.new(project)
           if save_profile
             relative = Pathname.new(File.expand_path(save_profile, project.root)).relative_path_from(Pathname.new(project.root)).to_s
-            project.write(relative, YAML.dump(Paygen.deep_merge(project.profile, overrides)))
+            project.path(relative)
+            protected_directory = %w[extensions source generated overlays workflows].include?(relative.split('/').first)
+            unless %w[.yml .yaml .json].include?(File.extname(relative)) && !protected_directory
+              raise Error.new('Save profiles as YAML or JSON outside source, generated, extensions, overlays and workflows',
+                              code: 'PROFILE_PATH_DENIED', exit_code: 5)
+            end
+            # Validate the effective result and existing generated ownership
+            # before touching the profile the caller asked to persist.
+            generator.render(draft: draft, overrides: overrides)
+            drift = project.generated_drift
+            unless drift.empty?
+              raise Error.new('Generated files have changed; preserve your edits before saving a profile',
+                              code: 'GENERATED_DRIFT', exit_code: 1, details: { 'files' => drift })
+            end
+            saved = Paygen.deep_merge(project.profile, overrides)
+            project.write(relative, File.extname(relative) == '.json' ? Paygen.json(saved) : YAML.dump(saved))
           end
-          generator = Generator.new(project)
           emit(generator.generate(draft: draft, overrides: overrides))
           return unless watch
           require 'listen'
-          listener = Listen.to(project.root, ignore: [%r{(?:^|/)generated/}, %r{(?:^|/)extensions/}, /paygen\.lock$/]) do
+          listener = Listen.to(project.root, ignore: [%r{(?:^|/)generated/}, %r{(?:^|/)extensions/}, %r{(?:^|/)\.paygen-}, /paygen\.lock$/]) do
             begin
               emit(generator.generate(draft: draft, overrides: overrides))
             rescue Error => e
@@ -137,25 +152,74 @@ module Paygen
         option :file, default: 'overlays/999-user.yaml'
         def call(project:, target:, value: nil, from: nil, file: 'overlays/999-user.yaml', **)
           project = Project.new(project)
-          raise Error, 'Overlay must be under overlays/' unless file.start_with?('overlays/')
+          file = Pathname.new(project.path(file)).relative_path_from(Pathname.new(project.root)).to_s
+          unless File.dirname(file) == 'overlays' && %w[.json .yaml .yml].include?(File.extname(file))
+            raise Error, 'Overlay must be a YAML or JSON file directly under overlays/'
+          end
           overlay = File.file?(project.path(file)) ? Core::Input.read(project.path(file)) :
             { 'overlay' => '1.1.0', 'info' => { 'title' => 'User contract corrections', 'version' => '1.0.0' }, 'actions' => [] }
           action = { 'target' => target }
-          case self.class::ACTION
-          when 'remove' then action['remove'] = true
+          additions = case self.class::ACTION
+          when 'remove'
+            [action.merge('remove' => true)]
           when 'copy'
             raise Error, '--from is required for copy' unless from
-            action['copy'] = from
+            [action.merge('copy' => from)]
+          when 'replace'
+            raise Error, '--value must contain a JSON value' unless value
+            current = replay(project, file, overlay, stop_after: file)
+            replacement_actions(current, target, JSON.parse(value))
           else
             raise Error, '--value must contain a JSON value' unless value
-            action['update'] = JSON.parse(value)
+            [action.merge('update' => JSON.parse(value))]
           end
-          # replace is an update under Overlay merge semantics; removal must be explicit.
-          candidate = Paygen.deep_merge(overlay, 'actions' => overlay.fetch('actions') + [action])
-          effective = Core::Input.load(project.path('source/openapi.json'))
-          Core::Overlay.new(effective).apply(candidate)
-          project.write(file, YAML.dump(candidate))
-          emit({ 'status' => 'patched', 'file' => file, 'action' => action })
+          candidate = Paygen.deep_merge(overlay, 'actions' => overlay.fetch('actions') + additions)
+          effective = replay(project, file, candidate)
+          Core::Input.validate!(Core::Input.resolve(effective, base_dir: File.dirname(project.path('source/openapi.json'))))
+          project.write(file, File.extname(file) == '.json' ? Paygen.json(candidate) : YAML.dump(candidate))
+          emit({ 'status' => 'patched', 'file' => file, 'actions' => additions })
+        end
+
+        private
+
+        def replay(project, replacement_file, replacement_overlay, stop_after: nil)
+          files = Dir[project.path('overlays/*.{json,yaml,yml}')].map do |path|
+            Pathname.new(path).relative_path_from(Pathname.new(project.root)).to_s
+          end
+          document = Core::Input.read(project.path('source/openapi.json'))
+          (files + [replacement_file]).uniq.sort.each do |file|
+            overlay = file == replacement_file ? replacement_overlay : Core::Input.read(project.path(file))
+            unless file == replacement_file && overlay['actions'] == []
+              document = Core::Overlay.new(document, source_uri: project.lock['source_uri']).apply(overlay, overlay_uri: project.path(file))
+            end
+            break if file == stop_after
+          end
+          document
+        end
+
+        def replacement_actions(document, target, value)
+          # Ask the same RFC 9535 engine used by Overlay for its normalized
+          # location. Restrict replacement to a singular object member so a
+          # remove followed by parent update cannot shift array indexes.
+          Core::Overlay.new(document).validate!({ 'overlay' => '1.1.0',
+            'info' => { 'title' => 'Replacement validation', 'version' => '1' },
+            'actions' => [{ 'target' => target, 'remove' => true }] })
+          matches = []
+          Janeway.enum_for(target, document).each do |_selected, parent, key, path|
+            matches << [parent, key, path]
+            break if matches.length > 1
+          end
+          unless matches.one? && matches.first[0].is_a?(Hash)
+            raise Error.new('replace requires one existing object member; select the whole array to replace array contents',
+                            code: 'PATCH_REPLACE_TARGET', exit_code: 2)
+          end
+          _parent, key, normalized = matches.first
+          parent_path = normalized.sub(/\[(?:'(?:\\.|[^'\\])*'|\d+)\]\z/, '')
+          if parent_path == normalized
+            raise Error.new('Cannot represent this replacement as ordered Overlay actions', code: 'PATCH_REPLACE_TARGET', exit_code: 2)
+          end
+          [{ 'target' => normalized, 'remove' => true },
+           { 'target' => parent_path, 'update' => { key => value } }]
         end
       end
       class PatchAdd < Patch; ACTION = 'add'; end
@@ -186,6 +250,9 @@ module Paygen
           recipe = Project.available_recipes.find { |r| r['name'] == name }
           raise Error, 'Unknown recipe' unless recipe
           project = Project.new(project)
+          unless Project.matches?(recipe, project.effective_document)
+            raise Error.new('Recipe does not match this API title and operation identifiers', code: 'RECIPE_MISMATCH', exit_code: 4)
+          end
           project.write('recipes/selected.yml', YAML.dump(recipe))
           emit({ 'status' => 'selected', 'name' => name, 'note' => 'Explicit integration.yml values retain precedence' })
         end
@@ -218,7 +285,7 @@ module Paygen
         def call(project:, **)
           project = Project.new(project)
           diagnostics = project.ir.diagnostics
-          drift = project.generated_drift
+          drift = Generator.new(project).diff
           emit({ 'diagnostics' => diagnostics, 'generated_drift' => drift })
           raise Error.new('Architecture check failed', code: 'CHECK_FAILED', exit_code: 1) if diagnostics.any? { |d| d['severity'] == 'blocker' } || drift.any?
         end
@@ -263,11 +330,25 @@ module Paygen
         def call(project:, target: nil, scenario_pack: 'default', seed: '0', **)
           require_relative 'runtime/adapter'
           require_relative 'runtime/verifier'
-          config = Project.new(project).ir.config
-          service = Class.new do
-            const_set(:PAYGEN_CONFIG, config)
-            include Runtime::Adapter
+          require_relative 'runtime/reference_provider'
+          project = Project.new(project)
+          generator = Generator.new(project)
+          drift = generator.diff
+          unless drift.empty?
+            raise Error.new('Generate the current integration before verifying it', code: 'GENERATED_DRIFT', exit_code: 1,
+                            details: { 'files' => drift })
           end
+          expected = generator.render(draft: project.lock.fetch('draft', false), overrides: project.lock.fetch('overrides', {}))
+          config = JSON.parse(expected.fetch('config.json'))
+          service_file = "#{config.fetch('provider')}_service.rb"
+          unless expected.key?(service_file)
+            raise Error.new('A diagnostic-only draft has no adapter to verify', code: 'SEMANTIC_BLOCKERS', exit_code: 4)
+          end
+          source = File.binread(project.path("generated/#{service_file}"))
+          unless source == expected.fetch(service_file)
+            raise Error.new('Generated adapter bytes differ from the trusted render', code: 'GENERATED_DRIFT', exit_code: 1)
+          end
+          service = Runtime::ReferenceProvider.load_service(source: source, class_name: config.fetch('class_name'))
           report = Runtime::Verifier.new(adapter: service.new, seed: Integer(seed), target: target).run(scenario_pack: scenario_pack)
           emit(report)
           raise Error.new('Adapter verification failed', code: 'VERIFICATION_FAILED', exit_code: 1) unless report['success']
@@ -296,8 +377,11 @@ module Paygen
     end
 
     def self.run(argv = ARGV)
-      Dry::CLI.new(Commands).call(arguments: argv)
+      help = argv == ['--help'] || argv == ['-h']
+      Dry::CLI.new(Commands).call(arguments: help ? [] : argv, err: help ? $stdout : $stderr)
       0
+    rescue SystemExit => e
+      help || e.success? ? 0 : 2
     rescue Paygen::Error => e
       warn Paygen.json({ 'error' => { 'code' => e.code, 'message' => e.message, 'details' => e.details } })
       e.exit_code

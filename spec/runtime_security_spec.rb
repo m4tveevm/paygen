@@ -2,6 +2,7 @@
 
 require 'spec_helper'
 require 'paygen/runtime/security'
+require 'puma'
 
 RSpec.describe Paygen::Runtime::Security do
   it 'denies private, loopback, metadata, mapped IPv4 and reserved destinations' do
@@ -34,5 +35,72 @@ RSpec.describe Paygen::Runtime::Security do
     end
     threads.each(&:join)
     expect(store.synchronize { |state| state['count'] }).to eq(500)
+  end
+
+  it 'sends real local HTTP bytes, refuses redirects and enforces response limits' do
+    requests = []
+    app = lambda do |env|
+      requests << { 'method' => env['REQUEST_METHOD'], 'path' => env['PATH_INFO'],
+                    'body' => env.fetch('rack.input').read, 'key' => env['HTTP_X_KEY'] }
+      if env['PATH_INFO'] == '/redirect'
+        [302, { 'location' => '/capture' }, ['redirect']]
+      else
+        [200, { 'content-type' => 'application/json' }, ['{"ok":true}']]
+      end
+    end
+    server = Puma::Server.new(app)
+    server.add_tcp_listener('127.0.0.1', 0)
+    port = server.binder.ios.first.local_address.ip_port
+    server.run
+    transport = Paygen::Runtime::HTTPTransport.new(allow_local: true)
+    result = transport.request(method: 'POST', url: "http://127.0.0.1:#{port}/capture",
+                               headers: { 'X-Key' => 'test-secret' }, body: '{"amount":1234}')
+    expect(result[:status]).to eq(200)
+    expect(requests.last).to include('method' => 'POST', 'body' => '{"amount":1234}', 'key' => 'test-secret')
+    redirect = transport.request(method: 'GET', url: "http://127.0.0.1:#{port}/redirect", headers: {}, body: nil)
+    expect(redirect[:status]).to eq(302)
+    expect(requests.length).to eq(2)
+    limited = Paygen::Runtime::HTTPTransport.new(allow_local: true, maximum_bytes: 5)
+    expect do
+      limited.request(method: 'GET', url: "http://127.0.0.1:#{port}/capture", headers: {}, body: nil)
+    end.to raise_error(Paygen::Runtime::SecurityError, /size limit/)
+  ensure
+    server&.stop(true)
+  end
+
+  it 'bounds the complete request when a provider continuously trickles small response chunks' do
+    slow_body = Class.new do
+      attr_reader :chunks
+
+      def initialize
+        @chunks = 0
+      end
+
+      def each
+        20.times do
+          @chunks += 1
+          yield '.'
+          sleep 0.02
+        end
+      end
+    end.new
+    server = Puma::Server.new(->(_env) { [200, { 'content-type' => 'text/plain' }, slow_body] })
+    server.add_tcp_listener('127.0.0.1', 0)
+    port = server.binder.ios.first.local_address.ip_port
+    server.run
+    transport = Paygen::Runtime::HTTPTransport.new(allow_local: true, total_timeout: 0.1,
+                                                 read_timeout: 2, maximum_bytes: 100)
+    expect do
+      transport.request(method: 'GET', url: "http://127.0.0.1:#{port}/slow", headers: {}, body: nil)
+    end.to raise_error(Timeout::Error) { |error| expect(error.class).to eq(Timeout::Error) }
+    expect(slow_body.chunks).to be < 20
+  ensure
+    server&.stop(true)
+  end
+
+  it 'rejects disabled or unbounded overall deadlines' do
+    [0, -1, Float::INFINITY].each do |deadline|
+      expect { Paygen::Runtime::HTTPTransport.new(total_timeout: deadline) }.to raise_error(ArgumentError)
+    end
   end
 end

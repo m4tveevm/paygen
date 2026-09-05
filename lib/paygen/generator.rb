@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require 'open3'
 require 'rbconfig'
+require 'cgi'
 
 module Paygen
   class Generator
@@ -11,6 +12,11 @@ module Paygen
 
     def render(draft: false, overrides: {})
       ir = project.ir(overrides: overrides)
+      algorithm = ir.profile.dig('callback', 'signature', 'algorithm')
+      if algorithm && !%w[hmac-sha256 stripe-v1 provider_verification].include?(algorithm)
+        ir.diagnostics << { 'code' => 'SIGNATURE_UNSUPPORTED', 'severity' => 'blocker',
+                            'message' => 'Unsupported callback verification algorithm', 'path' => 'callback.signature.algorithm' }
+      end
       blockers = ir.diagnostics.select { |item| item['severity'] == 'blocker' }
       if blockers.any? && !draft
         raise Error.new('Resolve semantic blockers before generation', code: 'SEMANTIC_BLOCKERS', exit_code: 4,
@@ -32,35 +38,46 @@ module Paygen
     end
 
     def generate(draft: false, overrides: {})
+      project.transaction { generate_locked(draft: draft, overrides: overrides) }
+    end
+
+    def generate_locked(draft: false, overrides: {})
       drift = project.generated_drift
       unless drift.empty?
         raise Error.new('Generated files have changed; preserve your edits before regenerating', code: 'GENERATED_DRIFT', exit_code: 1, details: { 'files' => drift })
       end
+      inputs_before = project.input_hashes
       files = render(draft: draft, overrides: overrides)
       files.each do |name, body|
         next unless name.end_with?('.rb')
         _out, _err, status = Open3.capture3(RbConfig.ruby, '-c', stdin_data: body)
         raise Error.new('Generated Ruby failed syntax validation', code: 'GENERATOR_ERROR', exit_code: 70) unless status.success?
       end
-      previous = project.lock.fetch('generated', {})
-      files.each { |name, body| project.write("generated/#{name}", body) }
-      (previous.keys - files.keys).each { |name| File.delete(project.path("generated/#{name}")) }
-      lock = { 'version' => 1, 'paygen_version' => VERSION, 'inputs' => project.input_hashes,
+      if project.input_hashes != inputs_before
+        raise Error.new('Project inputs changed during generation; retry', code: 'INPUT_CHANGED', exit_code: 1)
+      end
+      lock = { 'version' => 1, 'paygen_version' => VERSION, 'source_uri' => project.lock['source_uri'], 'inputs' => project.input_hashes,
                'generated' => files.to_h { |name, body| [name, Digest::SHA256.hexdigest(body)] },
                'overrides' => overrides, 'draft' => draft }
-      project.write('paygen.lock', Paygen.json(lock))
+      project.replace_generated(files, lock)
       { 'status' => 'generated', 'files' => files.keys.sort, 'draft' => draft }
     end
 
     def diff
       expected = render(draft: project.lock.fetch('draft', false), overrides: project.lock.fetch('overrides', {}))
       tracked = project.lock.fetch('generated', {})
-      (expected.keys | tracked.keys).sort.filter_map do |name|
+      changes = (expected.keys | tracked.keys).sort.filter_map do |name|
         target = project.path("generated/#{name}")
         current = File.file?(target) ? File.read(target) : nil
         next if current == expected[name]
         { 'path' => name, 'change' => current.nil? ? 'add' : (expected[name].nil? ? 'remove' : 'change') }
       end + project.generated_drift.select { |item| item['reason'] == 'untracked' }
+      previous_inputs = project.lock.fetch('inputs', {})
+      current_inputs = project.input_hashes
+      (previous_inputs.keys | current_inputs.keys).sort.each do |name|
+        changes << { 'path' => name, 'change' => 'input_changed' } if previous_inputs[name] != current_inputs[name]
+      end
+      changes
     end
 
     def export(output:)
@@ -74,7 +91,15 @@ module Paygen
       runtime_source = File.expand_path('runtime', __dir__)
       FileUtils.mkdir_p(File.join(destination, 'lib/paygen'))
       FileUtils.cp_r(runtime_source, File.join(destination, 'lib/paygen/runtime'))
-      File.write(File.join(destination, 'Gemfile'), "source 'https://rubygems.org'\ngem 'json_schemer', '~> 2.4'\ngem 'bigdecimal', '>= 3.1'\ngem 'rack', '~> 3.1'\n")
+      Dir.glob(project.path('extensions/**/*'), File::FNM_DOTMATCH).each do |file|
+        relative = Pathname.new(file).relative_path_from(Pathname.new(project.root)).to_s
+        verified = project.path(relative)
+        next unless File.file?(verified)
+        target = File.join(destination, relative)
+        FileUtils.mkdir_p(File.dirname(target))
+        FileUtils.cp(verified, target)
+      end
+      File.write(File.join(destination, 'Gemfile'), "source 'https://rubygems.org'\ngem 'json_schemer', '~> 2.4'\ngem 'bigdecimal', '>= 3.1'\ngem 'base64', '~> 0.2'\ngem 'rack', '~> 3.1'\n")
       File.write(File.join(destination, 'DETACHED.md'), "# Detached integration\n\nThis export is user-owned and is not safely regenerable. Install dependencies with bundle install. Add this directory's lib to RUBYLIB and load your Provider::BaseService before the service. Review credentials and hook contract in INTEGRATION.md.\n")
       { 'status' => 'exported', 'path' => destination, 'detached' => true }
     end
@@ -96,7 +121,7 @@ module Paygen
 
     def guide(ir)
       config = ir.config
-      lines = ["# #{ir.document.dig('info', 'title')} integration", '',
+      lines = ["# #{cell(ir.document.dig('info', 'title'))} integration", '',
                'Generated from the pinned OpenAPI contract, ordered overlays and integration.yml.', '',
                '## Setup', '', 'Load Provider::BaseService, require the generated service and call configure_paygen with your credentials and transport.',
                'Credentials are supplied at runtime. Never store API keys or callback secrets in profiles or generated files.',
@@ -125,9 +150,23 @@ module Paygen
     end
 
     def fixtures(ir)
+      if ir.diagnostics.none? { |item| item['severity'] == 'blocker' }
+        require_relative 'runtime/adapter'
+        require_relative 'runtime/simulator'
+        config = ir.config
+        simulator = Runtime::Simulator.new(config: config, seed: 0)
+        klass = Class.new do
+          const_set(:PAYGEN_CONFIG, config)
+          include Runtime::Adapter
+        end
+        adapter = klass.new.configure_paygen(credentials: simulator.credentials, transport: simulator)
+        operation = simulator.sample_operation(id: 'fixture-operation')
+        semantic_request = adapter.send(:build_body, operation, 'create')
+      end
       ir.config.fetch('endpoints').to_h do |role, operation|
         examples = operation.fetch('request_examples', {})
-        request = examples['example'] || examples.fetch('examples', {}).values.first&.fetch('value', nil) || schema_example(operation.fetch('request_schema', {}))
+        request = examples['example'] || examples.fetch('examples', {}).values.first&.fetch('value', nil) ||
+                  (role == 'create' ? semantic_request : nil) || schema_example(operation.fetch('request_schema', {}))
         responses = operation.fetch('responses', {}).to_h do |status, response|
           content = response.fetch('content', {}).values.first || {}
           example = content['example'] || content.fetch('examples', {}).values.first&.fetch('value', nil) || schema_example(content.fetch('schema', {}))
@@ -139,22 +178,39 @@ module Paygen
 
     def schema_example(schema, depth = 0)
       return nil if depth > 16
+      return nil unless schema.is_a?(Hash)
+      if schema['allOf']
+        return schema['allOf'].reduce({}) do |memo, child|
+          example = schema_example(child, depth + 1)
+          example.is_a?(Hash) ? Paygen.deep_merge(memo, example) : memo
+        end
+      end
+      return schema_example((schema['oneOf'] || schema['anyOf']).first, depth + 1) if schema['oneOf'] || schema['anyOf']
       return schema['example'] if schema.key?('example')
       return schema['default'] if schema.key?('default')
       return schema['enum'].first if schema['enum'].is_a?(Array)
       if schema['properties']
         schema['properties'].to_h { |key, value| [key, schema_example(value, depth + 1)] }.compact
       elsif schema['type'] == 'array'
-        []
+        count = [schema.fetch('minItems', 1), 1].max
+        Array.new([count, 100].min) { schema_example(schema.fetch('items', {}), depth + 1) }
       elsif schema['type'] == 'boolean'
         false
       elsif %w[number integer].include?(schema['type'])
         schema.fetch('minimum', 0)
+      elsif schema['type'] == 'string'
+        return 'example@example.test' if schema['format'] == 'email'
+        return '2026-01-01T00:00:00Z' if schema['format'] == 'date-time'
+        return '00000000-0000-4000-8000-000000000001' if schema['format'] == 'uuid'
+        return 'https://example.test/' if %w[uri url].include?(schema['format'])
+        length = [schema.fetch('minLength', 1), 1].max
+        length = [length, schema['maxLength']].min if schema['maxLength']
+        'x' * [length, 10000].min
       end
     end
 
     def cell(value)
-      value.to_s.gsub('|', '\\|').gsub(/[\r\n]/, ' ')
+      CGI.escapeHTML(value.to_s).gsub('|', '\\|').gsub('`', '\\`').gsub(/[\r\n]/, ' ')
     end
   end
 end

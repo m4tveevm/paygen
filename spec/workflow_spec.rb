@@ -61,6 +61,112 @@ RSpec.describe Paygen::Core::Workflow do
     expect { engine.run('payout', inputs: { 'amount' => -1 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_INPUTS') }
   end
 
+  it 'rejects an unknown workflow dependency during validation' do
+    document['workflows'][0]['dependsOn'] = ['missing']
+    expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_WORKFLOW_REF') }
+  end
+
+  it 'rejects an unknown local step dependency before the first HTTP request' do
+    status_step['dependsOn'] = ['missing']
+    expect(transport).not_to receive(:request)
+    expect { engine.run('payout', inputs: { 'amount' => 1_500_000 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_STEP_REF') }
+  end
+
+  it 'rejects an unknown workflow in a cross-workflow step dependency' do
+    status_step['dependsOn'] = ['$workflows.missing.steps.create']
+    expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_WORKFLOW_REF') }
+  end
+
+  it 'rejects an unknown step in an existing cross-workflow dependency' do
+    document['workflows'] << { 'workflowId' => 'setup', 'steps' => [create_step.dup] }
+    status_step['dependsOn'] = ['$workflows.setup.steps.missing']
+    expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_STEP_REF') }
+  end
+
+  it 'accepts valid local and cross-workflow step dependencies' do
+    document['workflows'] << { 'workflowId' => 'setup', 'steps' => [create_step.dup] }
+    document['workflows'][0]['dependsOn'] = ['setup']
+    status_step['dependsOn'] = ['create', '$workflows.setup.steps.create']
+    expect(engine.validate!).to be(engine)
+  end
+
+  %w[successActions failureActions onSuccess onFailure].each do |field|
+    it "rejects unknown workflow targets in #{field}" do
+      owner = field.end_with?('Actions') ? document['workflows'][0] : create_step
+      owner[field] = [{ 'name' => 'transfer', 'type' => 'goto', 'workflowId' => 'missing' }]
+      expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_WORKFLOW_REF') }
+    end
+
+    it "rejects unknown step targets in #{field}" do
+      owner = field.end_with?('Actions') ? document['workflows'][0] : create_step
+      owner[field] = [{ 'name' => 'transfer', 'type' => 'goto', 'stepId' => 'missing' }]
+      expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_STEP_REF') }
+    end
+  end
+
+  it 'validates targets of reusable actions in their workflow context' do
+    document['components'] = { 'failureActions' => { 'recover' => { 'name' => 'recover', 'type' => 'retry', 'stepId' => 'missing' } } }
+    create_step['onFailure'] = [{ 'reference' => '$components.failureActions.recover' }]
+    expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_STEP_REF') }
+  end
+
+  it 'rejects a later unknown operationId before creating a payout' do
+    status_step['operationId'] = 'unknownOperation'
+    expect(transport).not_to receive(:request)
+    expect { engine.run('payout', inputs: { 'amount' => 1_500_000 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_OPERATION_ID') }
+  end
+
+  it 'rejects unknown source names in qualified operation references' do
+    create_step['operationId'] = '$sourceDescriptions.missing.createPayout'
+    expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_SOURCE') }
+  end
+
+  it 'checks operations in sources bound by their declared URL' do
+    status_step['operationId'] = '$sourceDescriptions.api.missing'
+    runner = described_class.new(document, sources: { 'provider.yaml' => api }, transport: transport)
+    expect { runner.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_OPERATION_ID') }
+  end
+
+  it 'rejects a missing operationPath target during validation' do
+    status_step.delete('operationId')
+    status_step['operationPath'] = '{$sourceDescriptions.api.url}#/paths/~1missing/get'
+    expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('REF_MISSING') }
+  end
+
+  it 'rejects operationPath pointers to existing non-operation values' do
+    status_step.delete('operationId')
+    status_step['operationPath'] = '{$sourceDescriptions.api.url}#/info/title'
+    expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_OPERATION_PATH') }
+  end
+
+  it 'defers external operation lookups when no source document is supplied' do
+    status_step['operationId'] = 'notKnownUntilSourceIsBound'
+    expect(Paygen::Core::Input).not_to receive(:read)
+    expect(transport).not_to receive(:request)
+    runner = described_class.new(document, transport: transport)
+    expect(runner.validate!).to be(runner)
+    expect(Paygen::Core::Input.parse(runner.export(format: :json))).to eq(document)
+  end
+
+  it 'defers declared external workflow identities until their source is supplied' do
+    document['sourceDescriptions'] << { 'name' => 'other', 'url' => 'https://workflows.example/other.yaml', 'type' => 'arazzo' }
+    document['workflows'][0]['dependsOn'] = ['$sourceDescriptions.other.prepare']
+    status_step['dependsOn'] = ['$sourceDescriptions.other.prepare.steps.ready']
+    expect(Paygen::Core::Input).not_to receive(:read)
+    expect(engine.validate!).to be(engine)
+    supplied = { 'arazzo' => '1.1.0', 'workflows' => [{ 'workflowId' => 'prepare', 'steps' => [] }] }
+    runner = described_class.new(document, sources: { 'api' => api, 'other' => supplied }, transport: transport)
+    expect { runner.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_STEP_REF') }
+  end
+
+  it 'rejects unknown workflows in supplied external sources' do
+    document['sourceDescriptions'] << { 'name' => 'other', 'url' => 'other.yaml', 'type' => 'arazzo' }
+    document['workflows'][0]['dependsOn'] = ['$sourceDescriptions.other.missing']
+    supplied = { 'arazzo' => '1.1.0', 'workflows' => [{ 'workflowId' => 'prepare', 'steps' => [create_step.dup] }] }
+    runner = described_class.new(document, sources: { 'api' => api, 'other.yaml' => supplied }, transport: transport)
+    expect { runner.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_WORKFLOW_REF') }
+  end
+
   it 'supports operationPath and RFC JSONPath criteria' do
     create_step.delete('operationId')
     create_step['operationPath'] = '{$sourceDescriptions.api.url}#/paths/~1payouts/post'
@@ -75,6 +181,52 @@ RSpec.describe Paygen::Core::Workflow do
     runner = described_class.new(document, sources: { 'api' => api }, transport: transport, sleeper: ->(delay) { delays << delay })
     expect(runner.run('payout', inputs: { 'amount' => 1_500_000 })['success']).to be(true)
     expect(delays).to eq([0.01])
+  end
+
+  def add_refresh_recovery
+    api['paths']['/refresh'] = { 'post' => { 'operationId' => 'refreshToken', 'responses' => { '200' => { 'description' => 'Token renewed' } } } }
+    api['paths']['/payouts']['post']['parameters'] = [{ 'name' => 'Authorization', 'in' => 'header', 'schema' => { 'type' => 'string' } }]
+    create_step['parameters'] = [{ 'name' => 'Authorization', 'in' => 'header', 'value' => 'Bearer {$steps.refresh.outputs.token}' }]
+    create_step['onFailure'] = [{ 'name' => 'renew', 'type' => 'retry', 'stepId' => 'refresh', 'retryLimit' => 1, 'criteria' => [{ 'condition' => '$statusCode == 401' }] }]
+    helper = { 'stepId' => 'refresh', 'operationId' => 'refreshToken', 'successCriteria' => [{ 'condition' => '$statusCode == 200' }], 'outputs' => { 'token' => '$response.body#/token' } }
+    document['workflows'][0]['steps'].unshift(helper)
+    helper
+  end
+
+  it 'executes a retry helper step and binds refreshed outputs on the next attempt' do
+    add_refresh_recovery
+    allow(transport).to receive(:request).with(method: 'POST', url: 'https://provider.example/v1/refresh', headers: {}, body: nil).and_return(
+      { status: 200, headers: {}, body: '{"token":"expired"}' },
+      { status: 200, headers: {}, body: '{"token":"renewed"}' }
+    )
+    allow(transport).to receive(:request).with(hash_including(method: 'POST', url: 'https://provider.example/v1/payouts', headers: hash_including('Authorization' => 'Bearer expired'))).and_return(status: 401, headers: {}, body: '{}')
+    allow(transport).to receive(:request).with(hash_including(method: 'POST', url: 'https://provider.example/v1/payouts', headers: hash_including('Authorization' => 'Bearer renewed'))).and_return(status: 201, headers: {}, body: '{"id":"p_123"}')
+    outcome = engine.run('payout', inputs: { 'amount' => 1_500_000 })
+    expect(outcome['success']).to be(true)
+    expect(outcome['trace'].map { |event| event['stepId'] }).to eq(%w[refresh create refresh create status])
+    expect(outcome.dig('steps', 'refresh', 'outputs', 'token')).to eq('renewed')
+  end
+
+  it 'stops the payout when its retry helper fails' do
+    add_refresh_recovery
+    allow(transport).to receive(:request).with(hash_including(url: 'https://provider.example/v1/refresh')).and_return(
+      { status: 200, headers: {}, body: '{"token":"expired"}' }, { status: 500, headers: {}, body: '{}' }
+    )
+    allow(transport).to receive(:request).with(hash_including(url: 'https://provider.example/v1/payouts')).and_return(status: 401, headers: {}, body: '{}')
+    outcome = engine.run('payout', inputs: { 'amount' => 1_500_000 })
+    expect(outcome['success']).to be(false)
+    expect(transport).not_to have_received(:request).with(hash_including(method: 'GET'))
+    expect(outcome['trace'].map { |event| event['stepId'] }).to eq(%w[refresh create refresh])
+    expect(transport).to have_received(:request).with(hash_including(url: 'https://provider.example/v1/payouts')).once
+  end
+
+  it 'counts helper execution toward the shared step limit' do
+    add_refresh_recovery
+    stub_const('Paygen::Core::Workflow::MAX_STEPS', 2)
+    allow(transport).to receive(:request).with(hash_including(url: 'https://provider.example/v1/refresh')).and_return(status: 200, headers: {}, body: '{"token":"expired"}')
+    allow(transport).to receive(:request).with(hash_including(url: 'https://provider.example/v1/payouts')).and_return(status: 401, headers: {}, body: '{}')
+    expect { engine.run('payout', inputs: { 'amount' => 1_500_000 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_LIMIT') }
+    expect(transport).to have_received(:request).with(hash_including(url: 'https://provider.example/v1/refresh')).once
   end
 
   it 'ends failures without claiming success' do

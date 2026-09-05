@@ -25,11 +25,12 @@
   ],
   "files_sha256": {
     "UPSTREAM-LICENSE": "64f571f57de3009d51fd9d5ca61509aaa36f62b7ef0092f482e06dd962ba0b19",
-    "fixtures.json": "adf32ee34a8bbb68dec65cd84a1e0088107226d4c0bc0187e09fe00cbed157e4",
+    "fixtures.json": "0c6096a19cdfe1936976ac98c2eb2cacd5ebac05e622b7336488776ec886f5a1",
     "integration.yml": "01e854562a888b1a9c3687564f0a051b90a477c4771ea4a4e34804120cc9f331",
-    "openapi.yaml": "d27f868adadae112c939448295b7ba53b35ce583fb19d8c59c781959cdc0b5f5",
+    "openapi.yaml": "2d35d0f36672c3a89f8a27159a0d87a1facc4ebe2075ecab63565fac37328eae",
     "overlay.yaml": "1bca0e2b000a741f99f7012e92183d3bff0f043fa58a4a6eb6a212fb151ab81b",
     "scenarios.yml": "b86110fa11a8cd039c16552cf6c47133fe70fd37562347b49713a289092c56ed",
-    "upstream/paypal.json": "77da0559892d76d5060988f2f41144e539266a0162b8638c7467367ff02d5d35"
+    "upstream/paypal.json": "2a86549e2e7e42e9f082d9e43051fe55b83ef19dea1f76cff549377756374cc0",
+    "workflows/payout.arazzo.yaml": "f63caea808dd733c4eedbf1b0ae4116fa2e939ce2a2cb48c29249f3d4ba2fe9e"
   }
 }
