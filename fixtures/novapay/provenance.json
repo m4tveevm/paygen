@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "provider": "novapay",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "user_supplied_original",
+  "source_url": null,
+  "source_name": "provider_api.yaml",
+  "api_version": "1.0.0",
+  "upstream_commit": null,
+  "upstream_license": "Not specified in supplied hackathon material",
+  "local_license": "User-supplied source retained for the requested implementation; no upstream license inferred",
+  "notes": [
+    "openapi.yaml is a byte-for-byte copy of the supplied provider_api.yaml.",
+    "NovaPay is the fictional hackathon provider, not an asserted real payment API.",
+    "Corrections live only in overlay.yaml: SBP-only recipient contract; response identity required; open error-code domain.",
+    "Hex signature encoding is an explicit mock integration decision; the supplied description only says HMAC-SHA256. No provider event ID or timestamp is invented."
+  ],
+  "files_sha256": {
+    "fixtures.json": "174736845f680cc832b21cf3def4f5f767b58799093a0dd534bc670246363e9c",
+    "integration.yml": "18de7152dac7b4c75e842ac50448427b6bb2a6f5dc40d2d8afc9fdecd1c90962",
+    "openapi.yaml": "415f50ee36fb331dfab49ceed0e8ed3b0ebe16053d7e00dbabd32282f4396551",
+    "overlay.yaml": "63b8644ebb3cf1d38f9112dbbddf57a8249e9dccf00b30450a63319821cafc69",
+    "scenarios.yml": "a96b8437483e166d4affd31b0bb134c97dd58c4cfa3278db17be65648765686f"
+  }
+}

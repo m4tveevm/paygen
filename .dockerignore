@@ -1,0 +1,9 @@
+.git
+.bundle
+vendor
+node_modules
+coverage
+tmp
+output
+docs/_build
+.env

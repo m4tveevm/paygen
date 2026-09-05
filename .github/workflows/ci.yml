@@ -1,0 +1,63 @@
+name: CI
+on:
+  push:
+    branches: [main, dev/paygen-reference]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ruby:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ['3.3.12', '3.4.10', '4.0.6']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - name: Syntax and test suite
+        run: |
+          ruby -v
+          bundle exec ruby -e 'Dir["lib/**/*.rb", "spec/**/*.rb", "bin/paygen"].each { |f| abort("Syntax failed: #{f}") unless system(RbConfig.ruby, "-c", f) }'
+          bundle exec rspec
+      - name: CLI and generation smoke
+        run: script/smoke
+      - name: Package test runtime for restricted development environments
+        if: always() && matrix.ruby == '3.3.12'
+        run: |
+          tar -C "$(ruby -rrbconfig -e 'print RbConfig::CONFIG["prefix"]')" -czf ruby-toolchain.tar.gz .
+          test ! -d vendor/bundle || tar -C vendor/bundle -czf ruby-gems.tar.gz .
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.ruby == '3.3.12'
+        with:
+          name: development-ruby-runtime
+          path: ruby-*.tar.gz
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-ruby-${{ matrix.ruby }}
+          path: |
+            Gemfile.lock
+            coverage/
+          if-no-files-found: warn
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts
+      - run: npm run docs:build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: docs/_build

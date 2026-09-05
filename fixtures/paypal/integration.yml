@@ -1,0 +1,117 @@
+version: 1
+provider: paypal
+class_name: PayPalService
+mode: sandbox
+operations:
+  create: payouts.post
+  status: payouts.get
+  cancel: payouts-item.cancel
+  callback: payoutItemWebhook
+amount:
+  input_unit: major
+  scale: 100
+  minimum: 1
+  currencies:
+  - EUR
+  - USD
+request_mapping:
+  sender_batch_header.sender_batch_id:
+    from: id
+  items.0.recipient_type:
+    value: EMAIL
+  items.0.amount.value:
+    from: amount
+    transform: decimal_string
+  items.0.amount.currency:
+    from: currency
+  items.0.receiver:
+    from: payout_requisite.email
+  items.0.sender_item_id:
+    from: id
+parameter_mapping:
+  status:
+    id: provider_id
+  cancel:
+    payout_item_id: provider_item_id
+response:
+  id: batch_header.payout_batch_id
+  status: batch_header.batch_status
+  error: name
+  scope: batch
+  roles:
+    status:
+      items: items
+      item_status: transaction_status
+      item_id: payout_item_id
+      item_external_id: payout_item.sender_item_id
+    cancel:
+      id: payout_batch_id
+      status: transaction_status
+      scope: item
+status_mapping:
+  SUCCESS: approved
+  FAILED: rejected
+  PENDING: in_progress
+  UNCLAIMED: in_progress
+  RETURNED: rejected
+  ONHOLD: in_progress
+  BLOCKED: rejected
+  REFUNDED: rejected
+  REVERSED: rejected
+  PROCESSING: in_progress
+  DENIED: rejected
+  CANCELED: rejected
+status_transitions:
+  SUCCESS:
+  - REFUNDED
+  - REVERSED
+  - RETURNED
+idempotency:
+  header: PayPal-Request-Id
+auth:
+  type: bearer
+  credential: access_token
+callback:
+  signature:
+    algorithm: provider_verification
+  id: resource.payout_batch_id
+  external_id: resource.payout_item.sender_item_id
+  status: resource.transaction_status
+  event: event_type
+  event_id: id
+  timestamp: create_time
+  events:
+    PAYMENT.PAYOUTS-ITEM.SUCCEEDED: SUCCESS
+    PAYMENT.PAYOUTS-ITEM.FAILED: FAILED
+    PAYMENT.PAYOUTS-ITEM.UNCLAIMED: UNCLAIMED
+    PAYMENT.PAYOUTS-ITEM.RETURNED: RETURNED
+    PAYMENT.PAYOUTS-ITEM.CANCELED: RETURNED
+    PAYMENT.PAYOUTS-ITEM.HELD: ONHOLD
+    PAYMENT.PAYOUTS-ITEM.BLOCKED: BLOCKED
+    PAYMENT.PAYOUTS-ITEM.REFUNDED: REFUNDED
+errors:
+  '400':
+    code: invalid_request
+    action: reject
+  '401':
+    code: unauthorized
+    action: reject
+  '403':
+    code: forbidden
+    action: reject
+  '429':
+    code: rate_limit
+    action: retry
+  '500':
+    code: provider_unavailable
+    action: retry
+simulator:
+  scenarios:
+    batch_success_item_failed:
+      statuses:
+      - SUCCESS
+      - FAILED
+    success:
+      statuses:
+      - PENDING
+      - SUCCESS

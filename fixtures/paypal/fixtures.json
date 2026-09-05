@@ -1,0 +1,205 @@
+{
+  "fixture_version": 1,
+  "synthetic": true,
+  "operation": {
+    "id": "op_paypal_001",
+    "amount": "12.34",
+    "currency": "EUR",
+    "payout_requisite": {
+      "email": "receiver@example.test"
+    }
+  },
+  "credentials": {
+    "access_token": "fixture-paypal-access-token"
+  },
+  "account": null,
+  "clock": 1788602400,
+  "verification": "Unverified by default. Tests explicitly substitute the provider verification boundary; no fixture purports to be a genuine PayPal signature.",
+  "responses": {
+    "created": {
+      "status": 201,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "batch_header": {
+          "payout_batch_id": "BATCH_FIXTURE_001",
+          "batch_status": "PENDING"
+        }
+      }
+    },
+    "batch_success": {
+      "status": 201,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "batch_header": {
+          "payout_batch_id": "BATCH_FIXTURE_001",
+          "batch_status": "SUCCESS"
+        }
+      }
+    },
+    "item_success": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "batch_header": {
+          "payout_batch_id": "BATCH_FIXTURE_001",
+          "batch_status": "SUCCESS"
+        },
+        "items": [
+          {
+            "payout_item_id": "ITEM_FIXTURE_001",
+            "payout_batch_id": "BATCH_FIXTURE_001",
+            "transaction_status": "SUCCESS",
+            "payout_item": {
+              "recipient_type": "EMAIL",
+              "amount": {
+                "currency": "EUR",
+                "value": "12.34"
+              },
+              "receiver": "receiver@example.test",
+              "sender_item_id": "op_paypal_001"
+            }
+          }
+        ]
+      }
+    },
+    "batch_success_item_failed": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "batch_header": {
+          "payout_batch_id": "BATCH_FIXTURE_001",
+          "batch_status": "SUCCESS"
+        },
+        "items": [
+          {
+            "payout_item_id": "ITEM_FIXTURE_001",
+            "payout_batch_id": "BATCH_FIXTURE_001",
+            "transaction_status": "FAILED",
+            "payout_item": {
+              "recipient_type": "EMAIL",
+              "amount": {
+                "currency": "EUR",
+                "value": "12.34"
+              },
+              "receiver": "receiver@example.test",
+              "sender_item_id": "op_paypal_001"
+            },
+            "errors": {
+              "name": "RECEIVER_UNREGISTERED",
+              "message": "Recipient cannot receive payment"
+            }
+          }
+        ]
+      }
+    },
+    "cancelled": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "payout_item_id": "ITEM_FIXTURE_001",
+        "payout_batch_id": "BATCH_FIXTURE_001",
+        "transaction_status": "RETURNED",
+        "payout_item": {
+          "recipient_type": "EMAIL",
+          "amount": {
+            "currency": "EUR",
+            "value": "12.34"
+          },
+          "receiver": "receiver@example.test",
+          "sender_item_id": "op_paypal_001"
+        }
+      }
+    },
+    "rate_limited": {
+      "status": 429,
+      "headers": {
+        "Content-Type": "application/json",
+        "Retry-After": "60"
+      },
+      "body": {
+        "name": "RATE_LIMIT_REACHED"
+      }
+    }
+  },
+  "webhooks": {
+    "success": {
+      "payload": {
+        "id": "WH_FIXTURE_SUCCESS",
+        "event_type": "PAYMENT.PAYOUTS-ITEM.SUCCEEDED",
+        "create_time": "2026-09-05T10:00:00Z",
+        "resource": {
+          "payout_item_id": "ITEM_FIXTURE_001",
+          "payout_batch_id": "BATCH_FIXTURE_001",
+          "transaction_status": "SUCCESS",
+          "payout_item": {
+            "recipient_type": "EMAIL",
+            "amount": {
+              "currency": "EUR",
+              "value": "12.34"
+            },
+            "receiver": "receiver@example.test",
+            "sender_item_id": "op_paypal_001"
+          }
+        }
+      },
+      "raw_body": "{\"id\":\"WH_FIXTURE_SUCCESS\",\"event_type\":\"PAYMENT.PAYOUTS-ITEM.SUCCEEDED\",\"create_time\":\"2026-09-05T10:00:00Z\",\"resource\":{\"payout_item_id\":\"ITEM_FIXTURE_001\",\"payout_batch_id\":\"BATCH_FIXTURE_001\",\"transaction_status\":\"SUCCESS\",\"payout_item\":{\"recipient_type\":\"EMAIL\",\"amount\":{\"currency\":\"EUR\",\"value\":\"12.34\"},\"receiver\":\"receiver@example.test\",\"sender_item_id\":\"op_paypal_001\"}}}",
+      "headers": {}
+    },
+    "failed": {
+      "payload": {
+        "id": "WH_FIXTURE_FAILED",
+        "event_type": "PAYMENT.PAYOUTS-ITEM.FAILED",
+        "create_time": "2026-09-05T10:00:00Z",
+        "resource": {
+          "payout_item_id": "ITEM_FIXTURE_001",
+          "payout_batch_id": "BATCH_FIXTURE_001",
+          "transaction_status": "FAILED",
+          "payout_item": {
+            "recipient_type": "EMAIL",
+            "amount": {
+              "currency": "EUR",
+              "value": "12.34"
+            },
+            "receiver": "receiver@example.test",
+            "sender_item_id": "op_paypal_001"
+          }
+        }
+      },
+      "raw_body": "{\"id\":\"WH_FIXTURE_FAILED\",\"event_type\":\"PAYMENT.PAYOUTS-ITEM.FAILED\",\"create_time\":\"2026-09-05T10:00:00Z\",\"resource\":{\"payout_item_id\":\"ITEM_FIXTURE_001\",\"payout_batch_id\":\"BATCH_FIXTURE_001\",\"transaction_status\":\"FAILED\",\"payout_item\":{\"recipient_type\":\"EMAIL\",\"amount\":{\"currency\":\"EUR\",\"value\":\"12.34\"},\"receiver\":\"receiver@example.test\",\"sender_item_id\":\"op_paypal_001\"}}}",
+      "headers": {}
+    },
+    "returned": {
+      "payload": {
+        "id": "WH_FIXTURE_RETURNED",
+        "event_type": "PAYMENT.PAYOUTS-ITEM.RETURNED",
+        "create_time": "2026-09-05T10:00:00Z",
+        "resource": {
+          "payout_item_id": "ITEM_FIXTURE_001",
+          "payout_batch_id": "BATCH_FIXTURE_001",
+          "transaction_status": "RETURNED",
+          "payout_item": {
+            "recipient_type": "EMAIL",
+            "amount": {
+              "currency": "EUR",
+              "value": "12.34"
+            },
+            "receiver": "receiver@example.test",
+            "sender_item_id": "op_paypal_001"
+          }
+        }
+      },
+      "raw_body": "{\"id\":\"WH_FIXTURE_RETURNED\",\"event_type\":\"PAYMENT.PAYOUTS-ITEM.RETURNED\",\"create_time\":\"2026-09-05T10:00:00Z\",\"resource\":{\"payout_item_id\":\"ITEM_FIXTURE_001\",\"payout_batch_id\":\"BATCH_FIXTURE_001\",\"transaction_status\":\"RETURNED\",\"payout_item\":{\"recipient_type\":\"EMAIL\",\"amount\":{\"currency\":\"EUR\",\"value\":\"12.34\"},\"receiver\":\"receiver@example.test\",\"sender_item_id\":\"op_paypal_001\"}}}",
+      "headers": {}
+    }
+  }
+}

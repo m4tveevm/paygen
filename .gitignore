@@ -1,0 +1,9 @@
+/.bundle/
+/vendor/
+/coverage/
+/tmp/
+/*.gem
+/node_modules/
+/docs/_build/
+/output/
+/.env

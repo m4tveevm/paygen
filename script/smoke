@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PAYGEN_SMOKE_DIR=$(mktemp -d)
+trap 'rm -rf "$PAYGEN_SMOKE_DIR"' EXIT
+bundle exec bin/paygen doctor
+for provider in novapay paypal stripe adyen; do
+  project="$PAYGEN_SMOKE_DIR/$provider"
+  bundle exec bin/paygen init "fixtures/$provider/openapi.yaml" --output "$project"
+  bundle exec bin/paygen generate "$project"
+  bundle exec bin/paygen generate "$project"
+  bundle exec bin/paygen diff "$project" --check
+  bundle exec bin/paygen architecture-check "$project"
+done

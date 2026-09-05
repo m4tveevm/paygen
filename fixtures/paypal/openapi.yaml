@@ -1,0 +1,261 @@
+openapi: 3.0.3
+info:
+  title: PayPal Standard Payouts — one-item subset
+  version: '1.9'
+  description: Paygen-authored, intentionally restricted offline contract. See provenance.json
+    and README.md; this is not the complete upstream API.
+servers:
+- url: https://api-m.sandbox.paypal.com
+- url: https://api-m.paypal.com
+security:
+- ProviderAuth: []
+paths:
+  /v1/payments/payouts:
+    post:
+      operationId: payouts.post
+      responses:
+        '201':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sender_batch_header:
+                  type: object
+                  properties:
+                    sender_batch_id:
+                      type: string
+                      maxLength: 50
+                  required:
+                  - sender_batch_id
+                items:
+                  type: array
+                  items: &id001
+                    type: object
+                    properties:
+                      recipient_type:
+                        type: string
+                        enum:
+                        - EMAIL
+                      amount:
+                        type: object
+                        properties:
+                          currency:
+                            type: string
+                            enum:
+                            - EUR
+                            - USD
+                          value:
+                            type: string
+                            pattern: ^\d+\.\d{2}$
+                        required:
+                        - currency
+                        - value
+                      receiver:
+                        type: string
+                        format: email
+                      sender_item_id:
+                        type: string
+                        maxLength: 127
+                    required:
+                    - recipient_type
+                    - amount
+                    - receiver
+                    - sender_item_id
+                  minItems: 1
+                  maxItems: 1
+              required:
+              - sender_batch_header
+              - items
+  /v1/payments/payouts/{id}:
+    get:
+      operationId: payouts.get
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /v1/payments/payouts-item/{payout_item_id}:
+    get:
+      operationId: payouts-item.get
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      parameters:
+      - name: payout_item_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /v1/payments/payouts-item/{payout_item_id}/cancel:
+    post:
+      operationId: payouts-item.cancel
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      parameters:
+      - name: payout_item_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /webhooks/payout:
+    post:
+      operationId: payoutItemWebhook
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+        '429':
+          description: Rate limited
+        '500':
+          description: Provider unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Webhook'
+      security: []
+components:
+  securitySchemes:
+    ProviderAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Batch:
+      type: object
+      properties:
+        batch_header:
+          type: object
+          properties:
+            payout_batch_id:
+              type: string
+            batch_status:
+              type: string
+              enum:
+              - DENIED
+              - PENDING
+              - PROCESSING
+              - SUCCESS
+              - CANCELED
+          required:
+          - payout_batch_id
+          - batch_status
+        items:
+          type: array
+          items: &id002
+            type: object
+            properties:
+              payout_item_id:
+                type: string
+              payout_batch_id:
+                type: string
+              transaction_status:
+                type: string
+                enum:
+                - SUCCESS
+                - FAILED
+                - PENDING
+                - UNCLAIMED
+                - RETURNED
+                - ONHOLD
+                - BLOCKED
+                - REFUNDED
+                - REVERSED
+              payout_item: *id001
+              errors:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  message:
+                    type: string
+            required:
+            - payout_item_id
+            - payout_batch_id
+            - transaction_status
+      required:
+      - batch_header
+    Item: *id002
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+        event_type:
+          type: string
+        create_time:
+          type: string
+          format: date-time
+        resource:
+          $ref: '#/components/schemas/Item'
+      required:
+      - id
+      - event_type
+      - resource

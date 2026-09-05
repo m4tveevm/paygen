@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "provider": "stripe",
+  "retrieved_on": "2026-09-05",
+  "source_kind": "authored_curated_subset",
+  "source_url": "https://github.com/stripe/openapi/blob/58e06a3214ae1574600fba64d40b770e5da6d505/openapi/spec3.yaml",
+  "api_version": "2026-08-26.dahlia",
+  "upstream_commit": "58e06a3214ae1574600fba64d40b770e5da6d505",
+  "upstream_license": "MIT",
+  "upstream_license_url": "https://github.com/stripe/openapi/blob/58e06a3214ae1574600fba64d40b770e5da6d505/LICENSE",
+  "local_license": "MIT",
+  "documentation_urls": [
+    "https://docs.stripe.com/api/versioning",
+    "https://docs.stripe.com/api/payouts",
+    "https://docs.stripe.com/api/payouts/object",
+    "https://docs.stripe.com/api/payouts/create",
+    "https://docs.stripe.com/connect/payouts-connected-accounts",
+    "https://docs.stripe.com/webhooks"
+  ],
+  "notes": [
+    "openapi.yaml is authored from the official API references; the full upstream spec was not downloaded.",
+    "Commit pins the official repository reference. SHA256 records the local authored subset, not an unavailable complete upstream file.",
+    "Only manual standard external-bank payouts from an existing Connect account; EUR/USD are deliberate integration restrictions.",
+    "Webhook receiver path is local. Creation is form encoded and scoped by Stripe-Account."
+  ],
+  "files_sha256": {
+    "UPSTREAM-LICENSE": "48138ad66ad2db9a2076a4d3ffb248688e7ed7e5b66749b8d367647ded6780cb",
+    "fixtures.json": "9719cc953e60b4c073c94f9a0eba20fd42431603d8bd838096e8e73abcdae4ac",
+    "integration.yml": "6421aee4b7f3fcff69dbffe0b2992fe55afe7f8a4ebd66cb9ec5f1a6beff3169",
+    "openapi.yaml": "6101f0a154aab76a4a107988a6e6b704233896d0648971384529117b03830674",
+    "overlay.yaml": "e26bae05fafe754f6732b5fe6c062a110b2ee8e83040eca42f73b935ad0fe594",
+    "scenarios.yml": "0777772ba73a319b671a0a8f52a691b963726522cd687dbd231f763ed8203115"
+  }
+}

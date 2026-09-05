@@ -1,0 +1,119 @@
+{
+  "fixture_version": 1,
+  "synthetic": true,
+  "operation": {
+    "id": "op_nova_001",
+    "amount": "15000.00",
+    "currency": "RUB",
+    "payout_requisite": {
+      "sbp": {
+        "phone": "79001234567",
+        "bank_code": "044525225"
+      }
+    }
+  },
+  "credentials": {
+    "api_key": "fixture-nova-api-key",
+    "callback_secret": "fixture-nova-secret"
+  },
+  "account": null,
+  "clock": 1788602400,
+  "responses": {
+    "created": {
+      "status": 201,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "np_fixture_001",
+        "external_id": "op_nova_001",
+        "amount": 1500000,
+        "currency": "RUB",
+        "status": "pending",
+        "created_at": "2026-09-05T10:00:00Z"
+      }
+    },
+    "completed": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "np_fixture_001",
+        "external_id": "op_nova_001",
+        "amount": 1500000,
+        "currency": "RUB",
+        "status": "completed",
+        "created_at": "2026-09-05T10:00:00Z"
+      }
+    },
+    "failed": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "np_fixture_001",
+        "external_id": "op_nova_001",
+        "amount": 1500000,
+        "currency": "RUB",
+        "status": "failed",
+        "created_at": "2026-09-05T10:00:00Z",
+        "error": {
+          "code": "recipient_not_found",
+          "message": "Recipient account not found"
+        }
+      }
+    },
+    "rate_limited": {
+      "status": 429,
+      "headers": {
+        "Content-Type": "application/json",
+        "Retry-After": "60"
+      },
+      "body": {
+        "error": {
+          "code": "rate_limit_exceeded"
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "processing": {
+      "payload": {
+        "event": "payout.processing",
+        "payout_id": "np_fixture_001",
+        "external_id": "op_nova_001",
+        "status": "processing"
+      },
+      "raw_body": "{\"event\":\"payout.processing\",\"payout_id\":\"np_fixture_001\",\"external_id\":\"op_nova_001\",\"status\":\"processing\"}",
+      "headers": {
+        "X-NovaPay-Signature": "6e90c0587faf082e87523c9a9bfdae159b04fa40584fc4711fd6aa3d19fdaa1b"
+      }
+    },
+    "completed": {
+      "payload": {
+        "event": "payout.completed",
+        "payout_id": "np_fixture_001",
+        "external_id": "op_nova_001",
+        "status": "completed"
+      },
+      "raw_body": "{\"event\":\"payout.completed\",\"payout_id\":\"np_fixture_001\",\"external_id\":\"op_nova_001\",\"status\":\"completed\"}",
+      "headers": {
+        "X-NovaPay-Signature": "d8163f8010d0184e9aa489adab3fa9c1b8d71f7bc0359460c363d1831adae01f"
+      }
+    },
+    "failed": {
+      "payload": {
+        "event": "payout.failed",
+        "payout_id": "np_fixture_001",
+        "external_id": "op_nova_001",
+        "status": "failed"
+      },
+      "raw_body": "{\"event\":\"payout.failed\",\"payout_id\":\"np_fixture_001\",\"external_id\":\"op_nova_001\",\"status\":\"failed\"}",
+      "headers": {
+        "X-NovaPay-Signature": "17109ab8160107f1343857c7e53b675939a687f275da613419d9b46f014d4889"
+      }
+    }
+  }
+}
