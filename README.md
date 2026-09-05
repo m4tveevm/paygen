@@ -4,6 +4,7 @@ Generate deterministic Ruby payout integrations from OpenAPI 3.0/3.1 and explici
 semantic profiles. No LLM or hosted AI is used by the shipped application.
 
 ```bash
+gem install bundler -v 4.0.20
 bundle install
 bundle exec bin/paygen init fixtures/novapay/openapi.yaml --output tmp/novapay
 bundle exec bin/paygen generate tmp/novapay
@@ -79,7 +80,7 @@ coverage separately. No command in the default demo calls a live provider.
 bundle exec rspec
 script/smoke
 script/verify-complete
-npm install --ignore-scripts
+npm ci --ignore-scripts
 npm run docs:build
 docker build -t paygen .
 docker run --rm paygen doctor

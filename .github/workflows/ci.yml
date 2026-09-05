@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   ruby:
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --ignore-scripts
+      - run: npm ci --ignore-scripts
       - run: npm run docs:build
       - uses: actions/upload-artifact@v4
         with:
@@ -68,7 +68,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --package-lock-only --ignore-scripts
       - name: Complete verification gate
         run: script/verify-complete | tee verification-complete.log
       - name: Capture verified repository checkpoint
