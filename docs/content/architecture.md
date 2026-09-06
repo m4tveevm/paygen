@@ -1,9 +1,9 @@
 # Architecture
 
-Paygen is a Ruby CLI with a provider-neutral parser, generator and runtime.
-Provider-specific behavior lives in declarative profiles and optional Ruby
-extensions. Ruby 3.3 or later is required; Node 22 is used only for the manual
-build and the optional Bruno test runner.
+Paygen is a Ruby CLI. Its parser, generator and runtime do not depend on a
+particular payment provider. Provider-specific behavior belongs in declarative
+profiles or, when needed, Ruby extensions. Paygen requires Ruby 3.3 or later.
+You need Node 22 only to build this manual or run the optional Bruno tests.
 
 ## Contract processing
 
@@ -91,10 +91,10 @@ configure_paygen(credentials:, transport:, base_url:, mode:, account:, state_nam
                 allowed_attributes:)
 ```
 
-All arguments are optional. Supplying an external `state_store` additionally
-requires a stable `state_namespace` or `account` before execution. The injected transport
-implements `request(method:, url:, headers:, body:)` and returns a hash containing
-`status`, `headers` and `body`.
+All arguments are optional. If you supply an external `state_store`, you must also
+set a stable `state_namespace` or `account` before execution. The injected
+transport implements `request(method:, url:, headers:, body:)` and returns a hash
+with `status`, `headers` and `body`.
 
 An explicit `base_url` overrides every role. Otherwise operation-level servers
 take precedence, with selection by mode. HTTP requests have a total 20-second

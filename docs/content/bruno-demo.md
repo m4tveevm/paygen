@@ -1,9 +1,9 @@
 # Test an adapter with Bruno
 
-The exported Bruno collection calls a local application that loads the generated
-Ruby adapter. The adapter sends requests to a provider simulator and processes
-callbacks through the backend hooks. Credentials, payouts and callbacks are
-synthetic; the demo binds to loopback and keeps state in memory.
+The exported Bruno collection talks to a local application running the generated
+Ruby adapter. The adapter sends requests to a provider simulator and passes
+callbacks through the backend hooks. The credentials, payouts and callbacks are
+synthetic. The demo listens only on loopback and keeps its state in memory.
 
 ## Run the demo
 

@@ -1,8 +1,8 @@
 # Run the datasets yourself
 
-This walkthrough uses the fictional NovaPay assignment and a deliberately
-ambiguous derivative. All payment requests use synthetic data and loopback HTTP.
-The commands below are also the executable input to our example verifier.
+This walkthrough uses the fictional NovaPay assignment and an intentionally
+ambiguous version of it. Every payment request stays on loopback and uses
+synthetic data. The example verifier runs the same commands shown below.
 
 Complete [Ruby toolchain setup](development.md#toolchain), install Bash and curl,
 and run `src/run setup` from the repository root. Start with a fresh directory:
@@ -15,10 +15,10 @@ export PAYGEN_SIMULATOR_PORT=9292
 
 ## Watch the recorded runs
 
-These GIFs render captured local command output from a passing example run.
-They show selected JSON fields with shortened playback timing; temporary paths
-are displayed as `$PAYGEN_EXAMPLES_DIR`. They are terminal recordings, not a
-recording of the browser panel. The complete executable commands follow below.
+These GIFs show terminal output captured during a passing local run. They include
+selected JSON fields, play faster than the original session and display temporary
+paths as `$PAYGEN_EXAMPLES_DIR`. They do not show the browser panel. You can run
+the complete commands in the sections that follow.
 
 {% cut "Watch: confirmed contract, export and demo payment" %}
 

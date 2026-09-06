@@ -4,20 +4,21 @@
 
 [**Read the documentation →**](https://m4tveevm.github.io/paygen/)
 
-Paygen generates Ruby payout integrations from OpenAPI 3.0/3.1 and a configuration
-profile. It produces an adapter, integration documentation and test examples,
-then checks the adapter against a local provider simulator.
+Paygen takes an OpenAPI 3.0 or 3.1 contract and a payout profile, then generates
+a Ruby adapter, an integration guide and test examples. It can also run the
+adapter against a local provider simulator.
 
-The profile defines the decisions an API schema cannot reliably supply: which
-operation sends money, how amounts and recipients are represented, which statuses
-confirm settlement, and how retries and callbacks work.
+The profile fills in the payment details that an API schema cannot tell you on
+its own: which operation sends money, how the API represents amounts and
+recipients, which statuses mean that a payment settled, and how retries and
+callbacks work.
 
-## Quickstart
+## Try it locally
 
-Use Bash and Ruby **4.0.6** (the checkout's pinned version); supported Ruby
-versions start at 3.3. Ruby must already be installed and selected in your shell.
-The version file is `src/.ruby-version`: a version manager running at the repository
-root will not automatically discover it. See [toolchain setup](docs/content/development.md#toolchain).
+You need Bash and Ruby **4.0.6**, the version pinned by this checkout. Paygen also
+supports Ruby 3.3 and later. Install and select Ruby before you begin. Because the
+version file is at `src/.ruby-version`, a version manager running at the repository
+root may not find it automatically. See [toolchain setup](docs/content/development.md#toolchain).
 
 Run from a fresh checkout:
 
@@ -33,15 +34,16 @@ src/run cli diff tmp/novapay --check
 src/run cli verify tmp/novapay --seed 42
 ```
 
-The bundled NovaPay example includes its configuration and contract corrections.
-`diff` reports `"changed": false`; `verify` reports `"success": true` and
-`"failed": 0`. Its checks cover creation, status polling, repeated requests,
-timeouts, rate limits, cancellation and signed callbacks.
+The bundled NovaPay example already includes its configuration and contract
+corrections. A successful run prints `"changed": false` for `diff`, then
+`"success": true` and `"failed": 0` for `verify`. The verifier covers creation,
+status polling, repeated requests, timeouts, rate limits, cancellation and signed
+callbacks.
 
 `init` requires a new output directory. Reuse an existing project by starting with
 `generate`, or choose another directory for a new example.
 
-## Use the generated integration
+## See what Paygen generated
 
 | Output in `tmp/novapay/generated/` | Purpose |
 | --- | --- |
@@ -72,12 +74,12 @@ Try the [complete dataset walkthrough](docs/content/dataset-walkthrough.md):
 confirmed and ambiguous contracts, mandatory operator decisions, `demo` versus
 `serve`, and one command to verify all seven executable profiles.
 
-## Configure another API
+## Configure your own API
 
-The following is a template for your own inputs: replace `provider.yaml` with an
-existing OpenAPI file and `profile.yml` with your reviewed YAML/JSON profile.
-Neither filename is bundled. For a copyable example using supplied files, follow
-[native onboarding](docs/content/native-onboarding.md).
+The commands below are a template. Replace `provider.yaml` with your OpenAPI file
+and `profile.yml` with a reviewed YAML or JSON profile. Those two filenames are
+placeholders, not bundled files. If you want an example you can copy unchanged,
+follow [native onboarding](docs/content/native-onboarding.md).
 
 ```bash
 src/run cli init provider.yaml --output tmp/provider

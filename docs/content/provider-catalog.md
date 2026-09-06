@@ -1,8 +1,9 @@
 # Provider catalog and generated downloads
 
-The labels below describe different evidence levels. Importing a contract is not
-the same as generating an executable payout profile, and a local contract test is
-not provider sandbox acceptance.
+Each row says exactly what the repository can demonstrate for that provider.
+Importing a contract does not mean that Paygen can generate a working payout
+adapter for it. Likewise, passing a local contract test does not prove that the
+adapter works in the provider's sandbox.
 
 | Provider/example | Source kind | Executable profile | Signature verification | Independent local contract | Live sandbox |
 | --- | --- | --- | --- | --- | --- |
