@@ -5,7 +5,7 @@ expectations from generated fixtures or the simulator. Run the finite baseline
 regression slice with:
 
 ```sh
-bundle exec ruby script/acceptance-independent
+src/run exec ruby script/acceptance-independent
 ```
 
 The runner writes `tmp/acceptance-independent/latest.json` and exits nonzero

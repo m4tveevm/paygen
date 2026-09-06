@@ -28,7 +28,7 @@ module PaygenShowcase
       trap('TERM') { raise Interrupt }
       record_revision
       snapshot = %w[src/lib src/bin src/recipes fixtures examples/showcase].to_h { |name| [name, hashes(File.join(@root, name))] }
-      snapshot['dependencies'] = %w[Gemfile Gemfile.lock paygen.gemspec].to_h { |name| [name, Digest::SHA256.file(File.join(@root, name)).hexdigest] }
+      snapshot['dependencies'] = %w[src/Gemfile src/Gemfile.lock src/paygen.gemspec].to_h { |name| [name, Digest::SHA256.file(File.join(@root, name)).hexdigest] }
       save('source-snapshot-sha256.json', snapshot)
       cli('doctor', 'doctor')
       save('environment.json', 'ruby' => RUBY_VERSION, 'platform' => RUBY_PLATFORM,

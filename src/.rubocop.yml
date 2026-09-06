@@ -1,0 +1,12 @@
+AllCops:
+  TargetRubyVersion: 3.3
+  NewCops: enable
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+    - 'coverage/**/*'
+    - '../vendor/**/*'
+    - '../tmp/**/*'
+    - '../coverage/**/*'
+    - '../docs/node_modules/**/*'
+    - '../tools/bruno/node_modules/**/*'

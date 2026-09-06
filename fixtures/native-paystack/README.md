@@ -6,10 +6,10 @@ overlay, reduced replacement specification, provider recipe, or provider branch
 inside Paygen's runtime.
 
 ```sh
-bundle exec src/bin/paygen init fixtures/native-paystack/openapi.yaml \
+src/run cli init fixtures/native-paystack/openapi.yaml \
   --profile fixtures/native-paystack/profile.yml --output /tmp/paystack-native
-bundle exec src/bin/paygen generate /tmp/paystack-native
-bundle exec rspec spec/native_packs_spec.rb
+src/run cli generate /tmp/paystack-native
+src/run test src/spec/native_packs_spec.rb
 ```
 
 The profile covers one NGN transfer to an **already registered recipient code**,

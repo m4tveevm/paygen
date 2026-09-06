@@ -8,7 +8,7 @@ require 'open3'
 require 'openssl'
 require_relative '../src/lib/paygen'
 require_relative '../src/lib/paygen/runtime/adapter'
-require_relative '../spec/support/provider_harness'
+require_relative '../src/spec/support/provider_harness'
 
 ROOT = File.expand_path('..', __dir__)
 REPORT = File.expand_path(ENV.fetch('PAYGEN_ACCEPTANCE_REPORT', 'tmp/acceptance-independent/latest.json'), ROOT)
@@ -25,13 +25,13 @@ class IndependentAcceptance
     passed = observed.delete(:passed)
     @cases << { id: id, source_requirement: source, severity: severity,
                 setup: 'independent fixture and injected transport; no provider network',
-                command: 'bundle exec ruby script/acceptance-independent', location: '.',
+                command: 'src/run exec ruby script/acceptance-independent', location: '.',
                 expected: expected, observed: observed, exit_code: passed ? 0 : 1,
                 test_artifact: REPORT.delete_prefix(ROOT + '/'), verdict: passed ? 'PASS' : 'FAIL' }
   rescue StandardError => e
     @cases << { id: id, source_requirement: source, severity: severity,
                 setup: 'independent fixture and injected transport; no provider network',
-                command: 'bundle exec ruby script/acceptance-independent', location: '.',
+                command: 'src/run exec ruby script/acceptance-independent', location: '.',
                 expected: expected, observed: { exception: e.class.name, message: e.message }, exit_code: 1,
                 test_artifact: REPORT.delete_prefix(ROOT + '/'), verdict: 'FAIL' }
   end

@@ -6,6 +6,6 @@ LABEL org.opencontainers.image.revision=${PAYGEN_SOURCE_SHA}
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN gem install bundler -v 4.0.20 --no-document && bundle install && gem build paygen.gemspec
-ENTRYPOINT ["bundle", "exec", "src/bin/paygen"]
+RUN gem install bundler -v 4.0.20 --no-document && src/run setup && src/run package
+ENTRYPOINT ["/app/src/run", "cli"]
 CMD ["doctor"]

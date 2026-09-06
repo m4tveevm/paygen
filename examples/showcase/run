@@ -2,4 +2,4 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
-exec bundle exec ruby examples/showcase/runner.rb "$@"
+exec src/run exec ruby examples/showcase/runner.rb "$@"

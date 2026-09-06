@@ -21,7 +21,7 @@ module Paygen
     def self.run(arguments)
       options = { cli: ENV['PAYGEN_BRUNO_CLI'], node: ENV.fetch('PAYGEN_NODE_EXECUTABLE', 'node') }
       parser = OptionParser.new do |flags|
-        flags.banner = 'Usage: bundle exec ruby script/verify-bruno.rb --cli PATH [--output NEW_DIRECTORY]'
+        flags.banner = 'Usage: src/run exec ruby script/verify-bruno.rb --cli PATH [--output NEW_DIRECTORY]'
         flags.on('--cli PATH', 'Bruno CLI JavaScript entrypoint; defaults to PAYGEN_BRUNO_CLI') { |value| options[:cli] = value }
         flags.on('--output DIRECTORY', 'Keep JSON, JUnit and logs in a new directory') { |value| options[:output] = value }
         flags.on('-h', '--help', 'Show usage') { puts flags; return true }

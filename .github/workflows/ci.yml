@@ -22,23 +22,24 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
+          working-directory: src
       - name: Syntax and test suite
         run: |
           ruby -v
-          bundle exec ruby -e 'Dir["src/lib/**/*.rb", "spec/**/*.rb", "src/bin/paygen"].each { |f| abort("Syntax failed: #{f}") unless system(RbConfig.ruby, "-c", f) }'
-          bundle exec rspec
+          src/run exec ruby -e 'Dir["src/lib/**/*.rb", "src/spec/**/*.rb", "src/bin/paygen"].each { |f| abort("Syntax failed: #{f}") unless system(RbConfig.ruby, "-c", f) }'
+          src/run test
       - name: Installed gem smoke
-        run: bundle exec ruby script/verify-package.rb
+        run: src/run package-test
       - name: Independent payment acceptance
-        run: bundle exec ruby script/acceptance-independent
+        run: src/run exec ruby script/acceptance-independent
       - name: CLI and generation smoke
-        run: script/smoke
+        run: src/run smoke
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage-ruby-${{ matrix.ruby }}
           path: |
-            Gemfile.lock
+            src/Gemfile.lock
             coverage/
             tmp/fuzz-verification/
             tmp/acceptance-independent/
@@ -52,21 +53,21 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.22.0'
-          cache: npm
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1, Ruby 4.0.6 support
         with:
           ruby-version: '.ruby-version'
           bundler-cache: true
-      - run: npm install --global npm@11.9.0
-      - run: npm ci --ignore-scripts --engine-strict
+          working-directory: src
+      - run: corepack enable && corepack prepare pnpm@10.32.1 --activate
+      - run: pnpm --dir docs install --frozen-lockfile --ignore-scripts
       - name: Report documentation dependency advisories
-        run: npm audit --json > npm-audit.json
-      - run: npm run docs:test
-      - run: npm run docs:build
+        run: pnpm --dir docs audit --json > docs/pnpm-audit.json
+      - run: pnpm --dir docs run docs:test
+      - run: pnpm --dir docs run docs:build
       - name: Rebuild and compare every published byte
         run: |
           cp docs/_build/publication-manifest.json "$RUNNER_TEMP/accepted-docs-manifest.json"
-          npm run docs:build
+          pnpm --dir docs run docs:build
           cmp "$RUNNER_TEMP/accepted-docs-manifest.json" docs/_build/publication-manifest.json
       - name: Upload Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -82,8 +83,8 @@ jobs:
         with:
           name: node-lock
           path: |
-            package-lock.json
-            npm-audit.json
+            docs/pnpm-lock.yaml
+            docs/pnpm-audit.json
   integration:
     needs: [ruby, docs]
     runs-on: ubuntu-latest
@@ -93,10 +94,11 @@ jobs:
         with:
           ruby-version: '4.0.6'
           bundler-cache: true
+          working-directory: src
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --global npm@11.9.0
+      - run: corepack enable && corepack prepare pnpm@10.32.1 --activate
       - name: Integration, documentation and container checks
         shell: bash
         run: script/check | tee verification.log
