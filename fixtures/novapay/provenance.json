@@ -14,11 +14,12 @@
     "NovaPay is the fictional hackathon provider, not an asserted real payment API.",
     "Corrections live only in overlay.yaml: conditional SBP bank_code/card card_number requirements; response identity required; open error-code domain. Empty conditional recipient values are rejected by explicit integration policy.",
     "Hex signature encoding of HMAC-SHA256(raw body, secret) follows the supplied hackathon Q&A canon. No provider event ID or timestamp is invented.",
-    "The card_operation fixture is synthetic test data; accepting its schema does not establish PCI DSS compliance or provider acceptance."
+    "The card_operation fixture is synthetic test data; accepting its schema does not establish PCI DSS compliance or provider acceptance.",
+    "The reviewed integration profile binds successful create/status/cancel responses to the requested external_id, exact minor-unit amount and case-sensitive currency. Conflicting legacy phone fallbacks require an explicit primary phone."
   ],
   "files_sha256": {
-    "fixtures.json": "89de242654c2d83fa3684f01b9337921a12914899b5f2a81a943106ad774f2aa",
-    "integration.yml": "d757e84b136a626d486a4e2e15bc9328db0dbadfd0d32269565629c68fbe9ed3",
+    "fixtures.json": "4f2e01d6c2c94fa0186b7107bc400981098ae4a2f2bd7b54babf8f4fa47773c0",
+    "integration.yml": "339ca83e6915d54419fbec0c5935434ae2a59929c2c292df52281e518ee23379",
     "openapi.yaml": "415f50ee36fb331dfab49ceed0e8ed3b0ebe16053d7e00dbabd32282f4396551",
     "overlay.yaml": "83efda4c8e95f99190db089ce37cb9c9f452c372e4c2c0c4c1cdffddfdc64dc6",
     "scenarios.yml": "a96b8437483e166d4affd31b0bb134c97dd58c4cfa3278db17be65648765686f",

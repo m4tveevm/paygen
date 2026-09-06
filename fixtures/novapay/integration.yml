@@ -27,6 +27,7 @@ request_mapping:
     default: sbp
   recipient.phone:
     from: payout_requisite.phone
+    fallback_conflict: reject
     fallback_from:
     - payout_requisite.sbp.phone
     - payout_requisite.card.phone
@@ -54,6 +55,23 @@ response:
   id: id
   status: status
   error: error.code
+response_bindings:
+  merchant_reference:
+    response_path: external_id
+    operation_path: id
+    roles: [create, status, cancel]
+    required: true
+  amount:
+    response_path: amount
+    operation_path: amount
+    roles: [create, status, cancel]
+    required: true
+    response_unit: minor
+  currency:
+    response_path: currency
+    operation_path: currency
+    roles: [create, status, cancel]
+    required: true
 status_mapping:
   pending: in_progress
   processing: in_progress
