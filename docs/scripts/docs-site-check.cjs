@@ -110,7 +110,7 @@ function checkSite(root, basePath, {seal = false, expectedSHA, expectedDigest} =
     if (!value || typeof value !== 'object') return;
     if (value.href) {
       const target = new URL(value.href, `${ORIGIN}${basePath}`);
-      assert(!target.pathname.endsWith('/404.html'), '404 page must not appear in navigation');
+      assert(!decodeURIComponent(target.pathname).endsWith('/404.html'), '404 page must not appear in navigation');
       checkLink('toc.js', value.href, `${ORIGIN}${basePath}`);
     }
     Object.values(value).forEach(checkToc);
