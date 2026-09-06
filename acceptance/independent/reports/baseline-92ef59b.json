@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "role": "06",
+  "phase": "QA-B",
+  "status": "BLOCKED_DEPENDENCY",
+  "verdict": "LOCAL_RELEASE_NOT_READY",
+  "base_sha": "92ef59bc2c8eb102c7452136ee4ea8a46887fd52",
+  "tested_sha": "36c2ff4e2a01cfa2069eac16916cd2b77028dc3d",
+  "branch": "work",
+  "dirty_state": "clean",
+  "interface_version": "baseline-92ef59b",
+  "dependencies_received": [],
+  "environment": {
+    "ruby": "ruby 3.4.4 (2025-05-14 revision a38531fd3f) +PRISM [x86_64-linux]",
+    "os_architecture": "x86_64-linux",
+    "network_mode": "no provider network; injected transports only"
+  },
+  "totals": {
+    "cases": 5,
+    "executed": 5,
+    "passed": 0,
+    "failed": 5,
+    "skipped": 0,
+    "blocked": 0
+  },
+  "mutation_controls": {
+    "verdict": "NOT_RUN",
+    "reason": "not part of this baseline five-regression slice"
+  },
+  "cases": [
+    {
+      "id": "Q3-TENANT-NIL-001",
+      "source_requirement": "[PROJECT POLICY] Q3 tenant isolation",
+      "severity": "P1",
+      "setup": "independent fixture and injected transport; no provider network",
+      "command": "bundle exec ruby script/acceptance-independent",
+      "location": ".",
+      "expected": "second unscoped integration is rejected before HTTP and never receives the first integration result",
+      "observed": {
+        "outbound_requests": 1,
+        "second_result": {
+          "success": true,
+          "status": "in_progress",
+          "provider_id": "provider-1",
+          "provider_status": "pending",
+          "duplicate": true
+        }
+      },
+      "exit_code": 1,
+      "test_artifact": "acceptance/independent/reports/latest.json",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "Q5-PREFLIGHT-OUTPUT-001",
+      "source_requirement": "[PROJECT POLICY] Q5 workflow preflight",
+      "severity": "P1",
+      "setup": "independent fixture and injected transport; no provider network",
+      "command": "bundle exec ruby script/acceptance-independent",
+      "location": ".",
+      "expected": "explicit and implicit missing output references raise a typed error before zero HTTP requests",
+      "observed": {
+        "probes": [
+          {
+            "reference": "missing",
+            "error_code": "ARAZZO_EXPRESSION",
+            "outbound_requests": 1
+          },
+          {
+            "reference": "create",
+            "error_code": "ARAZZO_EXPRESSION",
+            "outbound_requests": 1
+          }
+        ]
+      },
+      "exit_code": 1,
+      "test_artifact": "acceptance/independent/reports/latest.json",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "Q4-PROGRESS-EVENT-001",
+      "source_requirement": "[CASE/Q&A] status mapping; [PROJECT POLICY] Q4 lifecycle",
+      "severity": "P2",
+      "setup": "independent fixture and injected transport; no provider network",
+      "command": "bundle exec ruby script/acceptance-independent",
+      "location": ".",
+      "expected": "two distinct signed progress events are applied and the second event metadata is returned",
+      "observed": {
+        "applied_events": [
+          [
+            "event-1",
+            "pending"
+          ]
+        ],
+        "second_result": {
+          "success": true,
+          "status": "in_progress",
+          "provider_id": "provider-1",
+          "provider_status": "pending",
+          "ignored": "duplicate"
+        }
+      },
+      "exit_code": 1,
+      "test_artifact": "acceptance/independent/reports/latest.json",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "Q2-DECIMAL-CACHE-001",
+      "source_requirement": "[PROJECT POLICY] Q2 exact money",
+      "severity": "P2",
+      "setup": "independent fixture and injected transport; no provider network",
+      "command": "bundle exec ruby script/acceptance-independent",
+      "location": ".",
+      "expected": "first and cached response amount have the same type and exact decimal value",
+      "observed": {
+        "first_type": "BigDecimal",
+        "cached_type": "String",
+        "first_value": "0.100025e4",
+        "cached_value": "0.100025e4",
+        "outbound_requests": 1
+      },
+      "exit_code": 1,
+      "test_artifact": "acceptance/independent/reports/latest.json",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "Q1-ROOT-BACKREF-001",
+      "source_requirement": "[PROJECT POLICY] Q1 local references",
+      "severity": "P2",
+      "setup": "independent fixture and injected transport; no provider network",
+      "command": "bundle exec ruby script/acceptance-independent",
+      "location": ".",
+      "expected": "actual root filename back-reference resolves without REF_ID_DUPLICATE",
+      "observed": {
+        "exception": "Paygen::Error",
+        "message": "Schema resource IDs must be unique after URI resolution"
+      },
+      "exit_code": 1,
+      "test_artifact": "acceptance/independent/reports/latest.json",
+      "verdict": "FAIL"
+    }
+  ],
+  "exclusions": [
+    "Q0 full fresh install/OCI",
+    "Q6 full fuzz and mutation controls",
+    "Q7 full demo/docs",
+    "QA-C",
+    "QA-D Pages"
+  ],
+  "artifact_hashes": {
+    "root_fixture_sha256": "aac70bda5384d332999592873d0e1602a2c8734ddbedd7693ff62d3d06c446ce",
+    "child_fixture_sha256": "4e0bd474b974f8a8ffca8238879528a26fc5a22072150e52aba002561850c75f"
+  }
+}

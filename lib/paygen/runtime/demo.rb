@@ -1,5 +1,7 @@
 # frozen_string_literal: true
+
 require 'json'
+require 'digest'
 require 'stringio'
 require 'uri'
 require_relative 'adapter'
@@ -15,6 +17,7 @@ module Paygen
 
       def initialize(source:, config:, scenario: 'success', seed: 0)
         @config = config
+        @source_sha256 = Digest::SHA256.hexdigest(source)
         @simulator = Simulator.new(config: config, scenario: scenario, seed: seed, strict_auth: true)
         @service = ReferenceProvider.load_service(source: source, class_name: config.fetch('class_name'))
         @adapter = new_adapter(simulator.credentials)
@@ -39,7 +42,11 @@ module Paygen
         @mutex.synchronize do
           method = env.fetch('REQUEST_METHOD')
           path = env.fetch('PATH_INFO', '/')
+          return page if method == 'GET' && path == '/'
+          return asset(path) if method == 'GET' && %w[/demo.css /demo.js].include?(path)
           return respond(200, { 'service' => 'paygen-adapter-demo', 'provider' => @config['provider'], 'offline' => true }) if method == 'GET' && path == '/health'
+          return respond(200, artifact_summary) if method == 'GET' && path == '/artifacts'
+          return respond(200, simulator.sample_operation(id: 'synthetic-demo-operation')) if method == 'GET' && path == '/sample'
           return respond(200, simulator.evidence.merge('backend_events' => @backend_events)) if method == 'GET' && path == '/evidence'
           if method == 'POST'
             return respond(415, { 'error' => 'Use application/json' }) unless env.fetch('CONTENT_TYPE', '').split(';').first == 'application/json'
@@ -72,6 +79,35 @@ module Paygen
       end
 
       private
+
+      def artifact_summary
+        {
+          'generated_service' => "#{@config.fetch('provider')}_service.rb",
+          'generated_service_sha256' => @source_sha256,
+          'class_name' => @config.fetch('class_name'),
+          'provider' => @config.fetch('provider'),
+          'mode' => @config.fetch('mode', 'sandbox'),
+          'roles' => @config.fetch('endpoints').keys.sort,
+          'callback_verification' => @config.dig('callback', 'signature', 'algorithm'),
+          'offline' => true
+        }
+      end
+
+      def page
+        body = File.binread(File.expand_path('demo/index.html', __dir__))
+        [200, {
+          'content-type' => 'text/html; charset=utf-8',
+          'cache-control' => 'no-store',
+          'content-security-policy' => "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'"
+        }, [body]]
+      end
+
+      def asset(path)
+        extension = File.extname(path)
+        body = File.binread(File.expand_path("demo/#{File.basename(path)}", __dir__))
+        type = extension == '.css' ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8'
+        [200, { 'content-type' => type, 'cache-control' => 'no-store', 'x-content-type-options' => 'nosniff' }, [body]]
+      end
 
       def new_adapter(credentials)
         @service.new(credentials: credentials, transport: simulator, account: 'test-account',

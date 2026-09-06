@@ -34,8 +34,11 @@ and supporting files without an executable service.
 | `Runtime::Simulator` and `Runtime::Demo` | Exercise provider behavior and the generated adapter locally |
 
 `Input.load(path_or_url, stdin: $stdin)` returns a validated reference graph.
-`Input.graph(document, base_dir:)` processes an in-memory document;
-`Input.resolve_fragment(document, value, base_dir:)` expands a selected contract.
+`Input.graph(document, base_dir:, source_path:)` processes an in-memory document;
+`Input.resolve_fragment(document, value, base_dir:, source_path:)` expands a selected contract.
+Supply the optional `source_path` when the document came from a local file, so
+references back to that file have the same identity as the root. Exported local
+schema identities are portable; they do not authorize fetching new resources.
 `Overlay.new(document).apply(overlay_hash)` returns the transformed document.
 
 Input limits are 10 MiB, 100,000 nodes, 100 nesting levels, 1,000 expanded
@@ -83,12 +86,13 @@ provider identity or structured error details. The application supplies its
 Configure an instance with:
 
 ```ruby
-configure_paygen(credentials:, transport:, base_url:, mode:, account:,
+configure_paygen(credentials:, transport:, base_url:, mode:, account:, state_namespace:,
                 token_provider:, state_store:, clock:, allow_local:,
                 allowed_attributes:)
 ```
 
-All arguments are optional. The injected transport
+All arguments are optional. Supplying an external `state_store` additionally
+requires a stable `state_namespace` or `account` before execution. The injected transport
 implements `request(method:, url:, headers:, body:)` and returns a hash containing
 `status`, `headers` and `body`.
 
@@ -131,6 +135,20 @@ Default replay and idempotency state is in memory;
 the host application must supply durable, coordinated state and idempotent
 backend mutations for deployment across workers or restarts.
 
+State keys separate provider, mode and the explicitly configured merchant scope.
+Use a stable scope across credential rotation, and distinct scopes for separate
+accounts. Missing scope on an injected store returns `state_namespace_required`
+before HTTP or callback effects. A recognized old reservation/lifecycle key
+returns `state_migration_required`: stop old writers, reconcile ambiguous payments
+and migrate reviewed state. Clearing the store or rotating the namespace is not a
+safe migration. These guards do not replace the host's durable transaction design.
+
+Cached and retained results preserve the same `BigDecimal` money type as the
+first result, including when a store serializes its values as JSON. The private
+state envelope is not the public result format. Distinct intermediate callback
+events still reach the host hook even when both map to `in_progress`; repeated
+terminal effects and actual duplicate deliveries are handled separately.
+
 YAML/JSON parsing does not evaluate code. HTTPS ingestion rejects private
 addresses and pins DNS resolution. Request headers that control transport framing
 are denied, including changes from extensions. Runtime error output redacts
@@ -167,6 +185,9 @@ transport and checks capabilities across the reachable workflow graph before its
 first request. Unavailable sources, unsupported criteria and invalid dependencies
 fail during this preflight. Forward step dependencies run in stable dependency
 order; cyclic or unscheduled prerequisites are rejected.
+
+Cross-workflow output references require an explicit workflow `dependsOn`.
+References in descriptions are documentation, not executable dependencies.
 
 A lost response or ambiguous server error after a write stops execution with
 `ARAZZO_RECONCILIATION_REQUIRED`. Retry and goto actions cannot repeat that write,

@@ -2,11 +2,15 @@
   "name": "paygen-docs",
   "private": true,
   "scripts": {
-    "docs:build": "node --require ./script/diplodoc-compat.cjs ./node_modules/@diplodoc/cli/build/index.js -i docs -o docs/_build",
-    "docs:test": "node --require ./script/diplodoc-compat.cjs --test ./script/diplodoc-compat.test.cjs"
+    "docs:render": "node script/docs-clean.cjs && node --require ./script/diplodoc-compat.cjs ./node_modules/@diplodoc/cli/build/index.js -i docs -o docs/_build && node script/docs-normalize.cjs docs/_build",
+    "docs:build": "npm run docs:render && bundle exec ruby script/docs_provider_assets.rb docs/_build && node script/docs-site-check.cjs docs/_build /paygen/ --seal && npm run docs:check",
+    "docs:check": "node script/docs-site-check.cjs docs/_build /paygen/",
+    "docs:test": "node --require ./script/diplodoc-compat.cjs --test ./script/diplodoc-compat.test.cjs ./script/docs-site-check.test.cjs && bundle exec rspec script/docs_provider_assets_spec.rb"
   },
   "devDependencies": {
-    "@diplodoc/cli": "5.39.4"
+    "@diplodoc/cli": "5.39.4",
+    "cheerio": "1.2.0",
+    "katex": "0.16.47"
   },
   "engines": {
     "node": ">=22.13.0 <23",

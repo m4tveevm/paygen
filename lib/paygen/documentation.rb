@@ -51,6 +51,10 @@ module Paygen
                 "Allowed currencies: #{cell(Array(@config.dig('amount', 'currencies')).join(', '))}.",
                 "Minimum provider units: #{cell(@config.dig('amount', 'minimum'))}; maximum: #{cell(@config.dig('amount', 'maximum') || 'not declared')}.",
                 'Use decimal strings or integers for monetary input. Floating point money is rejected.', '',
+                '## Response correlation', '',
+                'Response schema validity alone does not bind a response to this operation. The following optional profile rules explicitly bind response fields to operation fields before state mutation:', '',
+                '```json', Paygen.json(@config.fetch('response_bindings', {})).rstrip, '```', '',
+                'No rules means no additional correlation claim. A configured required field must be present and match; optional fields are ignored only when absent or null. Present mismatches fail closed. A mismatched create response requires reconciliation, not a blind retry.', '',
                 '## Status mapping', '', '| Provider status | Canonical status |', '| --- | --- |']
       @config.fetch('status_mapping', {}).each { |provider, state| lines << row(provider, state.is_a?(Hash) ? state['status'] : state) }
       lines += ['', 'Unknown statuses do not approve operations. Batch success does not imply every item succeeded.', '',
@@ -59,6 +63,8 @@ module Paygen
                 'Keep the same operation identity after timeouts. A timeout may mean the provider committed the operation. Reconcile status before deciding whether another create request is safe.',
                 'The reconcile_before_retry strategy with no header does not claim provider-side deduplication: known successes are cached locally and ambiguous creates require reconciliation.',
                 'The default state store is process-local. Supply a durable synchronized state store and coordinate workers before relying on recovery across restarts.', '',
+                'An explicitly supplied state_store requires a stable state_namespace or account. Without one, execution and callbacks return state_namespace_required before effects. Keep the same namespace across credential rotation; use distinct namespaces for distinct merchant accounts.',
+                'Known legacy state keys return state_migration_required. Quiesce old writers, reconcile uncertain payments, and migrate reviewed state before resuming. Never clear the store or change the namespace to bypass a reservation.', '',
                 '## Webhooks', '', *callback_lines, '',
                 '## Errors', '', '| Scope | HTTP | Classification | Action |', '| --- | --- | --- | --- |']
       errors = @config.fetch('errors', {})

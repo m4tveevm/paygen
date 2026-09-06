@@ -82,6 +82,37 @@ RSpec.describe Paygen::Runtime::Adapter do
     expect(adapter.create_request(invalid).dig('error', 'violations')).to include('/recipient: required')
   end
 
+  it 'uses ordered fallbacks and defaults only for nil, preserving false and empty explicit values' do
+    config['request_mapping']['conditional'] = {
+      'from' => 'primary', 'fallback_from' => %w[secondary third], 'default' => 'fallback-default',
+      'when' => { 'from' => 'kind', 'equals' => 'create', 'default' => 'create' }
+    }
+    samples = [
+      [{ 'primary' => false, 'secondary' => 'later' }, false],
+      [{ 'primary' => '', 'secondary' => 'later' }, ''],
+      [{ 'secondary' => 'second', 'third' => 'third' }, 'second'],
+      [{}, 'fallback-default']
+    ]
+    requests = []
+    allow(transport).to receive(:request) do |**request|
+      requests << request
+      response({ 'id' => "p-#{requests.length}", 'status' => 'pending' })
+    end
+    samples.each_with_index do |(attributes, expected), index|
+      result = adapter.create_request(operation.merge(attributes).merge('id' => "conditional-#{index}"))
+      expect(result['success']).to be(true)
+      expect(JSON.parse(requests.last.fetch(:body)).fetch('conditional')).to eq(expected)
+    end
+    expect(adapter.create_request(operation.merge('id' => 'inactive', 'kind' => 'cancel'))['success']).to be(true)
+    expect(JSON.parse(requests.last.fetch(:body))).not_to have_key('conditional')
+  end
+
+  it 'fails closed before HTTP for invalid conditional mapping supplied directly to the runtime' do
+    config['request_mapping']['conditional'] = { 'from' => 'value', 'when' => 'arbitrary expression' }
+    expect(transport).not_to receive(:request)
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('validation_error')
+  end
+
   it 'rejects float, excess precision, exponent notation, negative and oversized amounts' do
     [1000.01, '1000.001', '1e5', '-2000', '1000000000000000000'].each do |amount|
       expect(adapter.check_conditions(operation.merge('amount' => amount))['success']).to be(false)
@@ -708,10 +739,12 @@ RSpec.describe Paygen::Runtime::Adapter do
   it 'retains strict create reservations across adapters sharing a state store and does not unlock on 404' do
     config['idempotency'] = { 'strategy' => 'reconcile_before_retry', 'header' => nil, 'from' => 'id' }
     store = Paygen::Runtime::MemoryStateStore.new
-    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, state_store: store)
+    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, state_store: store,
+                             state_namespace: 'reference-integration')
     expect(transport).to receive(:request).once.and_return(response({}, status: 429, headers: { 'Retry-After' => '1' }))
     expect(adapter.create_request(operation).dig('error')).to include('retryable' => false, 'action' => 'reconcile_before_retry')
-    another = adapter.class.new(credentials: { api_key: 'new-key' }, transport: transport, state_store: store)
+    another = adapter.class.new(credentials: { api_key: 'new-key' }, transport: transport, state_store: store,
+                                state_namespace: 'reference-integration')
     expect(another.create_request(operation).dig('error', 'code')).to eq('reconciliation_required')
     expect(transport).to receive(:request).once.and_return(response({}, status: 404))
     expect(another.fetch_status(operation.merge('provider_operation_id' => 'p-1')).dig('error', 'code')).to eq('not_found')

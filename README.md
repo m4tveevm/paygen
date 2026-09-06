@@ -83,6 +83,7 @@ requirements that need additional integration work.
 - [Seven-minute demo](docs/demo.md): commands and expected results for a walkthrough.
 - [CLI reference](docs/cli.md): configuration, generation and exports.
 - [Native API onboarding](docs/native-onboarding.md): profiles and the API corpus.
+- [Provider catalog](docs/provider-catalog.md): evidence levels and generated synthetic downloads.
 - [Bruno demo](docs/bruno-demo.md) and [Russian bank examples](docs/ru-bank-examples.md).
 - [Payment verification](docs/testing.md): seeded sequences, shrinking and replay.
 - [Architecture](docs/architecture.md), [supported scope](docs/scope.md) and [development](docs/development.md).
@@ -93,6 +94,12 @@ storage and provider sandbox verification. Generated integration guides can be
 distributed with the adapter; GitHub Pages is an optional host for the Paygen manual.
 
 ## Development
+
+For an automated presentation with saved evidence, run
+`examples/showcase/run tmp/showcase` after installing Ruby dependencies. It
+demonstrates four local profiles, contract adaptation and a deliberate fuzz
+failure → shrink → replay → fixed replay. See the
+[presenter guide](examples/showcase/README.md) for scope and prerequisites.
 
 ```bash
 bundle exec rspec
