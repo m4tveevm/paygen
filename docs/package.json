@@ -1,0 +1,42 @@
+{
+  "name": "paygen-docs",
+  "private": true,
+  "scripts": {
+    "docs:render": "node scripts/docs-clean.cjs && node --require ./scripts/diplodoc-compat.cjs ./node_modules/@diplodoc/cli/build/index.js -i content -o _build && node scripts/docs-normalize.cjs _build",
+    "docs:build": "pnpm run docs:render && ../src/run exec ruby docs/scripts/docs_provider_assets.rb docs/_build && pnpm run docs:seal && pnpm run docs:check",
+    "docs:seal": "node scripts/docs-site-check.cjs _build /paygen/ --seal",
+    "docs:check": "node scripts/docs-site-check.cjs _build /paygen/",
+    "docs:test": "node --require ./scripts/diplodoc-compat.cjs --test ./scripts/diplodoc-compat.test.cjs ./scripts/docs-site-check.test.cjs && ../src/run test docs/scripts/docs_provider_assets_spec.rb"
+  },
+  "devDependencies": {
+    "@diplodoc/cli": "5.39.4",
+    "cheerio": "1.2.0",
+    "katex": "0.16.47",
+    "markdown-it": "14.3.1",
+    "source-map-resolve": "0.6.0",
+    "@diplodoc/transform": "4.75.3",
+    "@diplodoc/translation": "1.7.22",
+    "fast-xml-parser": "5.11.1"
+  },
+  "engines": {
+    "node": ">=22.13.0 <23",
+    "pnpm": "10.32.1"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "pnpm": {
+    "overrides": {
+      "@diplodoc/client": "5.7.3",
+      "@diplodoc/cut-extension": "1.1.1",
+      "@diplodoc/tabs-extension": "3.10.0",
+      "@diplodoc/transform": "4.75.3",
+      "@diplodoc/translation": "1.7.22",
+      "decode-uri-component": "0.5.0",
+      "fast-xml-parser": "5.11.1",
+      "js-yaml": "4.3.2",
+      "katex": "0.16.47",
+      "lodash": "4.18.1",
+      "markdown-it": "14.3.1",
+      "svgo": "3.3.5"
+    }
+  }
+}

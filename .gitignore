@@ -9,3 +9,9 @@
 /output/
 /.env
 /verification.log
+
+/src/.bundle/
+/src/vendor/
+/src/*.gem
+/docs/node_modules/
+/docs/pnpm-audit.json

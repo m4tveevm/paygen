@@ -6,7 +6,7 @@ require 'time'
 # Read-only, network-free benchmark of a separately downloaded source cache.
 # A matching digest is mandatory; changing upstream sources cannot change results
 # without an explicit manifest update and review.
-cache = ARGV.fetch(0) { abort 'Usage: bundle exec ruby script/corpus SOURCE_CACHE' }
+cache = ARGV.fetch(0) { abort 'Usage: src/run exec ruby script/corpus SOURCE_CACHE' }
 manifest = JSON.parse(File.read(File.expand_path('../fixtures/corpus/manifest.json', __dir__)))
 results = manifest.fetch('sources').map do |source|
   result = source.slice('provider', 'source_url', 'sha256', 'bytes')

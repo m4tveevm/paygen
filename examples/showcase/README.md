@@ -8,7 +8,7 @@ contacts a real provider. Ruby, Bash and Git are required; curl is not required.
 ## Prepare (network may be needed)
 
 ```bash
-bundle install
+src/run setup
 ```
 
 ## Run (warm/offline)
@@ -32,10 +32,10 @@ Do not click the panel during the automated run: it owns state used by its
 assertions. For an interactive presentation, after the run finishes start one of:
 
 ```bash
-bundle exec src/bin/paygen demo tmp/my-showcase/novapay --port 9393
-bundle exec src/bin/paygen demo tmp/my-showcase/stripe --port 9394
-bundle exec src/bin/paygen demo tmp/my-showcase/paypal --port 9395
-bundle exec src/bin/paygen demo tmp/my-showcase/adyen --port 9396
+src/run cli demo tmp/my-showcase/novapay --port 9393
+src/run cli demo tmp/my-showcase/stripe --port 9394
+src/run cli demo tmp/my-showcase/paypal --port 9395
+src/run cli demo tmp/my-showcase/adyen --port 9396
 ```
 
 Each page loads a provider-specific editable synthetic request. PayPal callback

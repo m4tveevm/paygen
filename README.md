@@ -16,11 +16,11 @@ Install Ruby 3.3 or later, then run from a fresh checkout:
 git clone https://github.com/m4tveevm/paygen.git
 cd paygen
 gem install bundler -v 4.0.20
-bundle install
-bundle exec src/bin/paygen init fixtures/novapay/openapi.yaml --output tmp/novapay
-bundle exec src/bin/paygen generate tmp/novapay
-bundle exec src/bin/paygen diff tmp/novapay --check
-bundle exec src/bin/paygen verify tmp/novapay --seed 42
+src/run setup
+src/run cli init fixtures/novapay/openapi.yaml --output tmp/novapay
+src/run cli generate tmp/novapay
+src/run cli diff tmp/novapay --check
+src/run cli verify tmp/novapay --seed 42
 ```
 
 The bundled NovaPay example includes its configuration and contract corrections.
@@ -44,9 +44,9 @@ timeouts, rate limits, cancellation and signed callbacks.
 Export a portable HTML guide and a Bruno collection, then start the local demo:
 
 ```bash
-bundle exec src/bin/paygen docs tmp/novapay --format html --output tmp/novapay-docs
-bundle exec src/bin/paygen collection tmp/novapay --format bruno --output tmp/novapay-bruno
-bundle exec src/bin/paygen demo tmp/novapay --port 9293
+src/run cli docs tmp/novapay --format html --output tmp/novapay-docs
+src/run cli collection tmp/novapay --format bruno --output tmp/novapay-bruno
+src/run cli demo tmp/novapay --port 9293
 ```
 
 Open `tmp/novapay-docs/index.html` in a browser. In Bruno, open
@@ -61,11 +61,11 @@ Bruno CLI and the Paygen manual's site build. Export directories must be new.
 ## Configure another API
 
 ```bash
-bundle exec src/bin/paygen init provider.yaml --output tmp/provider
-bundle exec src/bin/paygen configure tmp/provider
-bundle exec src/bin/paygen configure tmp/provider --answers profile.yml
-bundle exec src/bin/paygen generate tmp/provider
-bundle exec src/bin/paygen verify tmp/provider --seed 42
+src/run cli init provider.yaml --output tmp/provider
+src/run cli configure tmp/provider
+src/run cli configure tmp/provider --answers profile.yml
+src/run cli generate tmp/provider
+src/run cli verify tmp/provider --seed 42
 ```
 
 `configure` lists candidate operations, source locations and unanswered questions.
@@ -80,13 +80,13 @@ requirements that need additional integration work.
 
 ## Documentation
 
-- [Seven-minute demo](docs/demo.md): commands and expected results for a walkthrough.
-- [CLI reference](docs/cli.md): configuration, generation and exports.
-- [Native API onboarding](docs/native-onboarding.md): profiles and the API corpus.
-- [Provider catalog](docs/provider-catalog.md): evidence levels and generated synthetic downloads.
-- [Bruno demo](docs/bruno-demo.md) and [Russian bank examples](docs/ru-bank-examples.md).
-- [Payment verification](docs/testing.md): seeded sequences, shrinking and replay.
-- [Architecture](docs/architecture.md), [supported scope](docs/scope.md) and [development](docs/development.md).
+- [Seven-minute demo](docs/content/demo.md): commands and expected results for a walkthrough.
+- [CLI reference](docs/content/cli.md): configuration, generation and exports.
+- [Native API onboarding](docs/content/native-onboarding.md): profiles and the API corpus.
+- [Provider catalog](docs/content/provider-catalog.md): evidence levels and generated synthetic downloads.
+- [Bruno demo](docs/content/bruno-demo.md) and [Russian bank examples](docs/content/ru-bank-examples.md).
+- [Payment verification](docs/content/testing.md): seeded sequences, shrinking and replay.
+- [Architecture](docs/content/architecture.md), [supported scope](docs/content/scope.md) and [development](docs/content/development.md).
 
 The prototype demonstrates generation and local adapter behavior. Connecting a
 real application also requires its `Provider::BaseService` hooks, durable state
@@ -102,11 +102,11 @@ failure → shrink → replay → fixed replay. See the
 [presenter guide](examples/showcase/README.md) for scope and prerequisites.
 
 ```bash
-bundle exec rspec
-script/smoke
+src/run test
+src/run smoke
 ```
 
-See the [development guide](docs/development.md) for the complete checks,
+See the [development guide](docs/content/development.md) for the complete checks,
 documentation build and containers.
 
 Paygen is licensed under [MIT](LICENSE). Third-party API snapshots keep their
@@ -124,15 +124,17 @@ own layout.
 | `src/bin/paygen` | CLI entrypoint |
 | `src/recipes/` | Built-in provider recipes shipped with the gem |
 | `src/Dockerfile` | CLI container; build with `docker build -f src/Dockerfile -t paygen .` |
-| `docs/` | Diplodoc manual sources and ignored `_build/` output |
+| `docs/` | Diplodoc package, pnpm lockfile, content, scripts, Dockerfile and ignored `_build/` output |
 | `fixtures/` | Provider snapshots, profiles, licenses and provenance |
-| `spec/`, `acceptance/` | Unit/contract tests and independent acceptance corpus |
+| `src/spec/`, `acceptance/` | Unit/contract tests and independent acceptance corpus |
 | `examples/` | Runnable showcases and presenter guides |
 | `script/`, `tools/` | Verification/build tools, Bruno and the docs container |
 | `research/` | Research reports and historical integration evidence |
 
-`Gemfile`, `Gemfile.lock`, `paygen.gemspec`, `Rakefile` and the npm manifests stay
-at the root so `bundle install`, `bundle exec rspec` and `npm run docs:build`
-continue to work there. The packaged gem exposes `require 'paygen'` and the
-`paygen` command as before; no duplicate source tree or compatibility launcher
-is maintained at the old paths.
+Ruby manifests, tool versions, tests and build configuration live in `src/`.
+`src/run` provides `setup`, `cli`, `test`, `lint`, `package`, `package-test`,
+`smoke`, `rake` and `exec`; it always resolves paths from the repository root.
+The docs package and `pnpm-lock.yaml` live in `docs/`; its manual sources are in
+`docs/content/` and build helpers in `docs/scripts/`. Bruno has its own pinned
+pnpm package in `tools/bruno/`. See [development](docs/content/development.md)
+for installation and the complete checks.

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PAYGEN_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+export BUNDLE_GEMFILE="$PAYGEN_ROOT/src/Gemfile"
+cd "$PAYGEN_ROOT"
+PAYGEN_TASK=${1:-help}
+if (( $# )); then shift; fi
+case "$PAYGEN_TASK" in
+  setup) exec bundle install "$@" ;;
+  cli) exec bundle exec ruby src/bin/paygen "$@" ;;
+  test)
+    if (( $# == 0 )); then set -- src/spec; fi
+    exec bundle exec rspec --options src/.rspec -I src/spec "$@"
+    ;;
+  lint) exec bundle exec rubocop --config src/.rubocop.yml "$@" ;;
+  package) cd src; exec bundle exec gem build paygen.gemspec "$@" ;;
+  package-test) exec bundle exec ruby src/script/verify-package.rb "$@" ;;
+  smoke) exec bash src/script/smoke "$@" ;;
+  rake) exec bundle exec rake -f src/Rakefile "$@" ;;
+  exec) exec bundle exec "$@" ;;
+  help) printf '%s\n' 'Usage: src/run {setup|cli|test|lint|package|package-test|smoke|rake|exec} [arguments]' ;;
+  *) printf 'Unknown command: %s\n' "$PAYGEN_TASK" >&2; exit 2 ;;
+esac
