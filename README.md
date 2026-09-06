@@ -1,3 +1,5 @@
+Источники: https://github.com/m4tveevm/paygen (project implementation); `provider_api.yaml` (organizer-supplied fictional NovaPay original, SHA-256 `415f50ee36fb331dfab49ceed0e8ed3b0ebe16053d7e00dbabd32282f4396551`).
+
 # Paygen
 
 [![CI](https://github.com/m4tveevm/paygen/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/m4tveevm/paygen/actions/workflows/ci.yml?query=branch%3Amain)
@@ -74,6 +76,10 @@ Try the [complete dataset walkthrough](docs/content/dataset-walkthrough.md):
 confirmed and ambiguous contracts, mandatory operator decisions, `demo` versus
 `serve`, and one command to verify all seven executable profiles.
 
+For an executable application contract with object operations, logical action
+aliases and observable callback effects, see the
+[host bridge](docs/content/host-bridge.md).
+
 ## Configure your own API
 
 The commands below are a template. Replace `provider.yaml` with your OpenAPI file
@@ -99,12 +105,25 @@ payouts. The [example catalog](fixtures/README.md) distinguishes full source
 contracts from focused fixtures. T-Bank and Tochka illustrate signing and workflow
 requirements that need additional integration work.
 
+For fixture validity and an independent host contract proof:
+
+```bash
+src/run exec ruby src/script/verify-fixtures.rb
+src/run exec ruby src/examples/host_bridge.rb tmp/host-proof
+```
+
+Use a new host output directory. Invalid upstream examples remain in diagnostics;
+only validated positive examples become primary fixtures. Unsupported selected
+media/authentication and malformed nested profiles are rejected before HTTP.
+
 ## Reproducible generation
 
-The same normalized contract, reviewed profile, ordered overlays, selected recipe
-and locked generator/toolchain versions produce the same files under `generated/`,
-independently of the output directory. Generation does not use an LLM or live
-provider responses. Changing one of these inputs can change the result.
+The same normalized contract, reviewed profile, ordered overlays, selected recipe,
+saved review evidence (`review.json`) and locked generator/toolchain versions
+produce the same files under `generated/`, independently of the output directory. Generation does not use an LLM or live
+provider responses. Changing one of these inputs can change the result. Review
+history can change `provenance.json` even when the effective payment settings
+stay the same.
 
 OpenAPI alone can leave payment decisions unresolved. In that case Paygen emits
 diagnostics and blocks executable generation; it does not guess amount units,

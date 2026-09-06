@@ -160,6 +160,7 @@ RSpec.describe 'Project generation lifecycle' do
       expect(project.lock).to include(result.slice('source_uri', 'source_sha256'))
       expect(project.lock['generated']).to eq(generated_before)
       expect(project.effective_document.dig('info', 'description')).to eq('Reviewed contract')
+      project.configure(project.profile) # Explicitly accept the reviewed replacement contract.
       generator.generate
       expect(project.lock).to include(result.slice('source_uri', 'source_sha256'))
       expect(generator.diff).to be_empty
@@ -181,6 +182,7 @@ RSpec.describe 'Project generation lifecycle' do
       expect(project.effective_document.dig('info', 'version')).to eq('2.0.0')
       expect(project.effective_document.dig('info', 'description')).to eq('Reviewed contract')
       expect(project.effective_document.dig('components', 'schemas', 'RedirectAlias', '$ref')).to eq('#/components/schemas/RedirectValue')
+      project.configure(project.profile) # Explicitly accept the reviewed replacement contract.
       generator.generate
       expect(generator.diff).to be_empty
       expect(WebMock).to have_requested(:get, url).once

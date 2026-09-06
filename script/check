@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Sources: README.md and docs/content/development.md (repository verification contract).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 command -v ruby >/dev/null
@@ -8,6 +9,12 @@ command -v docker >/dev/null
 src/run exec ruby -e 'require "bundler/setup"'
 src/run test
 src/run package-test
+mkdir -p tmp/hackathon-checks
+PAYGEN_CONTRACT_REPORTS=$(mktemp -d tmp/hackathon-checks/run.XXXXXX)
+src/run exec ruby src/script/verify-fixtures.rb > "$PAYGEN_CONTRACT_REPORTS/fixtures.json"
+src/run exec ruby src/script/verify-fixtures-native-dialect.rb > "$PAYGEN_CONTRACT_REPORTS/fixtures-native-dialect.json"
+src/run exec ruby src/script/coverage-inventory.rb > "$PAYGEN_CONTRACT_REPORTS/inventory.json"
+src/run exec ruby src/examples/host_bridge.rb "$PAYGEN_CONTRACT_REPORTS/host" > "$PAYGEN_CONTRACT_REPORTS/host.json"
 src/run exec ruby script/acceptance-independent
 src/run lint --only Lint,Security
 src/run audit --update

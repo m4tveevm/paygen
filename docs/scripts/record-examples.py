@@ -84,7 +84,9 @@ def render(name, steps):
         for line in result.splitlines():
             lines += [(part, '#86efac') for part in textwrap.wrap(line, 102, replace_whitespace=False, drop_whitespace=False) or ['']]
         # Paginate rather than silently clipping commands or output.
-        pages = [lines[i:i + 23] for i in range(0, len(lines), 23)]
+        page_count = (len(lines) + 22) // 23
+        page_size = (len(lines) + page_count - 1) // page_count
+        pages = [lines[i:i + page_size] for i in range(0, len(lines), page_size)]
         for page_index, page in enumerate(pages):
             frame = Image.new('RGB', (1120, 700), '#0b1220')
             draw = ImageDraw.Draw(frame)

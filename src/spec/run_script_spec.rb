@@ -17,12 +17,12 @@ RSpec.describe 'src/run test argument handling' do
       _stdout, stderr, status = Open3.capture3({ 'PATH' => "#{directory}:#{ENV.fetch('PATH')}" }, runner, 'test', '--seed', '29193')
       expect(status).to be_success, stderr
       expect(File.readlines(capture, chomp: true)).to eq(
-        %w[exec rspec --options src/.rspec --default-path src/spec -I src/spec --seed 29193]
+        %w[exec rspec --options src/.rspec --default-path src/spec --require ./src/script/rspec-policy.rb -I src/spec --seed 29193]
       )
     end
   end
 
-  it 'does not add the default when an explicit test path is present' do
+  it 'preserves an explicit test path alongside the default and empty-suite policy' do
     Dir.mktmpdir do |directory|
       capture = File.join(directory, 'arguments')
       bundle = File.join(directory, 'bundle')
@@ -32,7 +32,7 @@ RSpec.describe 'src/run test argument handling' do
       _stdout, stderr, status = Open3.capture3({ 'PATH' => "#{directory}:#{ENV.fetch('PATH')}" }, runner, 'test', 'src/spec/input_spec.rb', '--seed', '7')
       expect(status).to be_success, stderr
       expect(File.readlines(capture, chomp: true)).to eq(
-        %w[exec rspec --options src/.rspec --default-path src/spec -I src/spec src/spec/input_spec.rb --seed 7]
+        %w[exec rspec --options src/.rspec --default-path src/spec --require ./src/script/rspec-policy.rb -I src/spec src/spec/input_spec.rb --seed 7]
       )
     end
   end

@@ -1,3 +1,5 @@
+Источники: https://github.com/m4tveevm/paygen (authored offline acceptance); `provider_api.yaml` (supplied fictional NovaPay original); focused fixture provenance in `fixtures/*/provenance.json`.
+
 # Reproducible live showcase
 
 The launcher creates four integration projects from checked-in focused contracts,
@@ -61,7 +63,9 @@ showcase is authoritative and needs no browser.
   and unsupported currency without creating a record. A valid control then
   creates one. This bypasses adapter prevalidation, not provider validation.
 - A disposable project changes the minimum from 100000 to 200000 minor units
-  through `configure --set` and ordered `patch replace` Overlay actions. Its
+  through ordered `patch replace` Overlay actions, followed by explicit profile
+  reconfirmation with `configure --answers ... --set`. Generation first refuses
+  the stale review, then succeeds after the changed contract is acknowledged. Its
   explicit error examples and docs update; 1500 RUB is rejected without a commit
   and 2000 RUB is accepted. Pinned source and a user-owned extension note survive.
   This is a synthetic changed contract, not a claim about a real NovaPay change.

@@ -215,8 +215,8 @@ set to `null`; a required creation role cannot. There is no blanket approval fla
 
 <!-- verify: resolved-review -->
 ```bash
-src/run cli configure "$PAYGEN_EXAMPLES_DIR/unknown" --answers fixtures/onboarding/ambiguous/answers.yml > "$PAYGEN_EXAMPLES_DIR/resolved-review.json"
 cp fixtures/onboarding/ambiguous/overlay.yaml "$PAYGEN_EXAMPLES_DIR/unknown/overlays/010-reviewed.yaml"
+src/run cli configure "$PAYGEN_EXAMPLES_DIR/unknown" --answers fixtures/onboarding/ambiguous/answers.yml > "$PAYGEN_EXAMPLES_DIR/resolved-review.json"
 src/run cli generate "$PAYGEN_EXAMPLES_DIR/unknown"
 src/run cli verify "$PAYGEN_EXAMPLES_DIR/unknown" --seed 42 > "$PAYGEN_EXAMPLES_DIR/resolved-verify.json"
 src/run cli docs "$PAYGEN_EXAMPLES_DIR/unknown" --format html --output "$PAYGEN_EXAMPLES_DIR/resolved-guide"
@@ -225,9 +225,9 @@ src/run cli docs "$PAYGEN_EXAMPLES_DIR/unknown" --format html --output "$PAYGEN_
 Now expect `ready: true`, a `training_service.rb` and successful verification.
 The pinned source bytes remain unchanged. The operator changes a profile and
 Overlay, not the source specification. Do not reuse these fixture answers for an
-unrelated provider. Existing projects that already contain saved settings treat
-them as explicit configuration; re-review such settings if they originated from
-older automatic defaults.
+unrelated provider. Projects without `review.json` have unknown review history and require explicit
+reconfirmation through `configure --answers` before executable generation. See
+[saved decisions and migration](native-onboarding.md#saved-decisions-and-changed-contracts).
 
 ## Verify every supported dataset and this walkthrough
 

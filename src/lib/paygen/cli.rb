@@ -73,13 +73,7 @@ module Paygen
         def call(project:, answers: nil, set: [], **)
           project = Project.new(project)
           edits = Paygen.deep_merge(answers ? Core::Input.read(answers) : {}, parse_sets(set))
-          unless edits.empty?
-            project.transaction do
-              # Partial profiles remain editable; malformed shapes are rejected.
-              project.ir(overrides: edits)
-              project.write('integration.yml', YAML.dump(Paygen.deep_merge(project.profile, edits)))
-            end
-          end
+          project.configure(edits) unless edits.empty?
           emit(Core::Onboarding.new(project.ir).report)
         end
       end

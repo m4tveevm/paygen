@@ -87,6 +87,13 @@ src/run exec ruby script/research-experiments
 PAYGEN_DEMO_PORT=0 examples/showcase/run tmp/showcase-local
 ```
 
+`src/run test --seed 29193` and `src/run test --format documentation` use
+`src/spec` by default. Explicit file/directory and line filters still work.
+An empty suite or unmatched filter exits nonzero; there is no implicit exception
+for an intentionally empty filter. The suite includes upstream JSONPath
+compliance tests as well as integration tests, so its total is not a count of
+payment scenarios.
+
 `tmp/showcase-local` must be new or empty. The acceptance runner overwrites
 `tmp/acceptance-independent/latest.json`; set `PAYGEN_ACCEPTANCE_REPORT` to a
 new filename when retaining multiple runs. Research experiments create a new

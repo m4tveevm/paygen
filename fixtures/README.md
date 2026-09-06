@@ -1,3 +1,5 @@
+Источники: `provider_api.yaml` (organizer-supplied original); https://github.com/m4tveevm/paygen/tree/main/fixtures (authored fixtures and per-pack pinned upstream provenance).
+
 # Provider examples
 
 The packs contain pinned contracts, declarative profiles and synthetic test data.
@@ -54,3 +56,9 @@ authentication; the generated adapter owns application-to-provider amount
 conversion. A successful workflow result means its HTTP checks passed: inspect
 the returned payout state before interpreting settlement. See
 [the workflow interface](../docs/content/architecture.md#overlay-and-arazzo-support).
+
+The corpus manifest/report counts describe a recorded import snapshot, not a
+new live download or sandbox acceptance. Run `src/run exec ruby
+src/script/coverage-inventory.rb` to recount that snapshot and the executable
+profile inventory. OTP status progression in a mock is scripted; it is not an
+implemented OTP confirmation workflow.

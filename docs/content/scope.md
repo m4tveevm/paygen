@@ -78,3 +78,20 @@ Run `script/check` for the full repository check: Ruby tests and CLI smoke,
 dependency audits, the documentation build, Bruno regressions and container smoke
 checks. It requires the installed Ruby/Node toolchains and Docker. CI runs the
 Ruby suite across supported versions and retains logs and Bruno reports.
+
+## Simulator, OTP and review boundaries
+
+The simulator advances the configured scenario's status sequence. A Paystack
+`otp` followed by `success` in a synthetic polling scenario is a scripted provider
+outcome; no OTP was entered or approved. This project does not implement OTP
+finalization. An adapter receiving `otp` reports `in_progress`.
+
+Review of integration settings confirms mappings and contract assumptions for a
+developer. It is unrelated to an operator authorizing an individual payment or
+entering an OTP. The [host example](host-bridge.md) proves its declared local
+backend contract, not access to the organizer's private production harness.
+
+The seven executable fixture profiles, independent offline wire tests and seeded
+mock/fuzz checks are distinct evidence. A profile-derived mock can repeat a profile
+mistake; it is complemented by literal request/response assertions. Fixed seeds
+cover the reported executed sequences, not all states or PCI DSS compliance.
