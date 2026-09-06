@@ -1,7 +1,7 @@
 # Russian bank examples
 
-The repository includes an executable local Raiffeisen scenario and reviews of
-two APIs that require further integration work.
+You can run the Raiffeisen scenario locally. The T-Bank and Tochka examples are
+reviews of APIs that still need integration work; they are not working adapters.
 
 | Bank and product | Materials | Scope |
 | --- | --- | --- |
@@ -9,11 +9,11 @@ two APIs that require further integration work.
 | T-Bank bulk A2C/E2C payouts 1.46 | Full OpenAPI 3.0.2 and requirements review | Certificate signatures, Init → Payment, POST status requests |
 | Tochka payment orders | Official documentation review | Order signing, execution polling and final status |
 
-The Raiffeisen and T-Bank specifications were extracted from
-`__redoc_state.spec.data` on the official pages, retaining all paths, schemas and
-examples. Each `provenance.json` records the source, retrieval date and SHA-256
-of the page and specification. Profiles and synthetic fixtures are separate from
-the original contracts.
+The Raiffeisen and T-Bank specifications came from
+`__redoc_state.spec.data` on the official pages. The snapshots keep every path,
+schema and example. Each `provenance.json` records the source, retrieval date and
+SHA-256 of both the page and specification. The profiles and synthetic fixtures
+remain separate from those original contracts.
 
 Run commands from the checkout root after [Ruby setup](development.md#toolchain).
 Output directories must be new.

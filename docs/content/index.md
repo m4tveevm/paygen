@@ -1,19 +1,21 @@
 # Paygen
 
-Paygen turns OpenAPI 3.0/3.1 contracts and explicit payout profiles into Ruby
-adapters, integration guides and test examples. A local simulator exercises the
-generated adapter, including retries, status transitions and callbacks.
+Paygen takes an OpenAPI 3.0 or 3.1 contract and a payout profile, then generates
+a Ruby adapter, an integration guide and test examples. Its local simulator can
+exercise the adapter's retries, status changes and callbacks without contacting
+a payment provider.
 
-Start with the [seven-minute demo](demo.md). It shows a complete workflow:
-configure an integration, generate it, verify its behavior, export documentation
-and run requests through Bruno or curl.
+If this is your first visit, start with the [seven-minute demo](demo.md). You will
+configure and generate an integration, verify it, export its documentation and
+send requests with Bruno or curl.
 
 ## Run an example
 
-Clone [the repository](https://github.com/m4tveevm/paygen) first. Select Ruby
-4.0.6 as described in [toolchain setup](development.md#toolchain); Ruby 3.3 and
-later are supported. Run in Bash from the checkout root; `tmp/novapay` must be a
-new directory. These commands run locally, not on the Pages website.
+First, clone [the repository](https://github.com/m4tveevm/paygen). Select Ruby
+4.0.6 as described in [toolchain setup](development.md#toolchain); Paygen supports
+Ruby 3.3 and later. Run these commands in Bash from the checkout root. The path
+`tmp/novapay` must not exist yet. The commands run on your computer, not on this
+website.
 
 ```bash
 gem install bundler -v 4.0.20
@@ -42,13 +44,13 @@ effective contract. The verifier should report `"success": true` and
 | Check supported features and limitations | [Scope](scope.md) |
 | Run tests, build containers or publish the manual | [Development](development.md) |
 
-The manual is authored in English and describes Paygen. Generation is
-repeatable for the same pinned source, profile, overlays, recipe and toolchain;
-see [reproducible output](cli.md#reproducible-output). Missing payment semantics
-produce diagnostics rather than guessed executable behavior. Each generated integration also has its own portable
-Markdown or HTML guide, effective OpenAPI and examples. These can be delivered
-with the adapter without publishing a website.
+This English-language manual covers Paygen itself. Given the same pinned source,
+profile, overlays, recipe and toolchain, Paygen produces the same output; see
+[reproducible output](cli.md#reproducible-output). When payment details are
+missing, Paygen reports them instead of guessing. Every generated integration
+also includes a portable Markdown or HTML guide, its effective OpenAPI contract
+and examples, so you can ship the documentation with the adapter.
 
-GitHub Pages serves this static manual and synthetic downloads only. It cannot
-run the Ruby adapter, simulator, or demo backend. Run those locally as described
-in the demo, without real credentials or payment-card data.
+GitHub Pages hosts only this static manual and its synthetic downloads. To use
+the Ruby adapter, simulator or demo backend, run them locally as described in the
+demo. Do not use real credentials or payment card data.

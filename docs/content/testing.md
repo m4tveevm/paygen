@@ -1,9 +1,11 @@
 # Payment verification
 
-For executable success and operator-review examples, adapter export, and the
-`demo`/`serve` distinction, see [Run the datasets yourself](dataset-walkthrough.md).
+The [dataset walkthrough](dataset-walkthrough.md) has complete examples for both
+a successful setup and one that needs an operator's review. It also covers
+adapter export and the difference between `demo` and `serve`.
 
-Paygen uses several checks with different scopes:
+No single check answers every integration question. Paygen splits verification
+into the following checks:
 
 | Check | What it establishes |
 | --- | --- |
