@@ -12,6 +12,7 @@ bundle exec rubocop --only Lint,Security
 bundle exec bundler-audit check --update
 script/smoke
 bundle exec ruby script/architecture-audit.rb
+bundle exec ruby script/research-experiments
 npm ci --ignore-scripts --engine-strict
 npm audit --audit-level=high
 npm run docs:test
@@ -50,4 +51,4 @@ PAYGEN_DOCS_PAGE=$(curl --retry 5 --retry-all-errors --retry-delay 1 --retry-max
 [[ "$PAYGEN_DOCS_PAGE" == *Paygen* ]]
 PAYGEN_DOCS_MISSING=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$PAYGEN_DOCS_PORT/paygen/does-not-exist")
 [[ "$PAYGEN_DOCS_MISSING" == 404 ]]
-ruby -rjson -e 'puts JSON.pretty_generate(status: "PASS", ruby: RUBY_VERSION, checks: %w[rspec independent_acceptance lint dependency_audit seven_provider_smoke architecture diplodoc bruno ruby_oci_full_suite demo_oci docs_oci])'
+ruby -rjson -e 'puts JSON.pretty_generate(status: "PASS", ruby: RUBY_VERSION, checks: %w[rspec independent_acceptance lint dependency_audit seven_provider_smoke architecture research_e02_e05 diplodoc bruno ruby_oci_full_suite demo_oci docs_oci])'
