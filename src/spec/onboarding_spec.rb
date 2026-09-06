@@ -75,6 +75,39 @@ RSpec.describe 'Unfamiliar API onboarding' do
     expect(ir.candidates['callback'].map { |op| op['operation_id'] }).to include('retryWebhook')
   end
 
+  it 'never persists inferred payment decisions as operator answers and blocks partial approval' do
+    fixture = File.expand_path('../../fixtures/onboarding/ambiguous', __dir__)
+    Dir.mktmpdir do |directory|
+      project = Paygen::Project.init(File.join(fixture, 'openapi.json'), output: File.join(directory, 'project'))
+      saved = Paygen::Core::Input.read(project.path('integration.yml'))
+      expect(saved.keys & %w[operations auth]).to be_empty
+      expect(saved['provider']).to eq('training_payout_api')
+      before = File.binread(project.path('source/openapi.json'))
+      partial = Paygen::Core::Input.read(File.join(fixture, 'partial-answers.yml'))
+      File.write(project.path('integration.yml'), YAML.dump(partial))
+      report = Paygen::Core::Onboarding.new(project.ir).report
+      expect(report['ready']).to be(false)
+      expect(report['questions'].find { |q| q['path'] == 'operations' }['review_required']).to be(true)
+      expect(report['questions'].find { |q| q['path'] == 'auth' }['review_required']).to be(true)
+      expect { Paygen::Generator.new(project).generate }.to raise_error(Paygen::Error) { |e| expect(e.exit_code).to eq(4) }
+      Paygen::Generator.new(project).generate(draft: true)
+      expect(Dir[project.path('generated/*_service.rb')]).to be_empty
+      %w[verify demo serve].each do |command|
+        _out, err, status = Open3.capture3(RbConfig.ruby, File.expand_path('../bin/paygen', __dir__), command, project.root)
+        expect(status.exitstatus).to eq(4), err
+        expect(err).to include('SEMANTIC_BLOCKERS')
+      end
+      answers = Paygen::Core::Input.read(File.join(fixture, 'answers.yml'))
+      # Approving only create still leaves inferred status/auth settings blocked.
+      File.write(project.path('integration.yml'), YAML.dump(partial.merge('operations' => { 'create' => 'createPayout' })))
+      expect(project.ir.diagnostics.map { |d| d['path'] }).to include('operations.status', 'auth.type')
+      File.write(project.path('integration.yml'), YAML.dump(answers))
+      expect(Paygen::Core::Onboarding.new(project.ir).report['ready']).to be(true)
+      expect(Paygen::Generator.new(project).generate['files']).to include('training_service.rb')
+      expect(File.binread(project.path('source/openapi.json'))).to eq(before)
+    end
+  end
+
   it 'applies explicit answers through the CLI and retains the pinned unknown source' do
     Dir.mktmpdir do |directory|
       native = Paygen::Core::Input.read(source)

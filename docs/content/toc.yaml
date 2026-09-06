@@ -4,6 +4,8 @@ items:
     href: index.md
   - name: Seven-minute demo
     href: demo.md
+  - name: Run the datasets yourself
+    href: dataset-walkthrough.md
   - name: CLI reference
     href: cli.md
   - name: Architecture and safety

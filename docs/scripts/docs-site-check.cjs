@@ -7,6 +7,10 @@ const path = require('node:path');
 const cheerio = require('cheerio');
 
 const DOWNLOADS = ['INTEGRATION.md', 'fixtures.json', 'config.json', 'diagnostics.json', 'provenance.json'];
+const RECORDINGS = new Set([
+  'confirmed-contract.gif', 'confirmed-contract-poster.png', 'confirmed-contract.txt',
+  'operator-review.gif', 'operator-review-poster.png', 'operator-review.txt', 'capture-manifest.json',
+].map((name) => `media/dataset-examples/${name}`));
 const ORIGIN = 'https://pages.invalid';
 const sha256 = (body) => crypto.createHash('sha256').update(body).digest('hex');
 const readJSON = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -34,7 +38,7 @@ function checkSite(root, basePath, {seal = false, expectedSHA, expectedDigest} =
 
   // Explicit publication surface: no arbitrary source trees, archives or uploads.
   const allowed = /^(?:[a-z0-9-]+\.html|toc\.js|(?:version|publication-manifest)\.json|_bundle\/[a-zA-Z0-9_.-]+\.(?:js|css|woff2?|ttf|svg|png)|_bundle\/fonts\/(?:KaTeX_[a-zA-Z0-9_-]+\.(?:woff2?|ttf)|LICENSE\.txt)|downloads\/novapay\/(?:INTEGRATION\.md|fixtures\.json|config\.json|diagnostics\.json|provenance\.json|manifest\.json))$/;
-  for (const relative of entries) assert(allowed.test(relative), `unapproved artifact path: ${relative}`);
+  for (const relative of entries) assert(allowed.test(relative) || RECORDINGS.has(relative), `unapproved artifact path: ${relative}`);
   for (const required of ['index.html', 'provider-catalog.html', '404.html', 'version.json', 'toc.js', ...DOWNLOADS.map((name) => `downloads/novapay/${name}`), 'downloads/novapay/manifest.json']) {
     assert(entries.includes(required), `missing publication file: ${required}`);
   }

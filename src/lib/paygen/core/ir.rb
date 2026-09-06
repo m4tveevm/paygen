@@ -38,6 +38,13 @@ module Paygen
           record_provenance(layer, '', origin)
         end
         validate_profile
+        provenance.each do |path, fact|
+          next unless path.start_with?('operations.', 'auth.') && fact['origin'] == 'inference'
+          next if fact['value'].nil?
+          next if path.start_with?('auth.') && @profile.dig('auth', 'type') == 'none'
+          diagnostic('OPERATOR_REVIEW_REQUIRED',
+                     'Confirm this inferred payment setting in the profile, or explicitly disable an optional operation', path)
+        end
       end
 
       def operations

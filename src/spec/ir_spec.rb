@@ -19,7 +19,9 @@ RSpec.describe Paygen::Core::IR do
       } }
   end
   let(:profile) do
-    { 'request_mapping' => { 'amount' => { 'from' => 'amount', 'transform' => 'minor_units' } },
+    { 'operations' => { 'create' => 'createPayout', 'status' => 'getPayout' },
+      'auth' => { 'type' => 'oauth2', 'credential' => 'access_token', 'scopes' => %w[payouts:read payouts:write] },
+      'request_mapping' => { 'amount' => { 'from' => 'amount', 'transform' => 'minor_units' } },
       'status_mapping' => { 'pending' => 'in_progress' },
       'amount' => { 'scale' => 100, 'currencies' => ['USD'] }, 'idempotency' => {} }
   end
@@ -71,12 +73,13 @@ RSpec.describe Paygen::Core::IR do
   end
 
   it 'infers OAuth2 and the scopes required by selected outgoing operations' do
+    profile.delete('auth')
     expect(ir.profile['auth']).to eq('type' => 'oauth2', 'credential' => 'access_token',
                                     'scopes' => %w[payouts:read payouts:write])
-    expect(ir.diagnostics).to be_empty
+    expect(ir.diagnostics.map { |item| item['code'] }.uniq).to eq(['OPERATOR_REVIEW_REQUIRED'])
   end
 
-  it 'sends the inferred OAuth2 token and required scopes to the payout transport' do
+  it 'sends the confirmed OAuth2 token and required scopes to the payout transport' do
     transport = double('transport')
     tokens = double('token provider')
     expect(tokens).to receive(:call).with(scopes: %w[payouts:read payouts:write], account: nil).and_return('test-access-token')
@@ -91,6 +94,8 @@ RSpec.describe Paygen::Core::IR do
   it 'infers scopes from final explicit operation selections across semantic layers' do
     document['paths']['/submit'] = { 'post' => { 'operationId' => 'submitPayment', 'responses' => {},
                                                'security' => [{ 'OAuth' => ['payouts:submit'] }] } }
+    profile.delete('auth')
+    profile['operations'].delete('create')
     selection = { 'operations' => { 'create' => 'submitPayment' } }
     [
       described_class.new(document.merge('x-paygen' => selection), profile: profile),
@@ -98,7 +103,7 @@ RSpec.describe Paygen::Core::IR do
       described_class.new(document, profile: profile.merge(selection)),
       described_class.new(document, profile: profile, overrides: selection)
     ].each do |selected|
-      expect(selected.diagnostics).to be_empty
+      expect(selected.diagnostics.map { |item| item['code'] }.uniq).to eq(['OPERATOR_REVIEW_REQUIRED'])
       expect(selected.profile.dig('auth', 'scopes')).to eq(%w[payouts:read payouts:submit])
     end
     expect(ir.provenance.dig('auth.scopes', 'origin')).to eq('inference')
@@ -114,6 +119,7 @@ RSpec.describe Paygen::Core::IR do
   end
 
   it 'requires explicit authentication when multiple schemes prevent inference' do
+    profile.delete('auth')
     document['components']['securitySchemes']['Other'] = { 'type' => 'apiKey', 'in' => 'header', 'name' => 'X-Key' }
     expect(ir.diagnostics.map { |item| item['code'] }).to include('AUTH_REQUIRED')
     profile['auth'] = { 'type' => 'oauth2', 'credential' => 'access_token', 'scopes' => ['payouts:write'] }
@@ -133,6 +139,7 @@ RSpec.describe Paygen::Core::IR do
   end
 
   it 'keeps callback authentication separate from outgoing authentication' do
+    profile.delete('auth')
     document['paths']['/payouts']['post']['security'] = []
     document['paths']['/payouts/{id}']['get']['security'] = []
     document['paths']['/callback'] = { 'post' => { 'operationId' => 'payoutCallback', 'responses' => {} } }

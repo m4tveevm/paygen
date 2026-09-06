@@ -1,5 +1,8 @@
 # Seven-minute demo
 
+For executable success and operator-review examples, adapter export, and the
+`demo`/`serve` distinction, see [Run the datasets yourself](dataset-walkthrough.md).
+
 For an automated, repeatable proof, run `examples/showcase/run NEW_EMPTY_DIR`.
 The [showcase pack](testing.md#reproducible-showcase-and-deliberate-failure) executes NovaPay, Stripe,
 PayPal and Adyen adapters through loopback HTTP, checks independent invalid wire

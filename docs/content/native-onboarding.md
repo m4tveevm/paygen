@@ -1,5 +1,8 @@
 # Configure a provider
 
+For executable success and operator-review examples, adapter export, and the
+`demo`/`serve` distinction, see [Run the datasets yourself](dataset-walkthrough.md).
+
 Paygen imports OpenAPI 3.0/3.1 and retains shared references, expanding only
 selected operations. A profile defines payment semantics that the specification
 does not establish: direction, amount units, settlement states and signing rules.

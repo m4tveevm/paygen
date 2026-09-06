@@ -1,5 +1,8 @@
 # Payment verification
 
+For executable success and operator-review examples, adapter export, and the
+`demo`/`serve` distinction, see [Run the datasets yourself](dataset-walkthrough.md).
+
 Paygen uses several checks with different scopes:
 
 | Check | What it establishes |

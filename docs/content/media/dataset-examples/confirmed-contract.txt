@@ -1,0 +1,82 @@
+## 1. Import the reviewed assignment
+
+$ src/run cli init fixtures/novapay/openapi.yaml --output "$PAYGEN_EXAMPLES_DIR/novapay"
+src/run cli configure "$PAYGEN_EXAMPLES_DIR/novapay" > "$PAYGEN_EXAMPLES_DIR/known-review.json"
+
+Captured output / selected JSON fields:
+{
+  "ready": true
+}
+
+## 2. Generate and verify
+
+$ src/run cli generate "$PAYGEN_EXAMPLES_DIR/novapay"
+src/run cli diff "$PAYGEN_EXAMPLES_DIR/novapay" --check
+src/run cli verify "$PAYGEN_EXAMPLES_DIR/novapay" --seed 42 > "$PAYGEN_EXAMPLES_DIR/known-verify.json"
+
+Captured output / selected JSON fields:
+{
+  "success": true,
+  "failed": 0
+}
+
+## 3. Export Ruby, HTML and Bruno
+
+$ src/run cli export "$PAYGEN_EXAMPLES_DIR/novapay" --standalone --output "$PAYGEN_EXAMPLES_DIR/adapter"
+src/run cli docs "$PAYGEN_EXAMPLES_DIR/novapay" --format html --output "$PAYGEN_EXAMPLES_DIR/guide"
+src/run cli collection "$PAYGEN_EXAMPLES_DIR/novapay" --format bruno --output "$PAYGEN_EXAMPLES_DIR/bruno"
+
+Captured output / selected JSON fields:
+[
+  {
+    "status": "exported",
+    "path": "$PAYGEN_EXAMPLES_DIR/adapter",
+    "detached": true
+  },
+  {
+    "status": "documented",
+    "path": "$PAYGEN_EXAMPLES_DIR/guide",
+    "format": "html"
+  },
+  {
+    "status": "exported",
+    "path": "$PAYGEN_EXAMPLES_DIR/bruno",
+    "format": "bruno"
+  }
+]
+
+## 4. Start the generated-adapter demo
+
+$ src/run cli demo "$PAYGEN_EXAMPLES_DIR/novapay" --seed 42 --port "$PAYGEN_DEMO_PORT"
+
+Captured output / selected JSON fields:
+Paygen adapter demo listening on http://127.0.0.1:45301
+
+## 5. Create through the adapter
+
+$ curl --noproxy '*' --fail-with-body -sS "http://127.0.0.1:$PAYGEN_DEMO_PORT/operations" \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"walkthrough-1","amount":"1500.00","currency":"RUB","payout_requisite":{"sbp":{"phone":"79990000001","bank_code":"000000000"}}}' \
+  > "$PAYGEN_EXAMPLES_DIR/create.json"
+
+Captured output / selected JSON fields:
+{
+  "success": true,
+  "status": "in_progress",
+  "provider_id": "sim_7618e27684748265c607"
+}
+
+## 6. Observe settlement and one provider payout
+
+$ curl --noproxy '*' --fail-with-body -sS "http://127.0.0.1:$PAYGEN_DEMO_PORT/operations/walkthrough-1" > "$PAYGEN_EXAMPLES_DIR/poll-2.json"
+curl --noproxy '*' --fail-with-body -sS "http://127.0.0.1:$PAYGEN_DEMO_PORT/evidence" > "$PAYGEN_EXAMPLES_DIR/evidence.json"
+
+Captured output / selected JSON fields:
+poll-2.json (excerpt):
+{
+  "status": "approved"
+}
+evidence.json (excerpt):
+{
+  "created_count": 1
+}
