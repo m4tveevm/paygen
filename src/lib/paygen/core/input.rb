@@ -30,10 +30,16 @@ module Paygen
       class << self
         def load(path_or_url, stdin: $stdin)
           source = path_or_url.to_s
-          document = read(source, stdin: stdin)
+          fail_security('INPUT_PATH', 'Input path contains a NUL byte') if source.include?("\0")
           remote = source.match?(/\Ahttps?:/i)
+          document = if remote
+                       text, source_uri = fetch_https_with_source(source)
+                       parse(text)
+                     else
+                       read(source, stdin: stdin)
+                     end
           base_dir = source == '-' || remote ? nil : File.dirname(File.realpath(source))
-          graph(document, base_dir: base_dir, source_path: base_dir && source, source_uri: remote ? source : nil)
+          graph(document, base_dir: base_dir, source_path: base_dir && source, source_uri: source_uri)
         rescue Errno::ENOENT, Errno::EACCES, Errno::EISDIR => e
           raise Error.new("Cannot read source: #{e.class}", code: 'INPUT_IO', exit_code: 2)
         end
@@ -174,6 +180,12 @@ module Paygen
         end
 
         def fetch_https(url, redirects: 0)
+          fetch_https_with_source(url, redirects: redirects).first
+        end
+
+        # Keep the final response URI beside its bytes; references resolve from
+        # that URI even when the caller supplied a redirecting source URL.
+        def fetch_https_with_source(url, redirects: 0)
           fail_security('INPUT_REDIRECTS', 'Too many redirects') if redirects > 3
           uri = https_uri(url)
           address = public_addresses(uri.hostname).first
@@ -206,7 +218,7 @@ module Paygen
               end
             end
           end
-          next_url ? fetch_https(next_url, redirects: redirects + 1) : body
+          next_url ? fetch_https_with_source(next_url, redirects: redirects + 1) : [body, uri.to_s]
         rescue Timeout::Error, SocketError, IOError, SystemCallError, OpenSSL::SSL::SSLError
           fail_input('INPUT_HTTP', 'HTTPS source download failed')
         end
@@ -329,7 +341,7 @@ module Paygen
           @index_nodes = 0
           @schema_resources = document['openapi'].to_s.start_with?('3.1.')
           @root_uri = if source_uri
-                        Input.https_uri(source_uri).to_s
+                        canonical_uri(Input.https_uri(source_uri).to_s, source_uri).to_s
                       elsif @root_path
                         file_uri(@root_path)
                       elsif @base_dir
