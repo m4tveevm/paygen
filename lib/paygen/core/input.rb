@@ -333,6 +333,7 @@ module Paygen
                         'paygen-local:///root.json'
                       end
           index_document('<root>', document, @root_uri)
+          register_resource('paygen-local:///root.json', document, '<root>')
         end
 
         def resolve(value = @document, schema_context: false)
@@ -383,6 +384,11 @@ module Paygen
               resolve_ref(value, location, stack, depth, schema_context, scope)
             else
               value.each_with_object({}) do |(key, child), hash|
+                if @preserve_internal && @schema_resources && schema_context && !map_container && key == '$id'
+                  portable = portable_scope(scope)
+                  hash[key] = portable == scope ? child : portable
+                  next
+                end
                 if !map_container && (%w[example value].include?(key) || (schema_context && %w[examples default enum const].include?(key)) || key.start_with?('x-'))
                   hash[key] = child
                   next
@@ -411,11 +417,13 @@ module Paygen
             retained_ref = if target_scope == @root_uri && (scope == @root_uri || document_scope?(scope))
                              "##{fragment}"
                            elsif location != '<root>' && @resources[resource_scope]&.fetch(:value).equal?(target)
-                             resource_scope
+                             portable_scope(resource_scope)
                            elsif target_scope == @root_uri
-                             Input.fail_input('REF_SCOPE_UNSUPPORTED', 'Normalize cross-resource root pointers before bundling a schema with its own $id')
-                           else
+                             "paygen-local:///root.json##{fragment}"
+                           elsif location == '<root>' && portable_scope(scope) == scope && portable_scope(target_scope) == target_scope
                              ref
+                           else
+                             "#{portable_scope(target_scope)}#{fragment ? '#' + fragment : ''}"
                            end
             return { '$ref' => retained_ref }.merge(visit(value.reject { |key, _| key == '$ref' }, location, stack, depth + 1, schema_context, false, scope))
           end
@@ -498,6 +506,16 @@ module Paygen
           !value.key?('$id') && @documents.values.any? { |document| document.equal?(value) }
         end
 
+        # File retrieval identities must not escape into generated projects.
+        # Normalize local schema IDs to stable document-relative identifiers;
+        # they remain identifiers only and never authorize filesystem/network IO.
+        def portable_scope(scope)
+          return 'paygen-local:///root.json' if scope == @root_uri
+          return scope unless @base_dir
+          prefix = file_uri(@base_dir + File::SEPARATOR)
+          scope.start_with?(prefix) ? 'paygen-local:///source/' + scope.delete_prefix(prefix) : scope
+        end
+
         def resource_id(id, scope)
           unless id.is_a?(String) && !id.match?(/[\x00-\x20\x7f]/) && !id.match?(/%(?![0-9a-f]{2})/i)
             Input.fail_input('REF_ID', 'Schema $id must be a valid URI reference')
@@ -551,7 +569,8 @@ module Paygen
           return @targets[identity] if @targets.key?(identity)
           decoded = URI::DEFAULT_PARSER.unescape(fragment.to_s)
           @targets[identity] = if @schema_resources && !decoded.empty? && !decoded.start_with?('/')
-                                @anchors.fetch([scope, decoded]) do
+                                anchor_scope = scope == 'paygen-local:///root.json' ? @root_uri : scope
+                                @anchors.fetch([anchor_scope, decoded]) do
                                   Input.fail_input('REF_ANCHOR', 'Reference anchor does not exist in this schema resource')
                                 end
                               else

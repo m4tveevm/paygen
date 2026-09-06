@@ -126,6 +126,23 @@ RSpec.describe Paygen::Core::Input do
     end
   end
 
+  it 'rebases external relative IDs and references when bundling into a portable project' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.yaml')
+      Dir.mkdir(File.join(dir, 'schemas'))
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'Value' => { '$id' => 'value.yaml', 'type' => 'string' },
+        'Wrapper' => { '$ref' => './schemas/wrapper.yaml' }
+      } })
+      File.write(source, JSON.generate(original))
+      File.write(File.join(dir, 'schemas', 'wrapper.yaml'), '{"$id":"wrapper.yaml","type":"object","properties":{"value":{"$ref":"../main.yaml#/components/schemas/Value"}}}')
+      project = Paygen::Project.init(source, output: File.join(dir, 'integration'))
+      resolved = described_class.resolve(project.effective_document)
+      expect(resolved.dig('components', 'schemas', 'Wrapper', 'properties', 'value', 'type')).to eq('string')
+      expect(File.read(project.path('source/openapi.json'))).not_to include(dir)
+    end
+  end
+
   it 'preserves 3.1 schema ref sibling constraints through conjunction' do
     document['openapi'] = '3.1.0'
     document['components'] = { 'schemas' => { 'Base' => { 'type' => 'integer', 'minimum' => 10 }, 'Restricted' => { '$ref' => '#/components/schemas/Base', 'minimum' => 2 } } }

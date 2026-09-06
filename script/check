@@ -38,6 +38,8 @@ cleanup_docs() {
 }
 trap cleanup_docs EXIT
 PAYGEN_DOCS_PORT=$(docker port "$PAYGEN_DOCS_CONTAINER" 80/tcp | sed 's/.*://')
-PAYGEN_DOCS_PAGE=$(curl --retry 5 --retry-all-errors --retry-delay 1 --retry-max-time 20 --connect-timeout 2 --max-time 5 --fail --silent --show-error "http://127.0.0.1:$PAYGEN_DOCS_PORT/")
+PAYGEN_DOCS_PAGE=$(curl --retry 5 --retry-all-errors --retry-delay 1 --retry-max-time 20 --connect-timeout 2 --max-time 5 --fail --silent --show-error "http://127.0.0.1:$PAYGEN_DOCS_PORT/paygen/")
 [[ "$PAYGEN_DOCS_PAGE" == *Paygen* ]]
+PAYGEN_DOCS_MISSING=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$PAYGEN_DOCS_PORT/paygen/does-not-exist")
+[[ "$PAYGEN_DOCS_MISSING" == 404 ]]
 ruby -rjson -e 'puts JSON.pretty_generate(status: "PASS", ruby: RUBY_VERSION, checks: %w[rspec independent_acceptance lint dependency_audit seven_provider_smoke architecture diplodoc bruno ruby_oci_full_suite demo_oci docs_oci])'
