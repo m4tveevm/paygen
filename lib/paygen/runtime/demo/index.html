@@ -9,10 +9,12 @@
     <p>This page calls the Ruby demo API. It displays server results; it does not decide payment success.</p></header>
   <section><h2>Loaded artifact</h2><pre id="artifacts">Loading…</pre></section>
   <section><h2>Operation</h2><label>Unique merchant ID <input id="operation-id"></label>
+    <label>Synthetic operation JSON (provider-specific sample; editable) <textarea id="operation-json" rows="12"></textarea></label>
+    <p id="scope">Loading supported operations…</p>
     <div class="actions"><button data-action="create">Create</button><button data-action="retry">Retry</button><button data-action="status">Status</button><button data-action="cancel">Cancel pending</button></div>
     <pre id="result">Choose an action.</pre></section>
   <section><h2>Provider and backend evidence</h2><button data-action="evidence">Refresh evidence</button><pre id="evidence">Loading…</pre></section>
   <section><h2>Callback</h2><p>Fetch signed simulator events for the operation, then submit the selected event unchanged.</p>
-    <div class="actions"><button data-action="callback-valid">Valid terminal callback</button><button data-action="callback-invalid">Invalid signature</button></div><pre id="callback">Choose a callback.</pre></section>
+    <div class="actions"><button data-action="callback-valid">Last signed simulator callback</button><button data-action="callback-invalid">Invalid signature</button></div><pre id="callback">Choose a callback.</pre></section>
 </main><script src="/demo.js"></script>
 </html>
