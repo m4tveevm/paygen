@@ -8,6 +8,7 @@ require 'time'
 require 'timeout'
 require_relative 'security'
 require_relative 'result_codec'
+require_relative '../mapping_rule'
 
 module Paygen
   module Runtime
@@ -395,7 +396,10 @@ module Paygen
 
         mappings.each_with_object({}) do |(target, rule), body|
           rule = { 'from' => rule } if rule.is_a?(String)
-          value = rule.key?('value') ? rule['value'] : read_path(operation, rule['from'])
+          raise ArgumentError, "invalid mapping rule for #{target}" unless MappingRule.valid?(rule)
+          next unless MappingRule.applies?(rule) { |path| read_path(operation, path) }
+
+          value = MappingRule.value(rule) { |path| read_path(operation, path) }
           next if value.nil? && !rule.key?('value')
 
           write_path(body, target, transform(value, rule['transform']))

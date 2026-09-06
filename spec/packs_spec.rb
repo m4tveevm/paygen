@@ -160,14 +160,61 @@ RSpec.describe 'Offline provider golden packs' do
     end
   end
 
-  it 'applies the NovaPay SBP contract correction without modifying the pinned source' do
+  it 'applies the NovaPay conditional recipient correction without modifying the pinned source' do
     with_adapter('novapay') do |adapter, fixture, _requests, project|
-      expect(project.effective_document.dig('components', 'schemas', 'Recipient', 'required')).to include('bank_code')
+      recipient = project.effective_document.dig('components', 'schemas', 'Recipient')
+      expect(recipient.fetch('oneOf').map { |branch| branch.fetch('required') }).to eq([['bank_code'], ['card_number']])
+      expect(recipient.dig('properties', 'type', 'enum')).to eq(%w[sbp card])
       operation = Marshal.load(Marshal.dump(fixture.fetch('operation')))
       operation.fetch('payout_requisite').fetch('sbp').delete('bank_code')
       expect(adapter.create_request(operation).dig('error', 'code')).to eq('validation_error')
       original = Paygen::Core::Input.read(File.join(packs_root, 'novapay', 'openapi.yaml'))
       expect(original.dig('components', 'schemas', 'Recipient', 'required')).not_to include('bank_code')
+    end
+  end
+
+  it 'generates a card adapter request at exactly 1000 RUB without SBP-only fields' do
+    with_adapter('novapay') do |adapter, fixture, requests, project|
+      original = File.binread(File.join(packs_root, 'novapay', 'openapi.yaml'))
+      operation = fixture.fetch('card_operation')
+      expect(adapter.check_conditions(operation)['success']).to be(true)
+      expect(adapter.create_request(operation)['success']).to be(true)
+      payload = JSON.parse(requests.fetch(0).fetch(:body))
+      expect(payload).to include('amount' => 100_000, 'currency' => 'RUB', 'external_id' => 'op_nova_card_001')
+      expect(payload.fetch('recipient')).to eq('type' => 'card', 'phone' => '79001234567',
+                                               'card_number' => operation.dig('payout_requisite', 'card', 'card_number'))
+      expect(File.binread(File.join(packs_root, 'novapay', 'openapi.yaml'))).to eq(original)
+      expect(project.ir.diagnostics).to be_empty
+    end
+  end
+
+  it 'rejects missing conditional data, unknown types and subminimum money without HTTP' do
+    with_adapter('novapay') do |adapter, fixture, requests|
+      valid_card = fixture.fetch('card_operation')
+      valid_sbp = fixture.fetch('operation')
+      missing_card = Marshal.load(Marshal.dump(valid_card))
+      missing_card.fetch('payout_requisite').fetch('card').delete('card_number')
+      missing_bank = Marshal.load(Marshal.dump(valid_sbp))
+      missing_bank.fetch('payout_requisite').fetch('sbp').delete('bank_code')
+      unknown = valid_card.merge('payout_requisite' => valid_card.fetch('payout_requisite').merge('type' => 'crypto'))
+      [missing_card, missing_bank, unknown, valid_card.merge('amount' => '999.99'),
+       valid_sbp.merge('amount' => '999.99')].each do |operation|
+        expect(adapter.check_conditions(operation).dig('error', 'code')).to eq('validation_error')
+        expect(adapter.create_request(operation).dig('error', 'code')).to eq('validation_error')
+      end
+      expect(requests).to be_empty
+    end
+  end
+
+  it 'rejects empty conditional recipient values and does not leak the inactive branch onto the wire' do
+    with_adapter('novapay') do |adapter, fixture, requests|
+      empty = Marshal.load(Marshal.dump(fixture.fetch('card_operation')))
+      empty.fetch('payout_requisite').fetch('card')['card_number'] = ''
+      expect(adapter.create_request(empty).dig('error', 'code')).to eq('validation_error')
+      both = Marshal.load(Marshal.dump(fixture.fetch('operation')))
+      both.fetch('payout_requisite')['card'] = fixture.dig('card_operation', 'payout_requisite', 'card')
+      expect(adapter.create_request(both)['success']).to be(true)
+      expect(JSON.parse(requests.fetch(0).fetch(:body)).fetch('recipient').keys).to contain_exactly('type', 'phone', 'bank_code')
     end
   end
 
