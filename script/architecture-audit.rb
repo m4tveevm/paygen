@@ -7,10 +7,10 @@ require 'ripper'
 
 root = File.expand_path('..', __dir__)
 failures = []
-Dir[File.join(root, 'lib/paygen/core/**/*.rb')].each do |file|
+Dir[File.join(root, 'src/lib/paygen/core/**/*.rb')].each do |file|
   failures << "provider-specific core: #{file}" if File.read(file).match?(/novapay|paypal|stripe|adyen/i)
 end
-Dir[File.join(root, '{lib,spec}/**/*.rb')].each do |file|
+Dir[File.join(root, '{src/lib,spec}/**/*.rb')].each do |file|
   code = File.read(file)
   failures << "unfinished mandatory code: #{file}" if code.match?(/TODO|NotImplementedError/)
   Ripper.lex(code).each do |_position, type, token, _state|

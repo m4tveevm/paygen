@@ -10,10 +10,10 @@ synthetic; the demo binds to loopback and keeps state in memory.
 From the repository root, with Ruby dependencies installed:
 
 ```bash
-bundle exec bin/paygen init fixtures/novapay/openapi.yaml --output tmp/demo
-bundle exec bin/paygen generate tmp/demo
-bundle exec bin/paygen collection tmp/demo --format bruno --output tmp/demo-bruno
-bundle exec bin/paygen demo tmp/demo --port 9293
+bundle exec src/bin/paygen init fixtures/novapay/openapi.yaml --output tmp/demo
+bundle exec src/bin/paygen generate tmp/demo
+bundle exec src/bin/paygen collection tmp/demo --format bruno --output tmp/demo-bruno
+bundle exec src/bin/paygen demo tmp/demo --port 9293
 ```
 
 Open `tmp/demo-bruno` in Bruno, select the `local` environment and run the requests

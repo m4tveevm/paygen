@@ -27,9 +27,9 @@
 состояния, включая `WAITING_CONFIRMATION`, `DRAFT` и `ON_SIGNING`, — в `in_progress`.
 
 ```bash
-bundle exec bin/paygen init fixtures/raiffeisen_payouts/upstream/openapi.json \
+bundle exec src/bin/paygen init fixtures/raiffeisen_payouts/upstream/openapi.json \
   --output /tmp/paygen-raiffeisen-demo
-bundle exec bin/paygen generate /tmp/paygen-raiffeisen-demo
+bundle exec src/bin/paygen generate /tmp/paygen-raiffeisen-demo
 bundle exec rspec spec/russian_banks_spec.rb
 ```
 
@@ -63,7 +63,7 @@ Webhook требует отдельной реализации: банк под�
 соответствует 17,51 рубля. Отмена карточной выплаты этим продуктом не предусмотрена.
 
 ```bash
-bundle exec bin/paygen inspect fixtures/tbank_payouts/upstream/openapi.json --format json
+bundle exec src/bin/paygen inspect fixtures/tbank_payouts/upstream/openapi.json --format json
 ```
 
 `review.yml` описывает требования к дальнейшей реализации. Тесты проверяют отказ

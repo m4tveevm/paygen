@@ -32,10 +32,10 @@ Do not click the panel during the automated run: it owns state used by its
 assertions. For an interactive presentation, after the run finishes start one of:
 
 ```bash
-bundle exec bin/paygen demo tmp/my-showcase/novapay --port 9393
-bundle exec bin/paygen demo tmp/my-showcase/stripe --port 9394
-bundle exec bin/paygen demo tmp/my-showcase/paypal --port 9395
-bundle exec bin/paygen demo tmp/my-showcase/adyen --port 9396
+bundle exec src/bin/paygen demo tmp/my-showcase/novapay --port 9393
+bundle exec src/bin/paygen demo tmp/my-showcase/stripe --port 9394
+bundle exec src/bin/paygen demo tmp/my-showcase/paypal --port 9395
+bundle exec src/bin/paygen demo tmp/my-showcase/adyen --port 9396
 ```
 
 Each page loads a provider-specific editable synthetic request. PayPal callback
@@ -81,7 +81,7 @@ and owned children are stopped. The two mutant failure reports correctly contain
 Using the repository's existing image, override its CLI entrypoint:
 
 ```bash
-docker build -t paygen-showcase .
+docker build -f src/Dockerfile -t paygen-showcase .
 mkdir -p tmp/container-showcase
 docker run --rm --network none \
   --mount type=bind,source="$PWD/tmp/container-showcase",target=/evidence \
