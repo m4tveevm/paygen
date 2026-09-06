@@ -7,6 +7,7 @@ require 'json_schemer'
 require 'time'
 require 'timeout'
 require_relative 'security'
+require_relative 'result_codec'
 
 module Paygen
   module Runtime
@@ -23,13 +24,17 @@ module Paygen
 
       def configure_paygen(credentials: {}, transport: nil, base_url: nil, mode: 'sandbox', account: nil,
                            token_provider: nil, state_store: nil, clock: nil, allow_local: false,
-                           allowed_attributes: [])
+                           allowed_attributes: [], state_namespace: nil)
         @paygen_credentials = stringify(credentials)
         @paygen_sensitive_values = []
         @paygen_allow_local = allow_local
         @paygen_transport = transport || HTTPTransport.new(allow_local: allow_local)
         @paygen_mode = mode.to_s
         @paygen_account = account || @paygen_credentials['account']
+        # A shared store cannot infer merchant identity from rotating secrets.
+        # Hosts must supply a stable, non-secret account or integration namespace.
+        @paygen_external_store = !state_store.nil?
+        @paygen_state_namespace = (state_namespace || @paygen_account)&.to_s
         @paygen_token_provider = token_provider
         @paygen_store = state_store || MemoryStateStore.new
         @paygen_clock = clock || -> { Time.now }
@@ -95,6 +100,8 @@ module Paygen
 
       def process_callback(payload, raw_body: nil, headers: {})
         ensure_configured
+        return paygen_failure('state_namespace_required') unless state_namespace_valid?
+
         config = paygen_config.fetch('callback', {})
         return paygen_failure('callback_not_configured') if config.empty?
         return paygen_failure('missing_raw_body') unless raw_body.is_a?(String)
@@ -113,6 +120,7 @@ module Paygen
 
         provider_id = read_path(parsed, config.fetch('id', 'id'))
         return paygen_failure('missing_provider_id') if provider_id.to_s.empty?
+        return state_migration_failure if legacy_state?(provider_id: provider_id)
 
         provider_status = read_path(parsed, config.fetch('status', 'status'))
         event = read_path(parsed, config.fetch('event', 'event'))
@@ -142,13 +150,22 @@ module Paygen
             retained_result(previous, 'invalid_transition')
           else
             result['external_id'] = read_path(parsed, config['external_id']) if config['external_id']
-            same_outcome = previous['callback_status'] == result['status']
-            applied = same_outcome ? retained_result(previous, 'duplicate') : paygen_callback_result(result, parsed)
+            # Event delivery and terminal effects are different identities:
+            # pending -> processing may both map to in_progress, but must still
+            # deliver the new evidence. A new terminal event updates metadata
+            # without invoking an already applied terminal effect twice.
+            same_terminal_outcome = %w[approved rejected reversed].include?(result['status']) &&
+                                    previous['callback_status'] == result['status']
+            applied = if same_terminal_outcome
+                        result.merge('effect_ignored' => 'duplicate_terminal_outcome')
+                      else
+                        paygen_callback_result(result, parsed)
+                      end
             next applied if paygen_result_failed?(applied)
 
             state[key] = previous.merge('events' => (previous['events'] + [event_id.to_s]).last(10_000),
                                         'status' => result['status'], 'provider_status' => provider_status.to_s,
-                                        'result' => copy_result(result), 'callback_status' => result['status'],
+                                        'result' => ResultCodec.dump(result), 'callback_status' => result['status'],
                                         'order' => ordering || previous['order'])
             applied
           end
@@ -387,6 +404,9 @@ module Paygen
 
       def execute(role, operation)
         ensure_configured
+        return paygen_failure('state_namespace_required') unless state_namespace_valid?
+        return state_migration_failure if legacy_state?(operation: operation, provider_id: operation_provider_id(operation))
+
         return paygen_failure('operation_not_supported') if endpoint(role).empty?
         if paygen_config['mode'] && @paygen_mode != paygen_config['mode']
           return paygen_failure('mode_mismatch')
@@ -532,7 +552,7 @@ module Paygen
         merchant_id = read_path(operation, 'id')
         raise ArgumentError, 'operation id is required for stable idempotency' if merchant_id.to_s.empty?
 
-        "request:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{Digest::SHA256.hexdigest(merchant_id.to_s)}"
+        state_key('request', Digest::SHA256.hexdigest(merchant_id.to_s))
       end
 
       def reconcile_before_retry?
@@ -548,9 +568,9 @@ module Paygen
           provider_key = idempotency_key(operation)
           wire_identities = sent_idempotency_identities(request)
           now = @paygen_clock.call.to_f
-          ownership_key = "idempotency:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{provider_key}"
+          ownership_key = state_key('idempotency', provider_key)
           ownership_keys = [ownership_key] + wire_identities.map do |identity|
-            "provider-identity:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{identity}"
+            state_key('provider-identity', identity)
           end
           next paygen_failure('idempotency_conflict') if ownership_keys.any? { |owner| state[owner] && state[owner] != key }
 
@@ -562,7 +582,7 @@ module Paygen
           end
           if previous
             if previous.is_a?(Hash) && previous['result']
-              latest = state[lifecycle_key(previous['result']['provider_id'])]
+              latest = state[lifecycle_key(ResultCodec.load(previous['result'])['provider_id'])]
               next copy_result(latest&.fetch('result', nil) || previous['result']).merge('duplicate' => true)
             end
             expired = previous.is_a?(Hash) && previous['expires_at'] && now >= previous['expires_at']
@@ -623,11 +643,11 @@ module Paygen
         @paygen_store.synchronize do |state|
           entry = state[key]
           if entry.is_a?(Hash)
-            known_id = entry.dig('result', 'provider_id')
+            known_id = entry['result'] && ResultCodec.load(entry['result'])['provider_id']
             if known_id && result['provider_id'] != known_id
               next paygen_failure('operation_identity_mismatch')
             end
-            entry['result'] = JSON.parse(JSON.generate(result))
+            entry['result'] = ResultCodec.dump(result)
           end
           result
         end
@@ -643,7 +663,8 @@ module Paygen
 
         key = request_state_key(operation)
         @paygen_store.synchronize do |state|
-          known_id = state[key].is_a?(Hash) ? state[key].dig('result', 'provider_id') : nil
+          stored = state[key].is_a?(Hash) && state[key]['result']
+          known_id = stored && ResultCodec.load(stored)['provider_id']
           known_id && known_id.to_s != supplied_id.to_s
         end
       rescue ArgumentError
@@ -818,7 +839,7 @@ module Paygen
         id = read_path(operation, 'id')
         raise ArgumentError, 'operation id is required for stable idempotency' if id.to_s.empty?
 
-        hex = Digest::SHA256.hexdigest([paygen_config['provider'], @paygen_mode, @paygen_account, id].join(':'))[0, 32]
+        hex = Digest::SHA256.hexdigest(state_key('provider-key', id.to_s))[0, 32]
         hex[12] = '5'
         hex[16] = ((hex[16].to_i(16) & 3) | 8).to_s(16)
         [hex[0, 8], hex[8, 4], hex[12, 4], hex[16, 4], hex[20, 12]].join('-')
@@ -1112,11 +1133,41 @@ module Paygen
       end
 
       def lifecycle_key(provider_id)
-        "lifecycle:#{paygen_config['provider']}:#{@paygen_mode}:#{@paygen_account}:#{provider_id}"
+        state_key('lifecycle', provider_id.to_s)
+      end
+
+      def state_namespace_valid?
+        !@paygen_external_store || !@paygen_state_namespace.to_s.strip.empty?
+      end
+
+      def legacy_state?(operation: nil, provider_id: nil)
+        return false unless @paygen_external_store
+
+        prefix = [paygen_config['provider'], @paygen_mode, @paygen_account].join(':')
+        keys = []
+        merchant_id = read_path(operation, 'id') if operation
+        if merchant_id && !merchant_id.to_s.empty?
+          keys << "request:#{prefix}:#{Digest::SHA256.hexdigest(merchant_id.to_s)}"
+          explicit_key = read_path(operation, paygen_config.fetch('idempotency', {}).fetch('from', 'idempotency_key'))
+          keys << "idempotency:#{prefix}:#{explicit_key}" unless explicit_key.to_s.empty?
+        end
+        keys << "lifecycle:#{prefix}:#{provider_id}" unless provider_id.to_s.empty?
+        @paygen_store.synchronize { |state| keys.any? { |key| state.key?(key) } }
+      end
+
+      def state_migration_failure
+        paygen_failure('state_migration_required', ambiguous: true,
+                       details: { 'action' => 'reconcile_and_migrate_state' })
+      end
+
+      def state_key(kind, *identity)
+        # JSON tuples are unambiguous even when an identity contains separators.
+        JSON.generate([kind, paygen_config['provider'].to_s, @paygen_mode,
+                       @paygen_account&.to_s, @paygen_state_namespace, *identity])
       end
 
       def copy_result(result)
-        JSON.parse(JSON.generate(result))
+        ResultCodec.load(result)
       end
 
       def retained_result(previous, reason)
@@ -1132,7 +1183,7 @@ module Paygen
           next retained_result(previous, 'invalid_transition') unless allowed_transition?(previous, result)
 
           state[key] = previous.merge('status' => result['status'], 'provider_status' => result['provider_status'],
-                                      'result' => copy_result(result))
+                                      'result' => ResultCodec.dump(result))
           result
         end
       end
