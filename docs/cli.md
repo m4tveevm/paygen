@@ -1,16 +1,16 @@
 # CLI reference
 
-Run commands from a checkout as `bundle exec bin/paygen COMMAND`.
-Use `bundle exec bin/paygen COMMAND --help` for command-specific options.
+Run commands from a checkout as `bundle exec src/bin/paygen COMMAND`.
+Use `bundle exec src/bin/paygen COMMAND --help` for command-specific options.
 
 ## Create and configure
 
 ```bash
-bundle exec bin/paygen inspect provider.yaml --format json
-bundle exec bin/paygen init provider.yaml --output tmp/provider
-bundle exec bin/paygen configure tmp/provider
-bundle exec bin/paygen configure tmp/provider --answers profile.yml
-bundle exec bin/paygen configure tmp/provider --set operations.create=createPayout
+bundle exec src/bin/paygen inspect provider.yaml --format json
+bundle exec src/bin/paygen init provider.yaml --output tmp/provider
+bundle exec src/bin/paygen configure tmp/provider
+bundle exec src/bin/paygen configure tmp/provider --answers profile.yml
+bundle exec src/bin/paygen configure tmp/provider --set operations.create=createPayout
 ```
 
 `inspect` reads a contract without creating a project. Add `--strict` to return
@@ -25,11 +25,11 @@ which decisions need provider documentation.
 ## Generate and maintain
 
 ```bash
-bundle exec bin/paygen generate tmp/provider
-bundle exec bin/paygen diff tmp/provider --check
-bundle exec bin/paygen explain tmp/provider amount
-bundle exec bin/paygen update tmp/provider provider-v2.yaml
-bundle exec bin/paygen generate tmp/provider
+bundle exec src/bin/paygen generate tmp/provider
+bundle exec src/bin/paygen diff tmp/provider --check
+bundle exec src/bin/paygen explain tmp/provider amount
+bundle exec src/bin/paygen update tmp/provider provider-v2.yaml
+bundle exec src/bin/paygen generate tmp/provider
 ```
 
 `generate` writes the adapter, guide, fixtures and effective configuration. If
@@ -44,8 +44,8 @@ generate and verify again after updating.
 Run seeded payment sequences with `fuzz` and replay saved failures:
 
 ```bash
-bundle exec bin/paygen fuzz tmp/provider --seed 42 --cases 100 --steps 30 --output tmp/fuzz.json
-bundle exec bin/paygen fuzz tmp/provider --replay tmp/fuzz.json
+bundle exec src/bin/paygen fuzz tmp/provider --seed 42 --cases 100 --steps 30 --output tmp/fuzz.json
+bundle exec src/bin/paygen fuzz tmp/provider --replay tmp/fuzz.json
 ```
 
 The replay command accepts a failure report or trace. See
@@ -68,8 +68,8 @@ defaults; `recipe add PROJECT NAME` and `recipe remove PROJECT` change selection
 ## Verify and run locally
 
 ```bash
-bundle exec bin/paygen verify tmp/provider --seed 42
-bundle exec bin/paygen demo tmp/provider --port 9293
+bundle exec src/bin/paygen verify tmp/provider --seed 42
+bundle exec src/bin/paygen demo tmp/provider --port 9293
 ```
 
 `verify` exercises the adapter with deterministic fault scenarios and prints a
@@ -87,10 +87,10 @@ checks configuration consistency and generated-file ownership.
 ## Export
 
 ```bash
-bundle exec bin/paygen docs tmp/provider --format html --output tmp/provider-html
-bundle exec bin/paygen docs tmp/provider --format md --output tmp/provider-md
-bundle exec bin/paygen collection tmp/provider --format bruno --output tmp/provider-bruno
-bundle exec bin/paygen export tmp/provider --standalone --output tmp/provider-standalone
+bundle exec src/bin/paygen docs tmp/provider --format html --output tmp/provider-html
+bundle exec src/bin/paygen docs tmp/provider --format md --output tmp/provider-md
+bundle exec src/bin/paygen collection tmp/provider --format bruno --output tmp/provider-bruno
+bundle exec src/bin/paygen export tmp/provider --standalone --output tmp/provider-standalone
 ```
 
 Export destinations must be new directories outside the integration project.

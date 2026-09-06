@@ -59,6 +59,10 @@ success to a universal-import claim.
 
 ## Reproduce and inspect
 
+Run from the repository root. This report records the historical PR #9; current
+source paths are under `src/`, and current release instructions are in
+[`docs/development.md`](../docs/development.md).
+
 ```bash
 bundle exec rspec
 bundle exec ruby script/acceptance-independent

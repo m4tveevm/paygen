@@ -8,7 +8,7 @@ require 'json'
 require 'open3'
 require 'rbconfig'
 require 'time'
-require_relative '../lib/paygen'
+require_relative '../src/lib/paygen'
 
 # Four bounded, replayable evidence probes with per-command logs and no core edits.
 # Long linear probes keep setup, action and independent assertions together.
@@ -32,7 +32,7 @@ class ResearchExperiments
     @started = Time.now.utc.iso8601
     @source_sha = git('rev-parse', 'HEAD').strip
     @dirty = git('status', '--porcelain', '--untracked-files=normal').lines.map(&:chomp)
-    @core_before = manifest(File.join(ROOT, 'lib'))
+    @core_before = manifest(File.join(ROOT, 'src/lib'))
   end
 
   def run
@@ -57,7 +57,7 @@ class ResearchExperiments
                      seed: 42, budget: 'four finite experiments; no comparative fuzz budget' },
       reproduce: 'bundle exec ruby script/research-experiments',
       lock_sha256: Digest::SHA256.file(File.join(ROOT, 'Gemfile.lock')).hexdigest,
-      core_before_sha256: @core_before, core_after_sha256: manifest(File.join(ROOT, 'lib')),
+      core_before_sha256: @core_before, core_after_sha256: manifest(File.join(ROOT, 'src/lib')),
       commands: @commands, experiments: @experiments,
       future_studies: { E06: 'NOT_RUN: matched-budget stateful/stateless comparison',
                         E08: 'NOT_RUN: cold/warm timing study' },
@@ -103,7 +103,7 @@ class ResearchExperiments
   end
 
   def cli(label, *, **)
-    command(label, RbConfig.ruby, File.join(ROOT, 'bin/paygen'), *, **)
+    command(label, RbConfig.ruby, File.join(ROOT, 'src/bin/paygen'), *, **)
   end
 
   def generated(name, source: File.join(ROOT, 'fixtures/novapay/openapi.yaml'), profile: nil)
@@ -181,7 +181,7 @@ class ResearchExperiments
   end
 
   def native_profiles
-    command('e05-clean-core-before', 'git', 'diff', '--exit-code', 'HEAD', '--', 'lib')
+    command('e05-clean-core-before', 'git', 'diff', '--exit-code', 'HEAD', '--', 'src/lib')
     providers = %w[paypal paystack].to_h do |provider|
       fixture = File.join(ROOT, "fixtures/native-#{provider}")
       source = Dir[File.join(fixture, 'openapi.*')].fetch(0)
@@ -203,8 +203,8 @@ class ResearchExperiments
              result.fetch('pending_count').zero?
     assert(passed,
            'Native tests failed, were skipped, or did not execute')
-    command('e05-clean-core-after', 'git', 'diff', '--exit-code', 'HEAD', '--', 'lib')
-    assert(@core_before == manifest(File.join(ROOT, 'lib')), 'Research onboarding changed core files')
+    command('e05-clean-core-after', 'git', 'diff', '--exit-code', 'HEAD', '--', 'src/lib')
+    assert(@core_before == manifest(File.join(ROOT, 'src/lib')), 'Research onboarding changed core files')
     { providers: providers, native_test_summary: result, core_unchanged: true }
   end
 end

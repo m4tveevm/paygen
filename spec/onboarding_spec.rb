@@ -13,7 +13,7 @@ RSpec.describe 'Unfamiliar API onboarding' do
       'type' => 'object', 'properties' => { 'child' => { '$ref' => '#/components/schemas/UnrelatedTree' } }
     }
     graph = Paygen::Core::Input.graph(document)
-    profile = Paygen::Core::Input.read(File.expand_path('../recipes/novapay.yml', __dir__)).fetch('profile')
+    profile = Paygen::Core::Input.read(File.expand_path('../src/recipes/novapay.yml', __dir__)).fetch('profile')
     ir = Paygen::Core::IR.new(graph, profile: profile)
     expect(ir.diagnostics).to be_empty
     expect(ir.config.dig('endpoints', 'create', 'request_schema')).to have_key('properties')
@@ -84,9 +84,9 @@ RSpec.describe 'Unfamiliar API onboarding' do
       project = Paygen::Project.init(input, output: File.join(directory, 'project'))
       before = File.binread(project.path('source/openapi.json'))
       answers = File.join(directory, 'answers.yml')
-      recipe = Paygen::Core::Input.read(File.expand_path('../recipes/novapay.yml', __dir__))
+      recipe = Paygen::Core::Input.read(File.expand_path('../src/recipes/novapay.yml', __dir__))
       File.write(answers, YAML.dump(recipe.fetch('profile').merge('provider' => 'acme', 'class_name' => 'AcmeService')))
-      out, err, status = Open3.capture3(RbConfig.ruby, File.expand_path('../bin/paygen', __dir__),
+      out, err, status = Open3.capture3(RbConfig.ruby, File.expand_path('../src/bin/paygen', __dir__),
                                        'configure', project.root, '--answers', answers)
       expect(status.exitstatus).to eq(0), err
       expect(JSON.parse(out)).to include('ready' => true)

@@ -17,10 +17,10 @@ git clone https://github.com/m4tveevm/paygen.git
 cd paygen
 gem install bundler -v 4.0.20
 bundle install
-bundle exec bin/paygen init fixtures/novapay/openapi.yaml --output tmp/novapay
-bundle exec bin/paygen generate tmp/novapay
-bundle exec bin/paygen diff tmp/novapay --check
-bundle exec bin/paygen verify tmp/novapay --seed 42
+bundle exec src/bin/paygen init fixtures/novapay/openapi.yaml --output tmp/novapay
+bundle exec src/bin/paygen generate tmp/novapay
+bundle exec src/bin/paygen diff tmp/novapay --check
+bundle exec src/bin/paygen verify tmp/novapay --seed 42
 ```
 
 The bundled NovaPay example includes its configuration and contract corrections.
@@ -44,9 +44,9 @@ timeouts, rate limits, cancellation and signed callbacks.
 Export a portable HTML guide and a Bruno collection, then start the local demo:
 
 ```bash
-bundle exec bin/paygen docs tmp/novapay --format html --output tmp/novapay-docs
-bundle exec bin/paygen collection tmp/novapay --format bruno --output tmp/novapay-bruno
-bundle exec bin/paygen demo tmp/novapay --port 9293
+bundle exec src/bin/paygen docs tmp/novapay --format html --output tmp/novapay-docs
+bundle exec src/bin/paygen collection tmp/novapay --format bruno --output tmp/novapay-bruno
+bundle exec src/bin/paygen demo tmp/novapay --port 9293
 ```
 
 Open `tmp/novapay-docs/index.html` in a browser. In Bruno, open
@@ -61,11 +61,11 @@ Bruno CLI and the Paygen manual's site build. Export directories must be new.
 ## Configure another API
 
 ```bash
-bundle exec bin/paygen init provider.yaml --output tmp/provider
-bundle exec bin/paygen configure tmp/provider
-bundle exec bin/paygen configure tmp/provider --answers profile.yml
-bundle exec bin/paygen generate tmp/provider
-bundle exec bin/paygen verify tmp/provider --seed 42
+bundle exec src/bin/paygen init provider.yaml --output tmp/provider
+bundle exec src/bin/paygen configure tmp/provider
+bundle exec src/bin/paygen configure tmp/provider --answers profile.yml
+bundle exec src/bin/paygen generate tmp/provider
+bundle exec src/bin/paygen verify tmp/provider --seed 42
 ```
 
 `configure` lists candidate operations, source locations and unanswered questions.
@@ -111,3 +111,28 @@ documentation build and containers.
 
 Paygen is licensed under [MIT](LICENSE). Third-party API snapshots keep their
 source and license information alongside the fixtures.
+
+## Repository layout
+
+Run checkout commands from the repository root. Application implementation and
+runtime assets live together in `src/`; generated integration projects keep their
+own layout.
+
+| Path | Contents |
+| --- | --- |
+| `src/lib/` | Ruby core, generator, runtime and bundled schemas/UI assets |
+| `src/bin/paygen` | CLI entrypoint |
+| `src/recipes/` | Built-in provider recipes shipped with the gem |
+| `src/Dockerfile` | CLI container; build with `docker build -f src/Dockerfile -t paygen .` |
+| `docs/` | Diplodoc manual sources and ignored `_build/` output |
+| `fixtures/` | Provider snapshots, profiles, licenses and provenance |
+| `spec/`, `acceptance/` | Unit/contract tests and independent acceptance corpus |
+| `examples/` | Runnable showcases and presenter guides |
+| `script/`, `tools/` | Verification/build tools, Bruno and the docs container |
+| `research/` | Research reports and historical integration evidence |
+
+`Gemfile`, `Gemfile.lock`, `paygen.gemspec`, `Rakefile` and the npm manifests stay
+at the root so `bundle install`, `bundle exec rspec` and `npm run docs:build`
+continue to work there. The packaged gem exposes `require 'paygen'` and the
+`paygen` command as before; no duplicate source tree or compatibility launcher
+is maintained at the old paths.

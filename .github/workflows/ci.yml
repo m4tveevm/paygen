@@ -25,8 +25,10 @@ jobs:
       - name: Syntax and test suite
         run: |
           ruby -v
-          bundle exec ruby -e 'Dir["lib/**/*.rb", "spec/**/*.rb", "bin/paygen"].each { |f| abort("Syntax failed: #{f}") unless system(RbConfig.ruby, "-c", f) }'
+          bundle exec ruby -e 'Dir["src/lib/**/*.rb", "spec/**/*.rb", "src/bin/paygen"].each { |f| abort("Syntax failed: #{f}") unless system(RbConfig.ruby, "-c", f) }'
           bundle exec rspec
+      - name: Installed gem smoke
+        run: bundle exec ruby script/verify-package.rb
       - name: Independent payment acceptance
         run: bundle exec ruby script/acceptance-independent
       - name: CLI and generation smoke

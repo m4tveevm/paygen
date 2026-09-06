@@ -1,5 +1,18 @@
 # Development
 
+## Repository layout
+
+Run the commands below from the repository root. Runtime implementation, schemas
+and UI assets are in `src/lib/`, the CLI is `src/bin/paygen`, and packaged provider
+recipes are in `src/recipes/`. The application container is `src/Dockerfile`;
+the documentation container is `tools/docs/Dockerfile`. Both use the repository
+root as their Docker build context.
+
+Documentation, fixtures, examples, tests and research stay outside `src/`. Ruby
+and npm manifests remain at the root. Generated integrations and detached
+exports retain their own `lib/` and `recipes/` directories; those are output
+formats, not paths to this repository's source.
+
 ## Toolchain
 
 Paygen requires Ruby 3.3 or later. The repository pins Ruby 4.0.6 in
@@ -8,7 +21,7 @@ Paygen requires Ruby 3.3 or later. The repository pins Ruby 4.0.6 in
 ```bash
 gem install bundler -v 4.0.20
 bundle install
-bundle exec bin/paygen doctor
+bundle exec src/bin/paygen doctor
 ```
 
 Node is needed only for building the project manual or running the Bruno CLI.
@@ -33,6 +46,7 @@ Run the Ruby tests and the seven example profiles locally:
 
 ```bash
 bundle exec rspec
+bundle exec ruby script/verify-package.rb
 script/smoke
 bundle exec rubocop --only Lint,Security
 bundle exec ruby script/architecture-audit.rb
@@ -91,7 +105,7 @@ container (requires Docker, network access for locked dependencies, and a clean
 checkout matching the supplied source SHA):
 
 ```bash
-docker build -f Dockerfile.docs --build-arg PAYGEN_SOURCE_SHA=$(git rev-parse HEAD) \
+docker build -f tools/docs/Dockerfile --build-arg PAYGEN_SOURCE_SHA=$(git rev-parse HEAD) \
   -t paygen-docs .
 docker run --rm -p 127.0.0.1:8080:80 paygen-docs
 ```
@@ -107,20 +121,20 @@ call Pages configuration or deployment. A maintainer can dispatch **Documentatio
 Pages** from the default branch with a full integrated `accepted_sha` and leave
 `publish=false` to obtain an artifact and digest for review.
 
-Before any publication, a repository administrator must configure Pages source
-as **GitHub Actions**, protect the default branch, and configure the `github-pages`
-environment with required reviewers and default-branch-only deployment. Workflow
-YAML does not create those protections. No administrator token is used by the
-build and automatic Pages enablement is disabled.
+Pages source must be **GitHub Actions** in repository settings. Every push to
+`main` builds and validates the Diplodoc manual in CI, uploads that exact Pages
+artifact, and publishes it only after the Ruby matrix and integration job pass.
+Pull requests do not publish. Only deployment jobs receive `pages:write` and
+`id-token:write`; publication is serialized through `pages-publication`.
 
-After explicit approval of the integrated commit and artifact, a maintainer may
-dispatch with the same `accepted_sha`, `publish=true`, and the reviewed
-`accepted_artifact_sha256`. The workflow checks out exactly that SHA, requires it
-to be an ancestor of the default branch and to have a successful full CI push run,
-builds twice, and compares the content digest before requesting environment
-approval. Only the deploy job receives `pages:write` and `id-token:write`.
-Publication runs are serialized; a later moving branch tip is never substituted.
-This manual documents the procedure, not evidence that the site has been deployed.
+The `github-pages` environment still enforces any configured deployment rules.
+Required reviewers, if enabled by an administrator, will pause deployment for
+approval. Automatic Pages enablement is disabled.
+
+The separate **Documentation Pages** workflow remains available for an explicit
+manual release: use a full integrated `accepted_sha`, `publish=true`, and the
+reviewed `accepted_artifact_sha256`. It requires successful push CI for that SHA,
+builds twice and verifies the requested digest before deploying.
 
 Rollback uses the same explicit procedure with the full integrated SHA and digest
 of a previously accepted release compatible with this build pipeline. First do a
@@ -140,7 +154,7 @@ is generated with `paygen docs`; it can be viewed locally or published separatel
 ## CLI container
 
 ```bash
-docker build -t paygen .
+docker build -f src/Dockerfile -t paygen .
 docker run --rm paygen doctor
 ```
 

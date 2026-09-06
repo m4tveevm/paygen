@@ -16,9 +16,9 @@ new directory.
 ```bash
 gem install bundler -v 4.0.20
 bundle install
-bundle exec bin/paygen init fixtures/novapay/openapi.yaml --output tmp/novapay
-bundle exec bin/paygen generate tmp/novapay
-bundle exec bin/paygen verify tmp/novapay --seed 42
+bundle exec src/bin/paygen init fixtures/novapay/openapi.yaml --output tmp/novapay
+bundle exec src/bin/paygen generate tmp/novapay
+bundle exec src/bin/paygen verify tmp/novapay --seed 42
 ```
 
 The generated directory contains the adapter, `INTEGRATION.md`, fixtures and the
