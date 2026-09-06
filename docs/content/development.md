@@ -123,6 +123,15 @@ For focused commands and the local HTTP flow, see the
 
 ## Documentation
 
+Author repository READMEs, guides and research prose in English. Preserve source
+specifications, provider examples, licenses and historical raw logs in their
+original form. Translate explanatory prose without changing recorded hashes or
+claiming a new verification of historical evidence.
+
+`404.md` is a hidden TOC entry: Diplodoc renders `404.html` for the hosting error
+handler, but it is not a chapter. The publication check rejects a 404 navigation
+entry while requiring the error page itself.
+
 ```bash
 pnpm --dir docs run docs:test
 pnpm --dir docs run docs:build

@@ -1,34 +1,35 @@
-# Примеры российских банков
+# Russian bank examples
 
-В наборе есть исполняемый локальный сценарий Райффайзенбанка и разборы двух API,
-для которых требуются дополнительные шаги интеграции.
+The repository includes an executable local Raiffeisen scenario and reviews of
+two APIs that require further integration work.
 
-| Банк и продукт | Материалы | Проверяемый сценарий |
+| Bank and product | Materials | Scope |
 | --- | --- | --- |
-| Райффайзенбанк, СБП-выплаты | Полная OpenAPI 3.0.3, профиль, синтетические запросы и ответы | Создание, статус, отказ, точная сумма в рублях и повтор после сверки |
-| Т-Банк, массовые выплаты A2C/E2C 1.46 | Полная OpenAPI 3.0.2 и разбор требований | Сертификатная подпись, Init → Payment, POST-запрос статуса |
-| Точка, платёжные поручения | Разбор официальной документации | Подпись поручения, ожидание исполнения и финальный статус |
+| Raiffeisen SBP payouts | Full OpenAPI 3.0.3, profile, synthetic requests and responses | Create, status, rejection, exact ruble amounts and reconciliation before retry |
+| T-Bank bulk A2C/E2C payouts 1.46 | Full OpenAPI 3.0.2 and requirements review | Certificate signatures, Init → Payment, POST status requests |
+| Tochka payment orders | Official documentation review | Order signing, execution polling and final status |
 
-Спецификации Райффайзенбанка и Т-Банка извлечены из `__redoc_state.spec.data`
-официальных страниц с сохранением всех путей, схем и примеров. В `provenance.json`
-записаны источник, дата получения и SHA-256 страницы и спецификации. Профили и
-синтетические фикстуры находятся отдельно от исходных контрактов.
+The Raiffeisen and T-Bank specifications were extracted from
+`__redoc_state.spec.data` on the official pages, retaining all paths, schemas and
+examples. Each `provenance.json` records the source, retrieval date and SHA-256
+of the page and specification. Profiles and synthetic fixtures are separate from
+the original contracts.
 
-Все команды выполняются из корня клонированного репозитория после
-[установки Ruby-зависимостей](development.md#toolchain). Каталоги вывода должны
-быть новыми.
+Run commands from the checkout root after [Ruby setup](development.md#toolchain).
+Output directories must be new.
 
-## Райффайзенбанк: локальный сценарий СБП
+## Raiffeisen: local SBP payout scenario
 
-Профиль выбирает `POST /v2/payouts` и `GET /payout/v2/payouts/{id}` для выплаты
-физлицу без фискализации (`fiscal=false`). Авторизация использует
-`Authorization: Bearer secretKey`. Приложение передаёт счёт списания, назначение,
-телефон и идентификатор участника СБП `payoutParams.bankId`; последний отличается
-от БИК. [Официальный контракт](https://pay.raif.ru/doc/payout.html).
+The profile selects `POST /v2/payouts` and `GET /payout/v2/payouts/{id}` for a
+single-stage payout to an individual without fiscalisation (`fiscal=false`).
+Authentication uses `Authorization: Bearer secretKey`. The application supplies
+the debit account, payment purpose, phone and SBP participant identifier
+`payoutParams.bankId`; this identifier is distinct from the bank's BIC.
+See the [official contract](https://pay.raif.ru/doc/payout.html).
 
-Сумма `"1110.01"` сериализуется как точное JSON-число `1110.01` рублей.
-`COMPLETED` переводится в `approved`, `DECLINED` — в `rejected`, промежуточные
-состояния, включая `WAITING_CONFIRMATION`, `DRAFT` и `ON_SIGNING`, — в `in_progress`.
+The amount `"1110.01"` becomes the exact JSON number `1110.01` in rubles.
+`COMPLETED` maps to `approved`, `DECLINED` to `rejected`, and intermediate states,
+including `WAITING_CONFIRMATION`, `DRAFT` and `ON_SIGNING`, to `in_progress`.
 
 ```bash
 src/run cli init fixtures/raiffeisen_payouts/upstream/openapi.json \
@@ -37,62 +38,60 @@ src/run cli generate /tmp/paygen-raiffeisen-demo
 src/run test src/spec/russian_banks_spec.rb
 ```
 
-Тесты вызывают сгенерированный адаптер через подставной транспорт и сверяют
-HTTP-запросы с независимыми ожидаемыми значениями. Для интерактивной проверки
-можно экспортировать [коллекцию Bruno](bruno-demo.md).
+Tests call the generated adapter through an injected transport and compare HTTP
+requests with independently defined expectations. Export a [Bruno collection](bruno-demo.md)
+for interactive checks.
 
-Уникальный `id` используется для сверки. Режим `reconcile_before_retry` сохраняет
-подтверждённый результат, а после неоднозначного ответа требует запросить статус
-по исходному `id`. HTTP 404 и ошибка сверки сохраняют запрет повторной выплаты.
-Заголовок `Idempotency-Key` не добавляется. Для нескольких процессов и перезапуска
-приложения нужно общее долговечное хранилище состояния.
+The unique `id` supports reconciliation. `reconcile_before_retry` retains confirmed
+results and requires a status lookup using the original `id` after an ambiguous
+response. HTTP 404 and failed reconciliation do not permit a second payout.
+No `Idempotency-Key` header is added. Multiple processes and restart recovery need
+a shared durable state store.
 
-Webhook требует отдельной реализации: банк подписывает строку
-`amount|id|statusValue|statusDate`, а общий HMAC-режим Paygen использует исходные
-байты JSON. В профиль также не входят двухстадийные заявки, пакеты и фискализация.
-Некоторые необязательные поля в исходных примерах имеют числовые значения при
-строковой схеме (`inn`, `currencyOperationCode`, `agreementNumber`). Снимок
-сохраняет это расхождение; исполняемый пример эти поля не использует.
+Webhooks require a separate implementation: the bank signs
+`amount|id|statusValue|statusDate`, whereas Paygen's generic HMAC mode uses raw JSON
+bytes. The profile also excludes two-stage requests, batches and fiscalisation.
+Some optional upstream examples contain numbers where the schema declares strings
+(`inn`, `currencyOperationCode`, `agreementNumber`). The snapshot preserves this
+discrepancy; the executable example does not use those fields.
 
-## Т-Банк: подпись и подтверждение
+## T-Bank: signing and confirmation
 
-У `Init` указано `security: []`, но тело требует `DigestValue`, `SignatureValue`
-и `X509SerialNumber`. В документации описаны RSA и ГОСТ. Подпись `Token` для
-отдельных вспомогательных методов не заменяет подпись выплаты.
-[Документация версии 1.46](https://www.tbank.ru/business/online-payments/dev/payouts/).
+`Init` declares `security: []`, but its body requires `DigestValue`,
+`SignatureValue` and `X509SerialNumber`. The documentation describes RSA and GOST.
+The `Token` signature used by certain auxiliary methods does not replace payout
+signing. See the [version 1.46 documentation](https://www.tbank.ru/business/online-payments/dev/payouts/).
 
-`Init` возвращает идентификатор и состояние `CHECKED`, после чего вызывается
-`Payment`. `Success=true` означает успешный запрос; завершение выплаты определяется
-отдельно. `GetState` использует POST и подписываемое тело. `Amount=1751`
-соответствует 17,51 рубля. Отмена карточной выплаты этим продуктом не предусмотрена.
+`Init` returns an identifier and `CHECKED` status, followed by `Payment`.
+`Success=true` indicates a successful request; payout completion is determined
+separately. `GetState` uses POST and a signed body. `Amount=1751` represents
+17.51 rubles. This product does not support cancelling a card payout.
 
 ```bash
 src/run cli inspect fixtures/tbank_payouts/upstream/openapi.json --format json
 ```
 
-`review.yml` описывает требования к дальнейшей реализации. Тесты проверяют отказ
-для неподписанного примера и блокировку генерации до настройки обязательных
-семантических параметров. Исполняемого адаптера Т-Банка в наборе нет.
+`review.yml` records requirements for further implementation. Tests reject an
+unsigned example and block generation until required semantic settings are
+configured. The repository has no executable T-Bank adapter.
 
-## Точка: создание поручения и исполнение
+## Tochka: creating an order and executing it
 
-`WaitingForCreate` означает ожидание подписи в интернет-банке. `Created` также
-не подтверждает исполнение; финальный успешный статус — `Paid`. Сценарий требует
-подписи и последующего опроса.
-[Платёжные поручения](https://developers.tochka.com/docs/tochka-api/opisanie-metodov/platezhi).
+`WaitingForCreate` means that signing in online banking is pending. `Created`
+also does not confirm execution; the final successful status is `Paid`. The flow
+requires signing and subsequent polling. See [payment orders](https://developers.tochka.com/docs/tochka-api/opisanie-metodov/platezhi).
 
-Операция `Create Payment Operation` в разделе эквайринга создаёт платёжную ссылку
-для приёма оплаты. Её нельзя выбирать как исходящую выплату.
-[Платёжные ссылки](https://developers.tochka.com/docs/tochka-api/opisanie-metodov/platyozhnye-ssylki/bez-fiskalizacii).
+The acquiring operation `Create Payment Operation` creates an incoming-payment
+link. It must not be selected as an outgoing payout. See [payment links](https://developers.tochka.com/docs/tochka-api/opisanie-metodov/platyozhnye-ssylki/bez-fiskalizacii).
 
-На дату снимка, 5 сентября 2026 года, источник полной спецификации отвечал
-HTTP 502. В наборе сохранён разбор доступной официальной документации со статусом
-`source_unavailable`; полного OpenAPI и исполняемого адаптера нет.
+At the snapshot date, 5 September 2026, the full specification endpoint returned
+HTTP 502. The repository retains an official-documentation review with status
+`source_unavailable`; it has neither a full OpenAPI snapshot nor an executable
+adapter for Tochka.
 
-## Область проверки
+## Verification scope
 
-Примеры используют синтетические реквизиты и локальный транспорт. Сценарий
-Райффайзенбанка проверен на закреплённом контракте; приёмочные испытания в банковской
-песочнице, подключение продукта и фактическое исполнение платежей выполняются
-отдельно. Т-Банк и Точка показывают требования, которые необходимо закрыть перед
-созданием исполняемого профиля.
+Examples use synthetic recipient data and local transports. The Raiffeisen
+scenario is checked against its pinned contract. Bank sandbox acceptance, product
+activation and actual payment execution require separate work. T-Bank and Tochka
+illustrate requirements that must be resolved before creating executable profiles.

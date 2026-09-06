@@ -24,3 +24,4 @@ items:
     href: development.md
   - name: Page not found
     href: 404.md
+    hidden: true

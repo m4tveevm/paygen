@@ -109,6 +109,32 @@ Both exports need only Ruby.
 Keep the original Paygen project for future regeneration: standalone changes
 are maintained separately.
 
+## Reproducible output
+
+Generation depends on the normalized contract, profile, ordered overlays, recipe,
+generator version and locked dependencies. Identical inputs produce identical
+managed files in independent project directories. Paths to those directories do
+not define provider behavior.
+
+`init` parses and resolves the input, writes canonical JSON to
+`source/openapi.json`, and records its SHA-256 as `source_sha256` in `paygen.lock`.
+It does not preserve the original YAML/JSON serialization. Formatting-only edits,
+YAML comments and equivalent YAML/JSON can produce the same normalized document,
+source hash and semantic provenance. Changes that alter the normalized document
+change its hash. The recorded `source_uri` identifies the input location, not its
+original bytes. Retain the original file and a separate raw-file checksum if your
+audit needs to distinguish original serializations.
+
+Missing semantic decisions remain blockers; they are not filled by random guesses
+or an LLM. Use `diff --check` to detect drift within a project.
+
+The product manual is authored in English. Provider descriptions and examples
+retain their source language and content within the normalized contract; generation
+does not silently translate upstream data. Checked-in upstream snapshots have
+separate provenance checksums for their original files. HTML and Markdown exports
+describe the effective contract of the selected project, separately from the
+static Paygen manual.
+
 ## Exit codes
 
 | Code | Meaning |

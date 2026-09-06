@@ -108,7 +108,11 @@ function checkSite(root, basePath, {seal = false, expectedSHA, expectedDigest} =
   assert(tocMatch, 'unexpected TOC format');
   function checkToc(value) {
     if (!value || typeof value !== 'object') return;
-    if (value.href) checkLink('toc.js', value.href, `${ORIGIN}${basePath}`);
+    if (value.href) {
+      const target = new URL(value.href, `${ORIGIN}${basePath}`);
+      assert(!decodeURIComponent(target.pathname).endsWith('/404.html'), '404 page must not appear in navigation');
+      checkLink('toc.js', value.href, `${ORIGIN}${basePath}`);
+    }
     Object.values(value).forEach(checkToc);
   }
   checkToc(JSON.parse(tocMatch[1]));
