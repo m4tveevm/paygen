@@ -51,6 +51,10 @@ module Paygen
                 "Allowed currencies: #{cell(Array(@config.dig('amount', 'currencies')).join(', '))}.",
                 "Minimum provider units: #{cell(@config.dig('amount', 'minimum'))}; maximum: #{cell(@config.dig('amount', 'maximum') || 'not declared')}.",
                 'Use decimal strings or integers for monetary input. Floating point money is rejected.', '',
+                '## Response correlation', '',
+                'Response schema validity alone does not bind a response to this operation. The following optional profile rules explicitly bind response fields to operation fields before state mutation:', '',
+                '```json', Paygen.json(@config.fetch('response_bindings', {})).rstrip, '```', '',
+                'No rules means no additional correlation claim. A configured required field must be present and match; optional fields are ignored only when absent or null. Present mismatches fail closed. A mismatched create response requires reconciliation, not a blind retry.', '',
                 '## Status mapping', '', '| Provider status | Canonical status |', '| --- | --- |']
       @config.fetch('status_mapping', {}).each { |provider, state| lines << row(provider, state.is_a?(Hash) ? state['status'] : state) }
       lines += ['', 'Unknown statuses do not approve operations. Batch success does not imply every item succeeded.', '',

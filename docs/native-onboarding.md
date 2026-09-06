@@ -100,6 +100,41 @@ omit the target field. Request schema validation still runs after mapping. The
 NovaPay profile uses these rules for separate SBP and card branches; an Overlay
 states their conditional required fields without modifying the source snapshot.
 
+`fallback_conflict: reject` refuses different non-null fallback values when the
+primary field is missing. NovaPay uses this for phone selection: if both SBP and
+card details contain different phones, supply the explicit common `phone` or
+remove the irrelevant details. It never silently chooses a conflicting recipient.
+
+## Response correlation
+
+An API-valid response can still belong to another payment. Opt in with explicit
+paths and roles; no mapping is guessed:
+
+```yaml
+response_bindings:
+  merchant_reference:
+    response_path: external_id
+    operation_path: id
+    roles: [create, status, cancel]
+    required: true
+  amount:
+    response_path: amount
+    operation_path: amount
+    roles: [create, status, cancel]
+    required: true
+    response_unit: minor
+```
+
+The other supported keys are `currency` and `provider_id`. Amount bindings must
+declare `response_unit: major` or `minor`; input units and scale come from the
+amount profile. Comparison uses exact decimal arithmetic and rejects Float and
+undeclared rounding. Missing required operation values are rejected before HTTP;
+missing required response evidence or mismatches cannot update lifecycle state.
+Optional evidence (`required: false`) may be absent or null, but a present value
+must match. A mismatched create response is ambiguous and requires reconciliation.
+NovaPay opts in for reference, amount and currency. Providers without these rules
+do not gain a correlation guarantee. These rules apply to responses, not callbacks.
+
 ## Retry policy
 
 The default is reconciliation before another create. Paygen sends an idempotency
