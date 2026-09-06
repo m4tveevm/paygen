@@ -85,7 +85,7 @@ Configure an instance with:
 ```ruby
 configure_paygen(credentials:, transport:, base_url:, mode:, account:,
                 token_provider:, state_store:, clock:, allow_local:,
-                allowed_attributes:)
+                allowed_attributes:, integration_namespace:)
 ```
 
 All arguments are optional. The injected transport
@@ -97,6 +97,10 @@ take precedence, with selection by mode. HTTP requests have a total 20-second
 deadline in addition to connection/read timeouts. Only canonical attributes are
 read from application objects; arbitrary data can be supplied as a Hash. Trusted
 application code can extend the object allowlist through `allowed_attributes`.
+An external/shared `state_store` additionally requires a stable
+`integration_namespace` or `account`; the adapter fails before an outbound write
+when neither is present. Credential values and process-local object IDs are not
+used as integration identities, so credential rotation retains the same scope.
 
 Extensions can implement `paygen_validate`, `paygen_request`, `paygen_response`,
 `paygen_status`, `paygen_classify_error` and `paygen_retry_decision`.

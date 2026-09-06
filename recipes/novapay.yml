@@ -1,3 +1,4 @@
+---
 name: novapay
 match:
   title: NovaPay Payout API
@@ -32,12 +33,6 @@ profile:
       from: currency
     external_id:
       from: id
-    recipient.type:
-      value: sbp
-    recipient.phone:
-      from: payout_requisite.sbp.phone
-    recipient.bank_code:
-      from: payout_requisite.sbp.bank_code
   parameter_mapping:
     status:
       payout_id: provider_id
@@ -115,29 +110,54 @@ profile:
         statuses:
         - pending
         - completed
+  request_variants:
+    create:
+    - when_present: payout_requisite.sbp
+      mapping:
+        recipient.type:
+          value: sbp
+        recipient.phone:
+          from: payout_requisite.sbp.phone
+        recipient.bank_code:
+          from: payout_requisite.sbp.bank_code
+    - when_present: payout_requisite.card
+      mapping:
+        recipient.type:
+          value: card
+        recipient.phone:
+          from: payout_requisite.card.phone
+        recipient.card_number:
+          from: payout_requisite.card.card_number
 overlays:
 - overlay: 1.1.0
   info:
-    title: NovaPay SBP contract correction
+    title: NovaPay recipient variant contract correction
     version: 1.0.0
   actions:
-  - target: $.components.schemas.Recipient.required
-    remove: true
-  - target: $.components.schemas.Recipient
+  - target: "$.components.schemas.Recipient"
     update:
-      required:
-      - type
-      - phone
-      - bank_code
-  - target: $.components.schemas.Recipient.properties.type.enum
-    remove: true
-  - target: $.components.schemas.Recipient.properties.type
-    update:
-      enum:
-      - sbp
-  - target: $.components.schemas.Recipient.properties.card_number
-    remove: true
-  - target: $.components.schemas.PayoutResponse
+      oneOf:
+      - type: object
+        properties:
+          type:
+            enum:
+            - sbp
+        required:
+        - bank_code
+        not:
+          required:
+          - card_number
+      - type: object
+        properties:
+          type:
+            enum:
+            - card
+        required:
+        - card_number
+        not:
+          required:
+          - bank_code
+  - target: "$.components.schemas.PayoutResponse"
     update:
       required:
       - id
@@ -145,7 +165,7 @@ overlays:
       - status
       - amount
       - currency
-  - target: $.components.schemas.PayoutError.properties.code.enum
+  - target: "$.components.schemas.PayoutError.properties.code.enum"
     remove: true
 workflows:
   payout.arazzo.yaml:
@@ -158,7 +178,7 @@ workflows:
         Authentication belongs to the injected transport.
     sourceDescriptions:
     - name: provider
-      url: ../source/openapi.json
+      url: "../source/openapi.json"
       type: openapi
     workflows:
     - workflowId: payout
@@ -175,21 +195,21 @@ workflows:
         operationId: createPayout
         requestBody:
           contentType: application/json
-          payload: $inputs.request_body
+          payload: "$inputs.request_body"
         successCriteria:
-        - condition: $statusCode == 201
+        - condition: "$statusCode == 201"
         outputs:
-          provider_id: $response.body#/id
+          provider_id: "$response.body#/id"
       - stepId: status
         operationId: getPayoutStatus
         parameters:
         - name: payout_id
           in: path
-          value: $steps.create.outputs.provider_id
+          value: "$steps.create.outputs.provider_id"
         successCriteria:
-        - condition: $statusCode == 200
+        - condition: "$statusCode == 200"
         outputs:
-          provider_status: $response.body#/status
+          provider_status: "$response.body#/status"
       outputs:
-        provider_id: $steps.create.outputs.provider_id
-        provider_status: $steps.status.outputs.provider_status
+        provider_id: "$steps.create.outputs.provider_id"
+        provider_status: "$steps.status.outputs.provider_status"

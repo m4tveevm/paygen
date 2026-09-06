@@ -46,7 +46,7 @@ module Paygen
                 '## Authentication', '', *authentication_lines,
                 '', '## Request mappings and parameters', '',
                 'Mappings below are explicit reviewed profile facts. Required path, query and header parameters are validated before transport.', '',
-                '```json', Paygen.json(@config.slice('request_encoding', 'request_mapping', 'parameter_mapping')).rstrip, '```', '',
+                '```json', Paygen.json(@config.slice('request_encoding', 'request_mapping', 'request_variants', 'parameter_mapping')).rstrip, '```', '',
                 '## Amounts', '', "Input unit: #{cell(@config.dig('amount', 'input_unit') || 'major')}. Scale: #{cell(@config.dig('amount', 'scale'))}.",
                 "Allowed currencies: #{cell(Array(@config.dig('amount', 'currencies')).join(', '))}.",
                 "Minimum provider units: #{cell(@config.dig('amount', 'minimum'))}; maximum: #{cell(@config.dig('amount', 'maximum') || 'not declared')}.",
@@ -58,7 +58,8 @@ module Paygen
                 '```json', Paygen.json(@config.fetch('idempotency', {})).rstrip, '```', '',
                 'Keep the same operation identity after timeouts. A timeout may mean the provider committed the operation. Reconcile status before deciding whether another create request is safe.',
                 'The reconcile_before_retry strategy with no header does not claim provider-side deduplication: known successes are cached locally and ambiguous creates require reconciliation.',
-                'The default state store is process-local. Supply a durable synchronized state store and coordinate workers before relying on recovery across restarts.', '',
+                'The default state store is process-local. Supply a durable synchronized state store and coordinate workers before relying on recovery across restarts.',
+                'An injected/shared state_store requires a stable integration_namespace (or account). It is deliberately rejected before the first outbound write when neither identity is available; credentials and Ruby object identity are not isolation boundaries.', '',
                 '## Webhooks', '', *callback_lines, '',
                 '## Errors', '', '| Scope | HTTP | Classification | Action |', '| --- | --- | --- | --- |']
       errors = @config.fetch('errors', {})

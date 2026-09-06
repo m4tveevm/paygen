@@ -708,14 +708,89 @@ RSpec.describe Paygen::Runtime::Adapter do
   it 'retains strict create reservations across adapters sharing a state store and does not unlock on 404' do
     config['idempotency'] = { 'strategy' => 'reconcile_before_retry', 'header' => nil, 'from' => 'id' }
     store = Paygen::Runtime::MemoryStateStore.new
-    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, state_store: store)
+    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, state_store: store,
+                             integration_namespace: 'merchant-a')
     expect(transport).to receive(:request).once.and_return(response({}, status: 429, headers: { 'Retry-After' => '1' }))
     expect(adapter.create_request(operation).dig('error')).to include('retryable' => false, 'action' => 'reconcile_before_retry')
-    another = adapter.class.new(credentials: { api_key: 'new-key' }, transport: transport, state_store: store)
+    another = adapter.class.new(credentials: { api_key: 'new-key' }, transport: transport, state_store: store,
+                                integration_namespace: 'merchant-a')
     expect(another.create_request(operation).dig('error', 'code')).to eq('reconciliation_required')
     expect(transport).to receive(:request).once.and_return(response({}, status: 404))
     expect(another.fetch_status(operation.merge('provider_operation_id' => 'p-1')).dig('error', 'code')).to eq('not_found')
     expect(another.create_request(operation).dig('error', 'code')).to eq('reconciliation_required')
+  end
+
+
+  it 'fails before dispatch when an external store has no stable integration identity' do
+    store = Paygen::Runtime::MemoryStateStore.new
+    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, state_store: store)
+    expect(transport).not_to receive(:request)
+    expect(adapter.create_request(operation).dig('error', 'reason')).to include('integration_namespace')
+  end
+
+  it 'isolates identical merchant operation IDs by explicit integration namespace' do
+    store = Paygen::Runtime::MemoryStateStore.new
+    expect(transport).to receive(:request).twice.and_return(
+      response({ 'id' => 'provider-a', 'status' => 'pending' }),
+      response({ 'id' => 'provider-b', 'status' => 'pending' })
+    )
+    first = adapter.class.new(credentials: { api_key: 'key-a' }, transport: transport, state_store: store,
+                              integration_namespace: 'integration-a')
+    second = adapter.class.new(credentials: { api_key: 'key-b' }, transport: transport, state_store: store,
+                               integration_namespace: 'integration-b')
+    expect(first.create_request(operation)['provider_id']).to eq('provider-a')
+    expect(second.create_request(operation)['provider_id']).to eq('provider-b')
+  end
+
+  it 'preserves BigDecimal result values across the success cache round trip' do
+    config['response']['amount'] = 'amount'
+    expect(transport).to receive(:request).once.and_return(
+      { status: 200, headers: {}, body: '{"id":"p-1","status":"pending","amount":12.34}' }
+    )
+    first = adapter.create_request(operation)
+    cached = adapter.create_request(operation)
+    expect(cached.dig('data', 'amount')).to be_a(BigDecimal)
+    expect(cached.dig('data', 'amount')).to eq(first.dig('data', 'amount'))
+  end
+
+  it 'applies distinct nonterminal callbacks even when both map to in_progress' do
+    config['callback']['events']['payout.processing'] = 'processing'
+    applied = []
+    adapter.define_singleton_method(:paygen_callback_result) do |result, payload|
+      applied << payload['event']
+      result
+    end
+    expect(deliver(callback(status: 'pending', sequence: 1, event_id: 'pending-1'))['status']).to eq('in_progress')
+    expect(deliver(callback(status: 'processing', sequence: 2, event_id: 'processing-2'))['status']).to eq('in_progress')
+    expect(applied).to eq(%w[payout.pending payout.processing])
+  end
+
+  it 'selects exactly one declarative recipient variant' do
+    config['request_mapping'].delete('recipient.phone')
+    config['request_mapping'].delete('recipient.bank_code')
+    config['request_variants'] = {
+      'create' => [
+        { 'when_present' => 'payout_requisite.sbp', 'mapping' => {
+          'recipient.type' => { 'value' => 'sbp' }, 'recipient.phone' => { 'from' => 'payout_requisite.sbp.phone' },
+          'recipient.bank_code' => { 'from' => 'payout_requisite.sbp.bank_code' }
+        } },
+        { 'when_present' => 'payout_requisite.card', 'mapping' => {
+          'recipient.type' => { 'value' => 'card' }, 'recipient.phone' => { 'from' => 'payout_requisite.card.phone' },
+          'recipient.card_number' => { 'from' => 'payout_requisite.card.card_number' }
+        } }
+      ]
+    }
+    config['endpoints']['create'].delete('request_schema')
+    expect(transport).to receive(:request) do |**request|
+      expect(JSON.parse(request[:body])['recipient']).to eq(
+        'type' => 'card', 'phone' => '79001234567', 'card_number' => '4111111111111111'
+      )
+      response({ 'id' => 'p-card', 'status' => 'pending' })
+    end
+    card = operation.merge('payout_requisite' => { 'card' => {
+      'phone' => '79001234567', 'card_number' => '4111111111111111'
+    } })
+    expect(adapter.create_request(card)['success']).to be(true)
   end
 
   it 'preserves false values in explicit boolean parameter mappings' do

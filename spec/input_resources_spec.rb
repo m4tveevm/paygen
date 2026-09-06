@@ -92,6 +92,23 @@ RSpec.describe Paygen::Core::Input, 'OpenAPI 3.1 schema resources' do
     expect { described_class.graph(document) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('REF_ID_DUPLICATE') }
   end
 
+
+  it 'uses the real root filename when a relative ref points back to it' do
+    Dir.mktmpdir do |dir|
+      main = Marshal.load(Marshal.dump(document))
+      main['components']['schemas']['Recipient'] = recipient
+      main['paths']['/transfers']['post']['requestBody']['content']['application/json']['schema'] = {
+        '$ref' => 'wrapper.yaml#/Recipient'
+      }
+      File.write(File.join(dir, 'main.yaml'), YAML.dump(main))
+      File.write(File.join(dir, 'wrapper.yaml'), YAML.dump(
+        'Recipient' => { '$ref' => 'main.yaml#/components/schemas/Recipient' }
+      ))
+
+      expect { described_class.load(File.join(dir, 'main.yaml')) }.not_to raise_error
+    end
+  end
+
   it 'ignores resource-shaped literal examples, defaults and schema property names' do
     recipient['properties']['$id'] = { 'type' => 'string' }
     recipient['examples'] = [{ '$id' => transfer['$id'], '$anchor' => 'Recipient', '$ref' => 'https://untrusted.example/data' }]

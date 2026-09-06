@@ -12,14 +12,14 @@
   "notes": [
     "openapi.yaml is a byte-for-byte copy of the supplied provider_api.yaml.",
     "NovaPay is the fictional hackathon provider, not an asserted real payment API.",
-    "Corrections live only in overlay.yaml: SBP-only recipient contract; response identity required; open error-code domain.",
+    "Corrections live only in overlay.yaml: explicit SBP/card recipient variants; response identity required; open error-code domain.",
     "Hex signature encoding is an explicit mock integration decision; the supplied description only says HMAC-SHA256. No provider event ID or timestamp is invented."
   ],
   "files_sha256": {
     "fixtures.json": "06712808536c652f1582d0bc856ca4cd2bc7dc5ca2d6c0e7403ac9bc2cc245b4",
-    "integration.yml": "18de7152dac7b4c75e842ac50448427b6bb2a6f5dc40d2d8afc9fdecd1c90962",
+    "integration.yml": "9215272fe2d9399ea721191d0be630ddd1d21ecb41b3aa7e6bfb501e514d2af5",
     "openapi.yaml": "415f50ee36fb331dfab49ceed0e8ed3b0ebe16053d7e00dbabd32282f4396551",
-    "overlay.yaml": "63b8644ebb3cf1d38f9112dbbddf57a8249e9dccf00b30450a63319821cafc69",
+    "overlay.yaml": "10b69823d5f0ae327229c7d918c453c73c57aa940f3526f97e311f004afbc0e1",
     "scenarios.yml": "a96b8437483e166d4affd31b0bb134c97dd58c4cfa3278db17be65648765686f",
     "workflows/payout.arazzo.yaml": "f057dfecfd5a8cbed4fed4d8003d86eb2805332f9c929d7488b97ca675d41380"
   }

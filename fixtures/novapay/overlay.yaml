@@ -1,24 +1,21 @@
 overlay: 1.1.0
 info:
-  title: NovaPay SBP contract correction
+  title: NovaPay recipient variant contract correction
   version: 1.0.0
 actions:
-- target: $.components.schemas.Recipient.required
-  remove: true
 - target: $.components.schemas.Recipient
   update:
-    required:
-    - type
-    - phone
-    - bank_code
-- target: $.components.schemas.Recipient.properties.type.enum
-  remove: true
-- target: $.components.schemas.Recipient.properties.type
-  update:
-    enum:
-    - sbp
-- target: $.components.schemas.Recipient.properties.card_number
-  remove: true
+    oneOf:
+    - type: object
+      properties:
+        type: {enum: [sbp]}
+      required: [bank_code]
+      not: {required: [card_number]}
+    - type: object
+      properties:
+        type: {enum: [card]}
+      required: [card_number]
+      not: {required: [bank_code]}
 - target: $.components.schemas.PayoutResponse
   update:
     required:

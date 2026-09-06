@@ -433,6 +433,22 @@ RSpec.describe Paygen::Core::Workflow do
     expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_UNSUPPORTED') }
   end
 
+
+  it 'rejects missing implicit step outputs before the first provider request' do
+    create_step['requestBody']['payload']['reference'] = '$steps.missing.outputs.id'
+    expect(transport).not_to receive(:request)
+    expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) do |error|
+      expect(error.code).to eq('ARAZZO_EXPRESSION')
+      expect(error.message).to include('missing.id')
+    end
+  end
+
+  it 'rejects cycles formed only by implicit output references before dispatch' do
+    create_step['requestBody']['payload']['reference'] = '$steps.status.outputs.state'
+    expect(transport).not_to receive(:request)
+    expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_DEPENDENCY') }
+  end
+
   it 'rejects XPath payload replacements in a later step before creating a payout' do
     status_step['requestBody'] = { 'payload' => {}, 'replacements' => [{ 'targetSelectorType' => { 'type' => 'xpath', 'version' => 'xpath-30' }, 'target' => '/x', 'value' => '$inputs.amount' }] }
     expect(transport).not_to receive(:request)

@@ -22,12 +22,18 @@ request_mapping:
     from: currency
   external_id:
     from: id
-  recipient.type:
-    value: sbp
-  recipient.phone:
-    from: payout_requisite.sbp.phone
-  recipient.bank_code:
-    from: payout_requisite.sbp.bank_code
+request_variants:
+  create:
+  - when_present: payout_requisite.sbp
+    mapping:
+      recipient.type: { value: sbp }
+      recipient.phone: { from: payout_requisite.sbp.phone }
+      recipient.bank_code: { from: payout_requisite.sbp.bank_code }
+  - when_present: payout_requisite.card
+    mapping:
+      recipient.type: { value: card }
+      recipient.phone: { from: payout_requisite.card.phone }
+      recipient.card_number: { from: payout_requisite.card.card_number }
 parameter_mapping:
   status:
     payout_id: provider_id

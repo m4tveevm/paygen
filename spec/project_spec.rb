@@ -23,10 +23,11 @@ RSpec.describe 'Project generation lifecycle' do
     expect(klass::PAYGEN_CONFIG).to eq(config)
   end
 
-  it 'retains internal refs until overlays correct their shared schema' do
+  it 'retains internal refs until overlays add recipient variant conditions' do
     pinned = Paygen::Core::Input.read(project.path('source/openapi.json'))
     expect(pinned.dig('paths', '/payouts', 'post', 'requestBody', 'content', 'application/json', 'schema')).to have_key('$ref')
-    expect(project.ir.config.dig('endpoints', 'create', 'request_schema', 'properties', 'recipient', 'required')).to include('bank_code')
+    recipient = project.ir.config.dig('endpoints', 'create', 'request_schema', 'properties', 'recipient')
+    expect(recipient.fetch('oneOf').map { |variant| variant.fetch('required') }).to contain_exactly(['bank_code'], ['card_number'])
   end
 
   it 'refuses to overwrite generated manual edits and preserves them' do

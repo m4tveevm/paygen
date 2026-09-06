@@ -160,9 +160,10 @@ RSpec.describe 'Offline provider golden packs' do
     end
   end
 
-  it 'applies the NovaPay SBP contract correction without modifying the pinned source' do
+  it 'applies NovaPay recipient variant conditions without modifying the pinned source' do
     with_adapter('novapay') do |adapter, fixture, _requests, project|
-      expect(project.effective_document.dig('components', 'schemas', 'Recipient', 'required')).to include('bank_code')
+      variants = project.effective_document.dig('components', 'schemas', 'Recipient', 'oneOf')
+      expect(variants.map { |variant| variant.fetch('required') }).to contain_exactly(['bank_code'], ['card_number'])
       operation = Marshal.load(Marshal.dump(fixture.fetch('operation')))
       operation.fetch('payout_requisite').fetch('sbp').delete('bank_code')
       expect(adapter.create_request(operation).dig('error', 'code')).to eq('validation_error')

@@ -23,7 +23,7 @@ module Paygen
         end
         inferred = infer([vendor, recipe, profile, overrides])
         @profile = [vendor, recipe, profile, overrides].reduce(inferred) { |memo, layer| Paygen.deep_merge(memo, layer) }
-        %w[operations request_mapping status_mapping amount response idempotency auth callback errors parameter_mapping].each do |key|
+        %w[operations request_mapping request_variants status_mapping amount response idempotency auth callback errors parameter_mapping].each do |key|
           next unless @profile.key?(key)
           unless @profile[key].is_a?(Hash)
             raise Error.new("#{key} must be an object", code: 'INVALID_PROFILE', exit_code: 3)
@@ -261,6 +261,11 @@ module Paygen
             diagnostic('INVALID_MAPPING', 'Each mapping declares exactly one source field or literal value', "request_mapping.#{target}")
           end
         end
+        profile.fetch('request_variants', {}).each do |role, variants|
+          unless variants.is_a?(Array) && variants.all? { |variant| valid_request_variant?(variant) }
+            diagnostic('INVALID_MAPPING', 'Request variants require when_present and a valid mapping', "request_variants.#{role}")
+          end
+        end
         if operation_map['callback']
           signature = profile.dig('callback', 'signature')
           if !signature.is_a?(Hash) || !signature['algorithm'].is_a?(String) || signature['algorithm'].empty?
@@ -290,6 +295,14 @@ module Paygen
         statuses = profile['status_mapping']
         if statuses.is_a?(Hash) && statuses.values.any? { |status| !%w[in_progress approved rejected reversed unknown].include?(status) }
           diagnostic('INVALID_STATUS_MAP', 'Target statuses must be canonical payout states', 'status_mapping')
+        end
+      end
+
+      def valid_request_variant?(variant)
+        return false unless variant.is_a?(Hash) && variant['when_present'].is_a?(String) && variant['mapping'].is_a?(Hash)
+
+        variant['mapping'].all? do |_target, rule|
+          rule.is_a?(Hash) && (rule.key?('from') ^ rule.key?('value')) && (!rule.key?('from') || rule['from'].is_a?(String))
         end
       end
 

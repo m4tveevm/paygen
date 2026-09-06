@@ -54,7 +54,8 @@ RSpec.describe 'Payment guarantees against an independent provider' do
 
   def build_adapter(transport)
     adapter_class.new(transport: transport, state_store: store,
-                      credentials: { callback_secret: 'test-callback-secret' }, clock: -> { clock_time.first })
+                      credentials: { callback_secret: 'test-callback-secret' }, clock: -> { clock_time.first },
+                      integration_namespace: 'independent-merchant')
   end
 
   def payout_response(status: 'pending', id: 'p-1', extra: {}, http_status: 200)

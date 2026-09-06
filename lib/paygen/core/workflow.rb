@@ -70,6 +70,7 @@ module Paygen
             validate_workflow_reference!(step['workflowId']) if step['workflowId']
             validate_operation_reference!(step)
           end
+          validate_static_step_outputs!(workflow)
           dependency_order(workflow)
           validate_capabilities!(workflow, require_sources: false)
         end
@@ -164,6 +165,8 @@ module Paygen
         visited[identity] = true
         workflow = find_workflow(workflow_id)
         validate_capabilities!(workflow, require_sources: true)
+        validate_static_step_outputs!(workflow)
+        dependency_order(workflow)
         workflow_references(workflow).each do |reference|
           runner, target = workflow_target(reference)
           runner.validate! unless runner.equal?(self)
@@ -353,7 +356,8 @@ module Paygen
         ordered = []
         until remaining.empty?
           ready = remaining.index do |step|
-            step.fetch('dependsOn', []).all? do |reference|
+            dependencies = step.fetch('dependsOn', []) + implicit_step_references(step).map(&:first)
+            dependencies.uniq.all? do |reference|
               local = local_dependency(workflow, reference)
               !local || ordered.any? { |candidate| candidate['stepId'] == local }
             end
@@ -362,6 +366,25 @@ module Paygen
           ordered << remaining.delete_at(ready)
         end
         ordered
+      end
+
+      def validate_static_step_outputs!(workflow)
+        declared = workflow.fetch('steps').to_h { |step| [step['stepId'], step.fetch('outputs', {}).keys] }
+        values = [workflow.fetch('outputs', {})] + workflow.fetch('steps').map do |step|
+          step.reject { |key, _value| %w[stepId outputs].include?(key) }
+        end
+        values.flat_map { |value| implicit_step_references(value) }.each do |step_id, output|
+          invalid('ARAZZO_EXPRESSION', "Unknown step output #{step_id}.#{output}") unless declared.fetch(step_id, []).include?(output)
+        end
+      end
+
+      def implicit_step_references(value)
+        case value
+        when Hash then value.values.flat_map { |child| implicit_step_references(child) }
+        when Array then value.flat_map { |child| implicit_step_references(child) }
+        when String then value.scan(/\$steps\.([\w-]+)\.outputs\.([A-Za-z0-9_~%-]+)/)
+        else []
+        end
       end
 
       def local_dependency(workflow, reference)
