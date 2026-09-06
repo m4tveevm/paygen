@@ -18,7 +18,8 @@ not provider sandbox acceptance.
 ## NovaPay synthetic artifacts
 
 The documentation build creates these files by running the same Ruby
-`Paygen::Generator` used by the CLI. They are not handwritten copies:
+`Paygen::Generator` used by the CLI, then redacts long payment identifiers for
+publication. They are not handwritten copies:
 
 - <a href="downloads/novapay/INTEGRATION.md" download>INTEGRATION.md</a>
 - <a href="downloads/novapay/fixtures.json" download>fixtures.json</a>
@@ -40,6 +41,12 @@ in downloads. These checks supplement human review; they are not a proof that
 arbitrary uploaded data is safe to publish. Downloads are built from the pinned
 NovaPay case fixture, never from user uploads. Generate a complete project locally
 when you need the Ruby adapter or effective OpenAPI contract.
+
+Published samples may contain `[REDACTED]`, including the synthetic card number
+from the original case. They are documentation, not executable wire fixtures.
+Generate locally to obtain unchanged synthetic test inputs. The download manifest
+records original generated hashes and published hashes separately, with the
+publication transform identifier; the runtime and source contract are not changed.
 
 ## Updating the catalog
 
