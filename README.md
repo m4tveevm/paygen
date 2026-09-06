@@ -95,6 +95,12 @@ distributed with the adapter; GitHub Pages is an optional host for the Paygen ma
 
 ## Development
 
+For an automated presentation with saved evidence, run
+`examples/showcase/run tmp/showcase` after installing Ruby dependencies. It
+demonstrates four local profiles, contract adaptation and a deliberate fuzz
+failure → shrink → replay → fixed replay. See the
+[presenter guide](examples/showcase/README.md) for scope and prerequisites.
+
 ```bash
 bundle exec rspec
 script/smoke
