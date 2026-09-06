@@ -2,7 +2,9 @@
   "name": "paygen-docs",
   "private": true,
   "scripts": {
-    "docs:build": "node --require ./script/diplodoc-compat.cjs ./node_modules/@diplodoc/cli/build/index.js -i docs -o docs/_build",
+    "docs:render": "node script/docs-clean.cjs && node --require ./script/diplodoc-compat.cjs ./node_modules/@diplodoc/cli/build/index.js -i docs -o docs/_build",
+    "docs:build": "npm run docs:render && bundle exec ruby script/docs_provider_assets.rb docs/_build && node script/docs-site-check.cjs docs/_build /paygen/",
+    "docs:check": "node script/docs-site-check.cjs docs/_build /paygen/",
     "docs:test": "node --require ./script/diplodoc-compat.cjs --test ./script/diplodoc-compat.test.cjs"
   },
   "devDependencies": {
