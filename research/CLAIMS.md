@@ -1,5 +1,11 @@
 # Реестр утверждений
 
+Исторический реестр baseline `92ef59bc2c8eb102c7452136ee4ea8a46887fd52`: пути
+и номера строк ниже относятся к этому снимку, а не к текущему дереву. Текущий
+Ruby-код и тесты находятся в `src/lib/` и `src/spec/`; команды повторного запуска
+приведены в [EXPERIMENTS.md](EXPERIMENTS.md) и
+[development guide](../docs/content/development.md).
+
 | claim_id | Формулировка | Тип | Источник / реализация | Evidence | Caveat |
 |---|---|---|---|---|---|
 | C01 | Основной продукт и generated service — Ruby; ML внутри продукта запрещён. | REQUIREMENT | [CASE], постановка роли | prompt summary | Разрешение developer-agent отдельно не доказано. |

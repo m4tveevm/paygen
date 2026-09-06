@@ -125,7 +125,7 @@ Showcase на clean `75e0331…` исполнил **150 PASS checks**, вклю�
 
 **Конструктивная валидность.** Большее число найденных ошибок после добавления stateful tests может быть следствием большего бюджета тестов. Нужен matched-budget stateless control. Coverage показывает исполненные строки/ветви, но не полноту бизнес-состояний. Успех локального HTTP запроса доказывает transport path, не перевод денег.
 
-**Воспроизводимость.** Seed и общий action budget обязательны; один seed не означает все состояния. Shrunk trace называется сокращённым, не минимальным. Timings зависят от CPU, filesystem, gem/npm cache и сети. Любой результат после merge должен быть повторён на merge SHA.
+**Воспроизводимость.** Seed и общий action budget обязательны; один seed не означает все состояния. Shrunk trace называется сокращённым, не минимальным. Timings зависят от CPU, filesystem, gem/pnpm cache и сети. Любой результат после merge должен быть повторён на merge SHA.
 
 **Threat model.** Spec/profile/Overlay/Arazzo считаются недоверенными данными. Парсеры имеют limits/timeouts; внешние refs и `servers` не должны инициировать сеть без отдельного разрешения. YAML не выполняет Ruby; extensions — доверенный user-owned код и загружаются host явно. Secrets, raw PAN/CVV и callback bodies не должны попадать в документацию или логи. Допустимы только помеченные синтетические cards; replay хранит fixture ID+version/hash, а не необратимо маскированный вход. HMAC проверяется до доверия payload; неизвестная signature encoding блокирует callback.
 
