@@ -84,6 +84,7 @@ module PaygenShowcase
         # A container build declaration is useful provenance, not a verified
         # checkout. Snapshot hashes identify the actual code independently.
         revision = ENV['PAYGEN_SOURCE_SHA']
+        revision = nil if revision.nil? || revision.empty? || revision == 'unknown'
         raise Failure, 'PAYGEN_SOURCE_SHA must be exactly 40 hexadecimal characters' if revision && !revision.match?(/\A[0-9a-fA-F]{40}\z/)
         dirty = ENV.fetch('PAYGEN_SOURCE_DIRTY', 'unknown')
         raise Failure, 'PAYGEN_SOURCE_DIRTY must be clean, dirty, unknown, 0 or 1' unless %w[clean dirty unknown 0 1].include?(dirty)
