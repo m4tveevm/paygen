@@ -81,7 +81,7 @@ and owned children are stopped. The two mutant failure reports correctly contain
 Using the repository's existing image, override its CLI entrypoint:
 
 ```bash
-docker build -t paygen-showcase .
+docker build -f src/Dockerfile -t paygen-showcase .
 mkdir -p tmp/container-showcase
 docker run --rm --network none \
   --mount type=bind,source="$PWD/tmp/container-showcase",target=/evidence \

@@ -22,7 +22,7 @@
     "Tests load the generated Ruby service and production HTTP transport with WebMock intercepting all network requests. No live provider call or settlement claim."
   ],
   "files_sha256": {
-    "README.md": "a286c64b55741e84d5118e941669be66dbb19b6c3d203d8084944d48d536c8ab",
+    "README.md": "56ef9004875eb79239530f9cbc4c80b7a9b215af36d89ff04a58a03adfe7ee65",
     "UPSTREAM-LICENSE": "1edd6ae0b9bf7f622c83dea2121e4343654d4a1cd932a9ff46eac2d8a45b3920",
     "openapi.yaml": "4427de6c07533f3d4e2202560f53f7d959b3b71f0a7a33f6d270b375fb0187d1",
     "oracle.json": "3ea8ecfcf373573548100bd290c75800082aff5a7d47362a9ca8391e976ebe52",
