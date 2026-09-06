@@ -1,5 +1,3 @@
-Источники: https://github.com/m4tveevm/paygen (project implementation); `provider_api.yaml` (organizer-supplied fictional NovaPay original, SHA-256 `415f50ee36fb331dfab49ceed0e8ed3b0ebe16053d7e00dbabd32282f4396551`).
-
 # Paygen
 
 [![CI](https://github.com/m4tveevm/paygen/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/m4tveevm/paygen/actions/workflows/ci.yml?query=branch%3Amain)
@@ -147,7 +145,7 @@ project's effective contract; the site's 404 page is only an error handler.
 ## Documentation
 
 - [Published Diplodoc manual](https://m4tveevm.github.io/paygen/).
-- [Seven-minute demo](docs/content/demo.md): commands and expected results for a walkthrough.
+- [Base run](docs/content/demo.md): generate an adapter and send a local payout.
 - [CLI reference](docs/content/cli.md): configuration, generation and exports.
 - [Native API onboarding](docs/content/native-onboarding.md): profiles and the API corpus.
 - [Provider catalog](docs/content/provider-catalog.md): evidence levels and generated synthetic downloads.

@@ -82,6 +82,40 @@ RSpec.describe 'Project generation lifecycle' do
     expect(File.read(project.path('source/openapi.json'))).to eq(before)
   end
 
+  it 'regenerates a moved HTTPS project with absolute root self-references without refetching' do
+    url = 'https://provider.example/openapi.json'
+    final_url = 'https://cdn.example/v2/openapi.json'
+    remote_document = Paygen::Core::Input.read(source)
+    rewrite_refs = lambda do |value|
+      case value
+      when Hash
+        value.transform_values.with_index do |child, _index|
+          child.is_a?(String) && child.start_with?('#/') ? final_url + child : rewrite_refs.call(child)
+        end
+      when Array then value.map { |child| rewrite_refs.call(child) }
+      else value
+      end
+    end
+    remote_document = rewrite_refs.call(remote_document)
+    allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+    allow(Resolv).to receive(:getaddresses).with('cdn.example').and_return(['93.184.216.35'])
+    stub_request(:get, url).to_return(status: 302, headers: { 'Location' => final_url })
+    stub_request(:get, final_url).to_return(body: JSON.generate(remote_document))
+    remote_project = Paygen::Project.init(url, output: File.join(@directory, 'remote'))
+    Paygen::Generator.new(remote_project).generate
+
+    moved = File.join(@directory, 'moved', 'integration')
+    FileUtils.mkdir_p(File.dirname(moved))
+    FileUtils.mv(remote_project.root, moved)
+    moved_project = Paygen::Project.new(moved)
+    expect { Paygen::Generator.new(moved_project).generate }.not_to raise_error
+    expect(moved_project.lock['source_uri']).to eq(url)
+    expect(File.read(moved_project.path('source/openapi.json'))).not_to include(url)
+    expect(File.read(moved_project.path('source/openapi.json'))).not_to include(final_url)
+    expect(WebMock).to have_requested(:get, url).once
+    expect(WebMock).to have_requested(:get, final_url).once
+  end
+
   it 'orders mixed JSON and YAML overlays globally during generation and update' do
     overlay = { 'overlay' => '1.1.0', 'info' => { 'title' => 'Version', 'version' => '1' },
                 'actions' => [{ 'target' => '$.info', 'update' => { 'version' => '1.5.0' } }] }
@@ -132,15 +166,27 @@ RSpec.describe 'Project generation lifecycle' do
       expect(generator.diff).to be_empty
     end
 
-    it 'uses a replacement URL as the persisted identity' do
+    it 'resolves redirected replacement refs while retaining the requested URL for overlays and the lock' do
       url = 'https://contracts.example.test/v2/openapi.json'
+      final_url = 'https://cdn.example/v3/openapi.json'
       document = Paygen::Core::Input.read(replacement)
-      allow(Paygen::Core::Input).to receive(:read).and_call_original
-      expect(Paygen::Core::Input).to receive(:read).with(url).and_return(document)
+      document['components']['schemas']['RedirectValue'] = { 'type' => 'string' }
+      document['components']['schemas']['RedirectAlias'] = { '$ref' => "#{final_url}#/components/schemas/RedirectValue" }
+      allow(Resolv).to receive(:getaddresses).with('contracts.example.test').and_return(['93.184.216.34'])
+      allow(Resolv).to receive(:getaddresses).with('cdn.example').and_return(['93.184.216.35'])
+      stub_request(:get, url).to_return(status: 302, headers: { 'Location' => final_url })
+      stub_request(:get, final_url).to_return(body: JSON.generate(document))
       project.write('overlays/900-identity.yaml', YAML.dump(source_overlay(url)))
       project.update(url)
       expect(project.lock['source_uri']).to eq(url)
       expect(project.effective_document.dig('info', 'version')).to eq('2.0.0')
+      expect(project.effective_document.dig('info', 'description')).to eq('Reviewed contract')
+      expect(project.effective_document.dig('components', 'schemas', 'RedirectAlias', '$ref')).to eq('#/components/schemas/RedirectValue')
+      project.configure(project.profile) # Explicitly accept the reviewed replacement contract.
+      generator.generate
+      expect(generator.diff).to be_empty
+      expect(WebMock).to have_requested(:get, url).once
+      expect(WebMock).to have_requested(:get, final_url).once
     end
 
     it 'restores the source if persisting its new identity fails' do

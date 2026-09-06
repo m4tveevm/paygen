@@ -5,7 +5,7 @@ a Ruby adapter, an integration guide and test examples. Its local simulator can
 exercise the adapter's retries, status changes and callbacks without contacting
 a payment provider.
 
-If this is your first visit, start with the [seven-minute demo](demo.md). You will
+If this is your first visit, start with the [base run](demo.md). You will
 configure and generate an integration, verify it, export its documentation and
 send requests with Bruno or curl.
 
@@ -34,7 +34,7 @@ effective contract. The verifier should report `"success": true` and
 
 | Task | Guide |
 | --- | --- |
-| Present a working integration | [Seven-minute demo](demo.md) |
+| Generate and run your first adapter | [Base run](demo.md) |
 | Look up commands and output files | [CLI reference](cli.md) |
 | Configure an unfamiliar payment API | [Native API onboarding](native-onboarding.md) |
 | Compare provider evidence and download generated samples | [Provider catalog](provider-catalog.md) |

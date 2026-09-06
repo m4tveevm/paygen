@@ -145,7 +145,7 @@ src/run cli verify "$PAYGEN_EXAMPLES_DIR/novapay" --target "http://127.0.0.1:$PA
 
 Expect `success: true` and `failed: 0`. Stop `serve` with Ctrl-C. For callback
 requests and timeout-after-commit behavior, continue with the
-[seven-minute demo](demo.md) and [Bruno collection](bruno-demo.md).
+[base run](demo.md) and [Bruno collection](bruno-demo.md).
 
 ## An ambiguous contract: an operator must decide
 
@@ -256,22 +256,3 @@ pnpm --dir docs run docs:build
 Determinism means identical pinned source, Overlay, profile, generator version
 and dependencies produce identical artifacts. A fixed seed reproduces simulator
 behavior; it does not predict responses from a live provider.
-
-## Refresh the terminal recordings
-
-The GIF renderer consumes a **successful** verifier evidence directory and never
-runs a payment command itself. Python with Pillow is optional and used only for
-recording; it is not a Ruby or documentation-build dependency. Install it in a
-separate environment, then substitute the path printed by the verifier:
-
-```bash
-python3 -m venv /tmp/paygen-recording-venv
-/tmp/paygen-recording-venv/bin/pip install -r docs/scripts/recording-requirements.txt
-/tmp/paygen-recording-venv/bin/python docs/scripts/record-examples.py \
-  tmp/docs-examples/run.REPLACE_WITH_VERIFIED_RUN --output tmp/new-recordings
-```
-
-The output directory must be new. By default the renderer uses the Linux DejaVu
-Sans Mono font; pass `--font /path/to/monospace.ttf` on another system. Review the
-GIFs and text transcripts before replacing `docs/content/media/dataset-examples/`.
-The checked-in recordings keep ordinary site builds independent of Python.

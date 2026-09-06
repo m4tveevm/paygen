@@ -2,7 +2,7 @@ title: Paygen
 items:
   - name: Overview
     href: index.md
-  - name: Seven-minute demo
+  - name: Base run
     href: demo.md
   - name: Run the datasets yourself
     href: dataset-walkthrough.md

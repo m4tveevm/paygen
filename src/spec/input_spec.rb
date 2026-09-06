@@ -84,6 +84,115 @@ RSpec.describe Paygen::Core::Input do
     end
   end
 
+  it 'makes an HTTPS root self-reference portable without authorizing external fetches' do
+    url = 'https://provider.example/openapi.json'
+    original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+      'Recipient' => { 'type' => 'string' },
+      'Wrapper' => { 'type' => 'object', 'properties' => {
+        'recipient' => { '$ref' => "#{url}#/components/schemas/Recipient" }
+      } }
+    } })
+    allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+    stub_request(:get, url).to_return(body: JSON.generate(original))
+
+    imported = described_class.load(url)
+    expect(imported.dig('components', 'schemas', 'Wrapper', 'properties', 'recipient', '$ref'))
+      .to eq('#/components/schemas/Recipient')
+    serialized = JSON.parse(JSON.generate(imported))
+    expect(described_class.resolve(serialized).dig('components', 'schemas', 'Wrapper', 'properties', 'recipient', 'type')).to eq('string')
+
+    external = original.dup
+    external['components'] = { 'schemas' => { 'Foreign' => { '$ref' => 'https://other.example/schema.json' } } }
+    expect { described_class.graph(external, source_uri: url) }.to raise_error(Paygen::Error) do |error|
+      expect(error.code).to eq('REF_EXTERNAL_DENIED')
+    end
+  end
+
+  %w[https://PROVIDER.example/openapi.json https://provider.example:443/unused/../openapi%2Ejson].each do |url|
+    it "canonicalizes retrieval identity for local and absolute refs from #{url}" do
+      original = document.merge('components' => { 'schemas' => {
+        'Value' => { 'type' => 'string' },
+        'Local' => { '$ref' => '#/components/schemas/Value' },
+        'Absolute' => { '$ref' => 'https://provider.example/openapi.json#/components/schemas/Value' }
+      } })
+      allow(Resolv).to receive(:getaddresses).with(URI.parse(url).hostname).and_return(['93.184.216.34'])
+      stub_request(:get, url).to_return(body: JSON.generate(original))
+
+      imported = described_class.load(url)
+      %w[Local Absolute].each do |name|
+        expect(imported.dig('components', 'schemas', name, '$ref')).to eq('#/components/schemas/Value')
+      end
+      expect(WebMock).to have_requested(:get, url).once
+    end
+  end
+
+  it 'uses the final redirect URL for absolute and relative self-references' do
+    url = 'https://provider.example/latest'
+    final_url = 'https://cdn.example/v2/openapi.json'
+    original = document.merge('components' => { 'schemas' => {
+      'Value' => { 'type' => 'string' },
+      'Absolute' => { '$ref' => "#{final_url}#/components/schemas/Value" },
+      'Relative' => { '$ref' => './openapi.json#/components/schemas/Value' }
+    } })
+    allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+    allow(Resolv).to receive(:getaddresses).with('cdn.example').and_return(['93.184.216.35'])
+    stub_request(:get, url).to_return(status: 302, headers: { 'Location' => 'https://cdn.example/current' })
+    stub_request(:get, 'https://cdn.example/current').to_return(status: 307, headers: { 'Location' => '/v2/openapi.json' })
+    stub_request(:get, final_url).to_return(body: JSON.generate(original))
+
+    imported = described_class.load(url)
+    %w[Absolute Relative].each do |name|
+      expect(imported.dig('components', 'schemas', name, '$ref')).to eq('#/components/schemas/Value')
+    end
+    expect(WebMock).to have_requested(:get, url).once
+    expect(WebMock).to have_requested(:get, 'https://cdn.example/current').once
+    expect(WebMock).to have_requested(:get, final_url).once
+  end
+
+  %w[3.0.3 3.1.0].each do |version|
+    it "canonicalizes HTTPS retrieval identities consistently for OAS #{version}" do
+      url = 'https://PROVIDER.EXAMPLE:443/specs/../%6fpenapi.json?version=%31'
+      original = document.merge('openapi' => version, 'components' => { 'schemas' => {
+        'Value' => { 'type' => 'string' },
+        'Local' => { '$ref' => '#/components/schemas/Value' },
+        'Absolute' => { '$ref' => 'https://provider.example/openapi.json?version=1#/components/schemas/Value' }
+      } })
+      imported = described_class.graph(original, source_uri: url)
+      %w[Local Absolute].each do |name|
+        expect(imported.dig('components', 'schemas', name, '$ref')).to eq('#/components/schemas/Value')
+      end
+      expect(described_class.resolve(imported).dig('components', 'schemas', 'Absolute', 'type')).to eq('string')
+    end
+
+    it "resolves absolute and relative self-references against the final redirect URL for OAS #{version}" do
+      url = 'https://provider.example/start.json'
+      final = 'https://cdn.example/specs/openapi.json'
+      original = document.merge('openapi' => version, 'components' => { 'schemas' => {
+        'Value' => { 'type' => 'string' },
+        'Absolute' => { '$ref' => "#{final}#/components/schemas/Value" },
+        'Relative' => { '$ref' => 'openapi.json#/components/schemas/Value' }
+      } })
+      allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+      allow(Resolv).to receive(:getaddresses).with('cdn.example').and_return(['93.184.216.34'])
+      stub_request(:get, url).to_return(status: 302, headers: { 'Location' => '/redirect.json' })
+      stub_request(:get, 'https://provider.example/redirect.json')
+        .to_return(status: 307, headers: { 'Location' => final })
+      stub_request(:get, final).to_return(body: JSON.generate(original))
+
+      imported = described_class.load(url)
+      %w[Absolute Relative].each do |name|
+        expect(imported.dig('components', 'schemas', name, '$ref')).to eq('#/components/schemas/Value')
+      end
+      expect(described_class.resolve(imported).dig('components', 'schemas', 'Relative', 'type')).to eq('string')
+      expect(WebMock).to have_requested(:get, final).once
+
+      original['components']['schemas']['Foreign'] = { '$ref' => 'other.json#/components/schemas/Value' }
+      stub_request(:get, final).to_return(body: JSON.generate(original))
+      expect { described_class.load(url) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('REF_EXTERNAL_DENIED') }
+      expect(WebMock).not_to have_requested(:get, 'https://cdn.example/specs/other.json')
+    end
+  end
+
   it 'uses one root document for filename and in-directory symlink aliases' do
     Dir.mktmpdir do |dir|
       source = File.join(dir, 'main.yaml')
@@ -251,6 +360,31 @@ RSpec.describe Paygen::Core::Input do
     stub_request(:get, 'https://provider.example/openapi.json').to_return(status: 302, headers: { 'Location' => 'https://metadata.internal/latest' })
     expect { described_class.load('https://provider.example/openapi.json') }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('SSRF_DENIED') }
     expect(WebMock).not_to have_requested(:get, 'https://metadata.internal/latest')
+  end
+
+  it 'does not authorize external refs in a redirected document' do
+    url = 'https://provider.example/latest'
+    original = document.merge('components' => { 'schemas' => {
+      'Foreign' => { '$ref' => 'https://other.example/schema.json' }
+    } })
+    allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+    stub_request(:get, url).to_return(status: 302, headers: { 'Location' => '/openapi.json' })
+    stub_request(:get, 'https://provider.example/openapi.json').to_return(body: JSON.generate(original))
+
+    expect { described_class.load(url) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('REF_EXTERNAL_DENIED') }
+    expect(WebMock).not_to have_requested(:get, 'https://other.example/schema.json')
+  end
+
+  it 'bounds redirect chains while preserving the text-only download API' do
+    url = 'https://provider.example/openapi.json'
+    allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+    stub_request(:get, url).to_return(body: JSON.generate(document))
+    expect(described_class.fetch_https(url)).to eq(JSON.generate(document))
+    expect(described_class.read(url)).to eq(document)
+
+    stub_request(:get, url).to_return(status: 302, headers: { 'Location' => url })
+    expect { described_class.load(url) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('INPUT_REDIRECTS') }
+    expect(WebMock).to have_requested(:get, url).times(6)
   end
 
   it 'rejects unsafe source URLs before a connection is made' do
