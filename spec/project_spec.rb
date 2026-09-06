@@ -193,6 +193,56 @@ RSpec.describe 'Project generation lifecycle' do
     expect { generator.export(output: output) }.to raise_error(Paygen::Error)
   end
 
+  it 'loads and executes the detached export without the source repository on its load path' do
+    generator.generate
+    output = File.join(@directory, 'detached-runtime')
+    generator.export(output: output)
+    repository = File.expand_path('..', __dir__)
+    script = <<~'RUBY'
+      require 'json'
+      exported, repository = ARGV
+      $LOAD_PATH.reject! { |path| File.expand_path(path).start_with?(repository + '/') }
+      # Bundler evaluates the source gemspec/version before this script, but no
+      # executable runtime/helper from that gem may satisfy the detached load.
+      source_runtime = -> { $LOADED_FEATURES.any? { |path| path.start_with?(repository + '/lib/paygen') && !path.end_with?('/paygen/version.rb') } }
+      raise 'source runtime was already loaded' if source_runtime.call
+      $LOAD_PATH.unshift(File.join(exported, 'lib'))
+      module Provider
+        class BaseService
+          def initialize(**options) = configure_paygen(**options)
+        end
+      end
+      load File.join(exported, 'novapay_service.rb')
+      operation = JSON.parse(STDIN.read)
+      requests = []
+      transport = Object.new
+      transport.define_singleton_method(:request) do |**request|
+        requests << request
+        { status: 201, headers: { 'Content-Type' => 'application/json' },
+          body: JSON.generate('id' => 'detached-1', 'external_id' => operation.fetch('id'),
+                              'status' => 'pending', 'amount' => 100000, 'currency' => 'RUB') }
+      end
+      adapter = Provider::NovaPayService.new(transport: transport, credentials: { api_key: 'synthetic-key' })
+      first = adapter.create_request(operation)
+      cached = adapter.create_request(operation)
+      raise 'source runtime leaked into detached execution' if source_runtime.call
+      puts JSON.generate('success' => first['success'] && cached['success'], 'duplicate' => cached['duplicate'],
+                         'requests' => requests.length, 'type' => JSON.parse(requests.first.fetch(:body)).dig('recipient', 'type'))
+    RUBY
+    card = JSON.parse(File.read(File.join(repository, 'fixtures/novapay/fixtures.json'))).fetch('card_operation')
+    out, err, status = Open3.capture3(RbConfig.ruby, '-e', script, output, repository,
+                                     stdin_data: JSON.generate(card), chdir: output)
+    expect(status.success?).to be(true), err
+    expect(JSON.parse(out)).to eq('success' => true, 'duplicate' => true, 'requests' => 1, 'type' => 'card')
+    # Negative control: a missing exported dependency must not fall back to the
+    # original repository or its installed source gem on this machine.
+    File.rename(File.join(output, 'lib/paygen/mapping_rule.rb'), File.join(output, 'lib/paygen/mapping_rule.disabled'))
+    _out, error, broken = Open3.capture3(RbConfig.ruby, '-e', script, output, repository,
+                                        stdin_data: JSON.generate(card), chdir: output)
+    expect(broken.success?).to be(false)
+    expect(error).to include('cannot load such file', 'mapping_rule')
+  end
+
   it 'rejects invalid workflows before generation or checking drift' do
     generator.generate
     project.write('workflows/payout.arazzo.yaml', 'arazzo: invalid')
