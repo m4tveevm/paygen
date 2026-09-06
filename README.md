@@ -83,6 +83,7 @@ requirements that need additional integration work.
 - [Seven-minute demo](docs/demo.md): commands and expected results for a walkthrough.
 - [CLI reference](docs/cli.md): configuration, generation and exports.
 - [Native API onboarding](docs/native-onboarding.md): profiles and the API corpus.
+- [Provider catalog](docs/provider-catalog.md): evidence levels and generated synthetic downloads.
 - [Bruno demo](docs/bruno-demo.md) and [Russian bank examples](docs/ru-bank-examples.md).
 - [Payment verification](docs/testing.md): seeded sequences, shrinking and replay.
 - [Architecture](docs/architecture.md), [supported scope](docs/scope.md) and [development](docs/development.md).
