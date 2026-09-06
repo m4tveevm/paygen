@@ -1,5 +1,10 @@
 # Paygen
 
+[![CI](https://github.com/m4tveevm/paygen/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/m4tveevm/paygen/actions/workflows/ci.yml?query=branch%3Amain)
+[![Docs — Diplodoc](https://img.shields.io/badge/docs-Diplodoc-blue)](https://m4tveevm.github.io/paygen/)
+
+[**Read the documentation →**](https://m4tveevm.github.io/paygen/)
+
 Paygen generates Ruby payout integrations from OpenAPI 3.0/3.1 and a configuration
 profile. It produces an adapter, integration documentation and test examples,
 then checks the adapter against a local provider simulator.
