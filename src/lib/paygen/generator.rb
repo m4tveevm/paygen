@@ -4,6 +4,7 @@ require 'rbconfig'
 require 'cgi'
 require 'bigdecimal'
 require_relative 'documentation'
+require_relative 'schema_example'
 
 module Paygen
   class Generator
@@ -14,22 +15,25 @@ module Paygen
 
     def render(draft: false, overrides: {})
       ir = project.ir(overrides: overrides)
-      algorithm = ir.profile.dig('callback', 'signature', 'algorithm')
-      if algorithm && !%w[hmac-sha256 stripe-v1 provider_verification].include?(algorithm)
-        ir.diagnostics << { 'code' => 'SIGNATURE_UNSUPPORTED', 'severity' => 'blocker',
-                            'message' => 'Unsupported callback verification algorithm', 'path' => 'callback.signature.algorithm' }
-      end
       blockers = ir.diagnostics.select { |item| item['severity'] == 'blocker' }
-      if blockers.any? && !draft
-        raise Error.new('Resolve semantic blockers before generation', code: 'SEMANTIC_BLOCKERS', exit_code: 4,
-                        details: { 'diagnostics' => blockers })
-      end
+      reject_generation!(blockers) if blockers.any? && !draft
+      require_relative 'runtime/adapter'
+      config_for_examples = { 'openapi' => ir.document['openapi'] }
+      normalizer = Class.new do
+        const_set(:PAYGEN_CONFIG, config_for_examples)
+        include Runtime::Adapter
+      end.new
+      @schema_builder = SchemaExample.new(normalize: ->(schema) { normalizer.send(:validation_schema, schema) })
+      documentation = Documentation.new(ir, example_builder: method(:schema_example))
+      generated_fixtures = documentation.fixtures
+      blockers = ir.diagnostics.select { |item| item['severity'] == 'blocker' }
+      reject_generation!(blockers) if blockers.any? && !draft
       config = ir.config
       config['draft'] = true if draft && blockers.any?
       files = {
         'config.json' => Paygen.json(config),
-        'INTEGRATION.md' => guide(ir),
-        'fixtures.json' => Paygen.json(exact_json_numbers(fixtures(ir))),
+        'INTEGRATION.md' => documentation.markdown,
+        'fixtures.json' => Paygen.json(exact_json_numbers(generated_fixtures)),
         'effective-openapi.json' => Paygen.json(ir.document),
         'provenance.json' => Paygen.json(ir.provenance),
         'diagnostics.json' => Paygen.json({ 'diagnostics' => ir.diagnostics })
@@ -64,7 +68,9 @@ module Paygen
                'generated' => files.to_h { |name, body| [name, Digest::SHA256.hexdigest(body)] },
                'overrides' => overrides, 'draft' => draft }
       project.replace_generated(files, lock)
-      { 'status' => 'generated', 'files' => files.keys.sort, 'draft' => draft }
+      { 'status' => 'generated', 'files' => files.keys.sort, 'draft' => draft,
+        'ready' => files.keys.any? { |name| name.end_with?('_service.rb') },
+        'diagnostics' => JSON.parse(files.fetch('diagnostics.json')).fetch('diagnostics') }
     end
 
     def diff
@@ -102,7 +108,7 @@ module Paygen
       runtime_source = File.expand_path('runtime', __dir__)
       FileUtils.mkdir_p(File.join(destination, 'lib/paygen'))
       FileUtils.cp_r(runtime_source, File.join(destination, 'lib/paygen/runtime'))
-      %w[mapping_rule.rb response_bindings.rb].each do |name|
+      %w[mapping_rule.rb response_bindings.rb capabilities.rb].each do |name|
         FileUtils.cp(File.expand_path(name, __dir__), File.join(destination, 'lib/paygen', name))
       end
       Dir.glob(project.path('extensions/**/*'), File::FNM_DOTMATCH).each do |file|
@@ -141,6 +147,12 @@ module Paygen
 
     private
 
+    def reject_generation!(blockers)
+      details = { 'diagnostics' => blockers }
+      details['previous_artifacts'] = 'stale; generation not updated' unless project.lock.fetch('generated', {}).empty?
+      raise Error.new('Resolve semantic or fixture blockers before generation', code: 'SEMANTIC_BLOCKERS', exit_code: 4, details: details)
+    end
+
     def exact_json_numbers(value)
       case value
       when Hash then value.transform_values { |child| exact_json_numbers(child) }
@@ -166,45 +178,8 @@ module Paygen
       RUBY
     end
 
-    def guide(ir)
-      Documentation.new(ir, example_builder: method(:schema_example)).markdown
-    end
-
-    def fixtures(ir)
-      Documentation.new(ir, example_builder: method(:schema_example)).fixtures
-    end
-
     def schema_example(schema, depth = 0)
-      return nil if depth > 16
-      return nil unless schema.is_a?(Hash)
-      if schema['allOf']
-        return schema['allOf'].reduce({}) do |memo, child|
-          example = schema_example(child, depth + 1)
-          example.is_a?(Hash) ? Paygen.deep_merge(memo, example) : memo
-        end
-      end
-      return schema_example((schema['oneOf'] || schema['anyOf']).first, depth + 1) if schema['oneOf'] || schema['anyOf']
-      return schema['example'] if schema.key?('example')
-      return schema['default'] if schema.key?('default')
-      return schema['enum'].first if schema['enum'].is_a?(Array)
-      if schema['properties']
-        schema['properties'].to_h { |key, value| [key, schema_example(value, depth + 1)] }.compact
-      elsif schema['type'] == 'array'
-        count = [schema.fetch('minItems', 1), 1].max
-        Array.new([count, 100].min) { schema_example(schema.fetch('items', {}), depth + 1) }
-      elsif schema['type'] == 'boolean'
-        false
-      elsif %w[number integer].include?(schema['type'])
-        schema.fetch('minimum', 0)
-      elsif schema['type'] == 'string'
-        return 'example@example.test' if schema['format'] == 'email'
-        return '2026-01-01T00:00:00Z' if schema['format'] == 'date-time'
-        return '00000000-0000-4000-8000-000000000001' if schema['format'] == 'uuid'
-        return 'https://example.test/' if %w[uri url].include?(schema['format'])
-        length = [schema.fetch('minLength', 1), 1].max
-        length = [length, schema['maxLength']].min if schema['maxLength']
-        'x' * [length, 10000].min
-      end
+      @schema_builder.call(schema, depth)
     end
 
     def cell(value)

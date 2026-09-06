@@ -89,6 +89,7 @@ RSpec.describe Paygen::Documentation do
                           'external' => { 'externalValue' => 'https://example.test/sample.json' } }
         } }]
       }))
+      project.configure(project.profile) # Explicitly review this authored contract variant.
       cases = JSON.parse(Paygen::Generator.new(project).render.fetch('fixtures.json')).dig('create', 'response_examples', '201')
       expect(cases.map { |item| item['name'] }).to include('first', 'second', 'external')
       expect(cases.find { |item| item['name'] == 'first' }).to include('value' => { 'status' => 'pending' })
@@ -133,6 +134,7 @@ RSpec.describe Paygen::Documentation do
           'application/vnd.example+json' => { 'schema' => { 'type' => 'boolean' }, 'examples' => { 'disabled' => { 'value' => false } } }
         } }]
       }))
+      project.configure(project.profile) # Explicitly review this authored contract variant.
       create = JSON.parse(Paygen::Generator.new(project).render.fetch('fixtures.json')).fetch('create')
       expect(create.fetch('request')).to be_a(Hash)
       expect(create.fetch('request_examples').find { |item| item['name'] == 'disabled' })
@@ -153,6 +155,7 @@ RSpec.describe Paygen::Documentation do
           { 'target' => '$.components.schemas.CreatePayoutRequest.properties.amount', 'update' => { 'type' => 'number', 'minimum' => 0 } }
         ]
       }))
+      project.configure(project.ir(review: false).profile) # Explicitly review this authored contract variant.
       json = Paygen::Generator.new(project).render.fetch('fixtures.json')
       value = JSON.parse(json, decimal_class: BigDecimal).dig('create', 'request', 'amount')
       expect(value).to eq(BigDecimal('90071992547409.93'))
@@ -169,6 +172,7 @@ RSpec.describe Paygen::Documentation do
           'mismatch' => { 'value' => { 'payout_id' => 'fixture-mismatch', 'external_id' => 'fixture', 'status' => 'completed', 'event' => 'payout.failed' } }
         } }]
       }))
+      project.configure(project.profile) # Explicitly review this authored contract variant.
       callback = JSON.parse(Paygen::Generator.new(project).render.fetch('fixtures.json')).fetch('callback')
       example = callback.fetch('cases').find { |item| item['name'] == 'mismatch' }
       expect(example).to include('signature_generated' => true, 'mapped_operation_status' => 'approved', 'expected_operation_status' => 'error')

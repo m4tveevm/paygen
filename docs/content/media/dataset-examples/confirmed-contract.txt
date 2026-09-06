@@ -50,7 +50,7 @@ Captured output / selected JSON fields:
 $ src/run cli demo "$PAYGEN_EXAMPLES_DIR/novapay" --seed 42 --port "$PAYGEN_DEMO_PORT"
 
 Captured output / selected JSON fields:
-Paygen adapter demo listening on http://127.0.0.1:45301
+Paygen adapter demo listening on http://127.0.0.1:42945
 
 ## 5. Create through the adapter
 

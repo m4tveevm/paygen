@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 require_relative '../mapping_rule'
 require_relative '../response_bindings'
+require_relative '../capabilities'
+require_relative 'profile_validation'
 module Paygen
   module Core
     # Provider-neutral, JSON-shaped representation of the effective contract.
@@ -38,6 +40,8 @@ module Paygen
           record_provenance(layer, '', origin)
         end
         validate_profile
+        ProfileValidation.new(profile, diagnostics).validate
+        validate_capabilities
         provenance.each do |path, fact|
           next unless path.start_with?('operations.', 'auth.') && fact['origin'] == 'inference'
           next if fact['value'].nil?
@@ -143,7 +147,7 @@ module Paygen
 
       def operation_metadata(path, method, operation, item, inbound, pointer)
         content = shallow(operation.fetch('requestBody', {})).fetch('content', {})
-        media_type = content.key?('application/json') ? 'application/json' : content.keys.first
+        media_type = Capabilities.request_media(content, encoding: @profile && @profile['request_encoding']) || content.keys.first
         {
           'operation_id' => operation['operationId'] || "#{method}:#{inbound ? pointer : path}",
           'method' => method.upcase, 'path' => path, 'inbound' => inbound, 'source_pointer' => pointer,
@@ -212,6 +216,9 @@ module Paygen
         end
         operation_map = profile['operations'].is_a?(Hash) ? profile['operations'].compact : {}
         diagnostic('CREATE_REQUIRED', 'Select the outgoing create operation', 'operations.create') unless operation_map['create']
+        if operation_map['callback'] && operation_map.any? { |role, id| role != 'callback' && id == operation_map['callback'] }
+          diagnostic('OPERATION_DIRECTION_CONFLICT', 'Select a separate inbound callback contract; an outgoing operation cannot also be the callback', 'operations.callback')
+        end
         operation_map.each do |role, operation_id|
           diagnostic('UNKNOWN_OPERATION', "Unknown operation selected for #{role}", "operations.#{role}") unless operations.any? { |op| op['operation_id'] == operation_id }
         end
@@ -232,7 +239,7 @@ module Paygen
         end
         authenticated = profile.dig('auth', 'type') && profile.dig('auth', 'type') != 'none'
         auth_type = profile.dig('auth', 'type')
-        if auth_type && !%w[none apiKey bearer basic oauth2 OAuth2].include?(auth_type)
+        if auth_type && !Capabilities::AUTH_TYPES.include?(auth_type)
           diagnostic('AUTH_UNSUPPORTED', 'Authentication requires an unsupported signing or authorization protocol', 'auth.type')
         end
         unless authenticated
@@ -315,6 +322,85 @@ module Paygen
         statuses = profile['status_mapping']
         if statuses.is_a?(Hash) && statuses.values.any? { |status| !%w[in_progress approved rejected reversed unknown].include?(status) }
           diagnostic('INVALID_STATUS_MAP', 'Target statuses must be canonical payout states', 'status_mapping')
+        end
+      end
+
+      def validate_capabilities
+        selected_ids = profile.fetch('operations', {}).compact.values
+        operations.each do |metadata|
+          selected = selected_ids.include?(metadata['operation_id'])
+          # Expansion of unrelated schemas is deliberately avoided.
+          operation = selected ? endpoint(metadata['operation_id']) : metadata
+          next unless operation
+          severity = selected ? 'blocker' : 'warning'
+          content = operation.fetch('request_content', {})
+          inbound = operation['inbound'] || profile.dig('operations', 'callback') == operation['operation_id']
+          supported = inbound ? content.key?('application/json') :
+            Capabilities.request_media(content, encoding: selected ? profile['request_encoding'] : nil)
+          unless content.empty? || supported
+            diagnostics << { 'code' => 'MEDIA_TYPE_UNSUPPORTED', 'severity' => severity,
+                             'message' => 'Select a supported JSON/form request contract; inbound callbacks require JSON',
+                             'path' => operation['source_pointer'] + '/requestBody/content' }
+          end
+          operation.fetch('responses', {}).each do |status, response|
+            response_content = shallow(response).fetch('content', {})
+            next if inbound || response_content.empty? || response_content.keys.any? { |media| Capabilities.json_media?(media) }
+            diagnostics << { 'code' => 'RESPONSE_MEDIA_TYPE_UNSUPPORTED', 'severity' => severity,
+                             'message' => 'Select a contract with JSON responses; other response decoders are unsupported',
+                             'path' => operation['source_pointer'] + "/responses/#{status}/content" }
+          end
+          next if inbound
+          requirements = operation.fetch('security', [])
+          next if requirements.empty?
+          satisfied = requirements.any? do |requirement|
+            requirement.empty? || (requirement.size == 1 && requirement.all? do |name, scopes|
+              scheme = shallow(document.dig('components', 'securitySchemes', name) || {})
+              selected ? security_matches?(scheme, scopes) : supported_security?(scheme)
+            end)
+          end
+          next if satisfied
+          diagnostics << { 'code' => 'SECURITY_REQUIREMENT_UNSUPPORTED', 'severity' => severity,
+                           'message' => selected ? 'Configure authentication matching one complete security alternative; combined schemes are unsupported' :
+                             'This operation has no supported single-scheme security alternative',
+                           'path' => operation['source_pointer'] + '/security' }
+        end
+        auth = profile.fetch('auth', {})
+        if auth['type'] == 'apiKey' && !Capabilities::API_KEY_LOCATIONS.include?(auth.fetch('in', 'header'))
+          diagnostic('AUTH_LOCATION_UNSUPPORTED', 'Use an API key in a header or query; cookie authentication is unsupported', 'auth.in')
+        end
+        if profile.key?('request_encoding') && !Capabilities::REQUEST_ENCODINGS.value?(profile['request_encoding'])
+          diagnostic('REQUEST_ENCODING_UNSUPPORTED', 'Choose json or form encoding for a matching contract media type', 'request_encoding')
+        end
+      end
+
+      def supported_security?(scheme)
+        case scheme['type']
+        when 'apiKey' then Capabilities::API_KEY_LOCATIONS.include?(scheme['in'])
+        when 'http' then %w[bearer basic].include?(scheme['scheme'].to_s.downcase)
+        when 'oauth2' then true
+        else false
+        end
+      end
+
+      def security_matches?(scheme, scopes)
+        return false unless supported_security?(scheme)
+        auth = profile.fetch('auth', {})
+        case scheme['type']
+        when 'apiKey'
+          name_matches = if scheme['in'] == 'header'
+                           auth.fetch('name', 'X-API-Key').to_s.casecmp?(scheme['name'].to_s)
+                         else
+                           auth['name'] == scheme['name']
+                         end
+          auth['type'] == 'apiKey' && auth.fetch('in', 'header') == scheme['in'] && name_matches
+        when 'http'
+          expected = scheme['scheme'].to_s.downcase
+          actual = auth['type'].to_s.downcase
+          actual == expected || (expected == 'bearer' && actual == 'oauth2')
+        when 'oauth2'
+          auth['type'].to_s.downcase == 'oauth2' && auth.fetch('scopes', []).is_a?(Array) &&
+            (scopes - auth.fetch('scopes', [])).empty?
+        else false
         end
       end
 

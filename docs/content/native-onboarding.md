@@ -34,11 +34,55 @@ to `null` to suppress inference or recipe defaults. Partial profiles can be save
 malformed structures are rejected. Generation requires all blocking questions
 to be resolved.
 
+## Saved decisions and changed contracts
+
+`integration.yml` contains editable values; `review.json` records versioned,
+per-field review evidence. It is an input to generation, owned by Paygen, and
+contains fingerprints of explicit values and the relevant effective contracts.
+Inferred operations and authentication stay `origin: inference` after `init` and
+reload. A bundled recipe is an explicit reviewed configuration supplied by the
+project, not a claim that the current developer has personally inspected it.
+This review concerns **integration settings**, never approval or OTP for a payment.
+
+The JSON report retains its existing fields. Each question also lists
+`pending_decisions`; project provenance adds `review_state` and `review_required`.
+States distinguish `inferred`, `confirmed`, `explicit-edit`, `explicit-override`,
+`stale`, and `legacy`. Inspecting a project does not write review evidence.
+
+Use `configure PROJECT --answers FILE` or `--set dotted.path=VALUE` to explicitly
+confirm only the supplied fields, including an unchanged value. Manual YAML/JSON
+profile edits also count as explicit choices while their relevant contract
+basis is unchanged. A source or overlay change affecting a selected endpoint,
+authentication scheme, or selected operation invalidates dependent decisions.
+Unrelated endpoints, unused security schemes and the API title do not reset them.
+For example, changing the create schema requires reviewing its mappings and
+amount settings, while an unchanged callback signature decision is retained.
+
+Apply overlays **before** confirming answers. After a contract/operation change,
+manual edits cannot silently renew old evidence: review the reported paths and
+reapply those fields through `configure`. Reading or regenerating does not
+confirm anything. Generation stops on `REVIEW_STALE`; existing generated files
+are retained but must not be treated as an updated service.
+
+Projects created before `review.json` existed have unknown review history and
+stop with `REVIEW_METADATA_REQUIRED`. Read their effective contract and existing
+profile, correct any old guesses, then explicitly reapply the reviewed file:
+
+```bash
+src/run cli configure /tmp/new-provider --answers /tmp/new-provider/integration.yml
+src/run cli generate /tmp/new-provider
+```
+
+Changing only a display name or confirming one field never approves the rest of
+a legacy profile. Keep `review.json` alongside the source, overlays and profile
+when moving a project; it contains local evidence, not an external authority or
+a security boundary against a developer deliberately editing metadata.
+
 ## Examples from full specifications
 
 | Example | Source size | Configured flow |
 | --- | --- | --- |
-| Paystack | 125 paths, 163 operations | Transfer to an existing recipient; OTP remains pending |
+| Paystack | 125 paths, 163 operations | Transfer to an existing recipient; `otp` maps to pending, with no OTP finalization |
 | PayPal | 4 paths, 4 operations | Single-item payout batch; settlement follows the matching item |
 | Raiffeisen | 20 paths with nested callbacks | Single-stage SBP payout without fiscalisation; exact ruble amounts and reconciliation |
 
@@ -170,8 +214,9 @@ key rotation; see [state and migration rules](architecture.md).
 ## Import corpus
 
 `fixtures/corpus/` records a snapshot of **21 API brands**, selected for varied
-formats and payment flows. **13 full contracts pass import**: PayPal, Adyen,
-Modern Treasury, Lithic, Paystack, Plaid, Yapily, ZBD, Circle, TransferZero,
+formats and payment flows. Its pinned report records **13 successful full-contract
+imports**: PayPal, Adyen, Modern Treasury, Lithic, Paystack, Plaid, Yapily, ZBD,
+Circle, TransferZero,
 Nomupay, Raiffeisen and T-Bank. Import success is separate from having an
 executable payment profile.
 

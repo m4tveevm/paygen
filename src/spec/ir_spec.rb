@@ -122,7 +122,7 @@ RSpec.describe Paygen::Core::IR do
     profile.delete('auth')
     document['components']['securitySchemes']['Other'] = { 'type' => 'apiKey', 'in' => 'header', 'name' => 'X-Key' }
     expect(ir.diagnostics.map { |item| item['code'] }).to include('AUTH_REQUIRED')
-    profile['auth'] = { 'type' => 'oauth2', 'credential' => 'access_token', 'scopes' => ['payouts:write'] }
+    profile['auth'] = { 'type' => 'oauth2', 'credential' => 'access_token', 'scopes' => %w[payouts:read payouts:write] }
     expect(ir.diagnostics).to be_empty
   end
 

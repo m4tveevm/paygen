@@ -102,3 +102,45 @@ a separately named report.
 CI retains verification logs, fuzz reports and Bruno JSON/JUnit reports, including
 failed runs. A successful retry of CI does not invalidate an earlier failure;
 use the saved responses and replay trace to investigate it.
+
+## Fixture validity and executable host proof
+
+```bash
+src/run exec ruby src/script/verify-fixtures.rb
+src/run exec ruby src/script/verify-fixtures-native-dialect.rb
+src/run exec ruby src/script/coverage-inventory.rb
+src/run exec ruby src/examples/host_bridge.rb tmp/host-proof
+```
+
+The host output directory must be new. The fixture gate checks all seven profiles,
+with explicit selected-operation and response/media coverage. It rechecks
+positive payloads and primary aliases against the effective schema using the
+runtime schema conversion, compares preserved upstream examples to their source
+pointers, and requires
+executable completed/failed NovaPay callbacks. No-body responses have named
+exceptions; an empty positive set cannot pass.
+
+The separate `verify-fixtures-native-dialect.rb` check validates the generated
+positive examples and primary aliases through JSONSchemer's OpenAPI dialect and
+source-schema references, without calling the runtime schema conversion. Both
+checks use JSONSchemer; the second provides an independent path for schema
+interpretation, not a different validation engine or provider sandbox proof.
+
+`origin` describes where a candidate came from; `suitability` describes its use.
+A schema-valid HTTP 409 error response can be a positive contract example.
+Schema-invalid upstream examples remain visible with `FIXTURE_SCHEMA_INVALID`
+warnings and cannot become primary aliases. A missing mandatory positive example
+produces `FIXTURE_UNRESOLVED`; normal generation fails, while a diagnostic draft
+contains no runnable service. `generate` reports `ready` and `diagnostics`.
+Configuration readiness is an earlier semantic check; generation additionally
+checks its deliverables before declaring them ready.
+
+Synthesis is bounded: depth 16, 64 candidates per node, 100 collection entries,
+10,000 characters and a shared work budget of 10,000 visits/validations. It handles
+supported structural constraints and finite money-string witnesses, not arbitrary
+regular expressions. Add a reviewed valid inline example when synthesis cannot
+satisfy a supported schema. Do not weaken the source schema to manufacture a pass.
+
+The [host proof](host-bridge.md) checks independent literal wire expectations and
+observable backend effects. It complements mocks and seeded fuzzing, which can
+otherwise share the same mistaken profile assumptions.
