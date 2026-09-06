@@ -1,0 +1,231 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'digest'
+require 'fileutils'
+require 'json'
+require 'open3'
+require 'openssl'
+require_relative '../lib/paygen'
+require_relative '../lib/paygen/runtime/adapter'
+require_relative '../spec/support/provider_harness'
+
+ROOT = File.expand_path('..', __dir__)
+REPORT = File.join(ROOT, 'acceptance/independent/reports/latest.json')
+
+# Finite, independent acceptance probes for the five baseline regressions.
+# rubocop:disable-next Metrics, Layout/LineLength, Style/MultilineBlockChain
+class IndependentAcceptance
+  def initialize
+    @cases = []
+  end
+
+  def check(id:, source:, severity:, expected:)
+    observed = yield
+    passed = observed.delete(:passed)
+    @cases << { id: id, source_requirement: source, severity: severity,
+                setup: 'independent fixture and injected transport; no provider network',
+                command: 'bundle exec ruby script/acceptance-independent', location: '.',
+                expected: expected, observed: observed, exit_code: passed ? 0 : 1,
+                test_artifact: 'acceptance/independent/reports/latest.json', verdict: passed ? 'PASS' : 'FAIL' }
+  rescue StandardError => e
+    @cases << { id: id, source_requirement: source, severity: severity,
+                setup: 'independent fixture and injected transport; no provider network',
+                command: 'bundle exec ruby script/acceptance-independent', location: '.',
+                expected: expected, observed: { exception: e.class.name, message: e.message }, exit_code: 1,
+                test_artifact: 'acceptance/independent/reports/latest.json', verdict: 'FAIL' }
+  end
+
+  def run
+    tenant_isolation
+    workflow_preflight
+    progress_events
+    decimal_cache
+    root_back_reference
+    write_report
+  end
+
+  private
+
+  def base_config
+    {
+      'provider' => 'independent-provider', 'mode' => 'sandbox',
+      'servers' => ['https://provider.example.test'],
+      'auth' => { 'type' => 'apiKey', 'name' => 'X-API-Key', 'credential' => 'api_key' },
+      'amount' => { 'scale' => 100, 'currencies' => ['RUB'] },
+      'request_mapping' => { 'reference' => { 'from' => 'id' },
+                             'amount' => { 'from' => 'amount', 'transform' => 'minor_units' },
+                             'currency' => { 'from' => 'currency' } },
+      'response' => { 'id' => 'id', 'status' => 'status' },
+      'status_mapping' => { 'pending' => 'in_progress', 'processing' => 'in_progress',
+                            'completed' => 'approved', 'failed' => 'rejected' },
+      'endpoints' => { 'create' => { 'method' => 'post', 'path' => '/payouts' },
+                       'callback' => { 'method' => 'post', 'path' => '/callbacks' } },
+      'callback' => { 'id' => 'id', 'status' => 'status', 'event_id' => 'event_id',
+                      'signature' => { 'algorithm' => 'hmac-sha256', 'header' => 'X-Signature',
+                                       'credential' => 'callback_secret' } }
+    }
+  end
+
+  def adapter_class(config, &extension)
+    Class.new(Provider::BaseService) do
+      include Paygen::Runtime::Adapter
+
+      class_eval(&extension) if extension
+    end.tap { |klass| klass.const_set(:PAYGEN_CONFIG, config) }
+  end
+
+  def operation
+    { 'id' => 'merchant-operation-1', 'amount' => '1000.00', 'currency' => 'RUB' }
+  end
+
+  def transport(requests, response_body = nil)
+    body = response_body || { 'id' => 'provider-1', 'status' => 'pending' }
+    Object.new.tap do |object|
+      object.define_singleton_method(:request) do |**request|
+        requests << request
+        { status: 201, headers: { 'Content-Type' => 'application/json' }, body: JSON.generate(body) }
+      end
+    end
+  end
+
+  def tenant_isolation
+    check(id: 'Q3-TENANT-NIL-001', source: '[PROJECT POLICY] Q3 tenant isolation', severity: 'P1',
+          expected: 'second unscoped integration is rejected before HTTP and never receives the first integration result') do
+      store = Paygen::Runtime::MemoryStateStore.new
+      requests = []
+      klass = adapter_class(base_config)
+      first = klass.new(credentials: { api_key: 'credential-a' }, state_store: store,
+                        transport: transport(requests)).create_request(operation)
+      second = klass.new(credentials: { api_key: 'credential-b' }, state_store: store,
+                         transport: transport(requests)).create_request(operation)
+      safe_second = second.except('data')
+      { passed: first['success'] == true && second.dig('error', 'code') == 'integration_identity_required' && requests.length == 1,
+        outbound_requests: requests.length, second_result: safe_second }
+    end
+  end
+
+  def workflow_preflight
+    check(id: 'Q5-PREFLIGHT-OUTPUT-001', source: '[PROJECT POLICY] Q5 workflow preflight', severity: 'P1',
+          expected: 'explicit and implicit missing output references raise a typed error before zero HTTP requests') do
+      api = { 'openapi' => '3.1.0', 'info' => { 'title' => 'Independent API', 'version' => '1' },
+              'servers' => [{ 'url' => 'https://provider.example.test' }],
+              'paths' => { '/payouts' => { 'post' => { 'operationId' => 'createPayout',
+                                                       'responses' => { '201' => { 'description' => 'Created' } } } },
+                           '/payouts/{id}' => { 'get' => { 'operationId' => 'getPayout',
+                                                           'parameters' => [{ 'name' => 'id', 'in' => 'path', 'required' => true,
+                                                                              'schema' => { 'type' => 'string' } }],
+                                                           'responses' => { '200' => { 'description' => 'OK' } } } } } }
+      base = { 'arazzo' => '1.1.0', 'info' => { 'title' => 'Independent workflow', 'version' => '1' },
+               'sourceDescriptions' => [{ 'name' => 'api', 'url' => 'provider.yaml', 'type' => 'openapi' }],
+               'workflows' => [{ 'workflowId' => 'payout', 'steps' => [
+                 { 'stepId' => 'create', 'operationId' => 'createPayout',
+                   'requestBody' => { 'contentType' => 'application/json', 'payload' => { 'reference' => 'merchant-1' } },
+                   'outputs' => { 'created_id' => '$response.body#/id' } },
+                 { 'stepId' => 'status', 'operationId' => 'getPayout',
+                   'parameters' => [{ 'name' => 'id', 'in' => 'path', 'value' => '$steps.missing.outputs.id' }] }
+               ] }] }
+      outcomes = %w[missing create].map do |step_id|
+        document = JSON.parse(JSON.generate(base))
+        document['workflows'][0]['steps'][1]['parameters'][0]['value'] = "$steps.#{step_id}.outputs.id"
+        calls = 0
+        injected = Object.new
+        injected.define_singleton_method(:request) do |**_request|
+          calls += 1
+          { status: 201, headers: {}, body: '{"id":"provider-1"}' }
+        end
+        begin
+          Paygen::Core::Workflow.new(document, sources: { 'api' => api }, transport: injected).run('payout')
+          { reference: step_id, error_code: nil, outbound_requests: calls }
+        rescue Paygen::Error => e
+          { reference: step_id, error_code: e.code, outbound_requests: calls }
+        end
+      end
+      { passed: outcomes.all? { |item| item[:error_code] == 'ARAZZO_OUTPUT_REF' && item[:outbound_requests].zero? },
+        probes: outcomes }
+    end
+  end
+
+  def progress_events
+    applied = []
+    extension = proc do
+      define_method(:paygen_callback_result) do |result, payload|
+        applied << [payload['event_id'], payload['status']]
+        result.merge('observed_marker' => payload['marker'])
+      end
+    end
+    check(id: 'Q4-PROGRESS-EVENT-001', source: '[CASE/Q&A] status mapping; [PROJECT POLICY] Q4 lifecycle', severity: 'P2',
+          expected: 'two distinct signed progress events are applied and the second event metadata is returned') do
+      config = base_config
+      klass = adapter_class(config, &extension)
+      adapter = klass.new(credentials: { api_key: 'unused', callback_secret: 'independent-secret' })
+      results = [%w[event-1 pending first], %w[event-2 processing second]].map do |event_id, status, marker|
+        payload = { 'id' => 'provider-1', 'event_id' => event_id, 'status' => status, 'marker' => marker }
+        raw = JSON.generate(payload)
+        signature = OpenSSL::HMAC.hexdigest('SHA256', 'independent-secret', raw)
+        adapter.process_callback(payload, raw_body: raw, headers: { 'X-Signature' => signature })
+      end
+      { passed: applied == [%w[event-1 pending], %w[event-2 processing]] && results.last['observed_marker'] == 'second' && !results.last.key?('ignored'),
+        applied_events: applied, second_result: results.last.except('data') }
+    end
+  end
+
+  def decimal_cache
+    check(id: 'Q2-DECIMAL-CACHE-001', source: '[PROJECT POLICY] Q2 exact money', severity: 'P2',
+          expected: 'first and cached response amount have the same type and exact decimal value') do
+      requests = []
+      klass = adapter_class(base_config)
+      adapter = klass.new(credentials: { api_key: 'synthetic-key' }, transport: transport(requests,
+                                                                                          { 'id' => 'provider-1',
+                                                                                            'status' => 'pending', 'amount' => 1000.25 }))
+      first = adapter.create_request(operation)
+      cached = adapter.create_request(operation)
+      first_amount = first.dig('data', 'amount')
+      cached_amount = cached.dig('data', 'amount')
+      { passed: first_amount.instance_of?(cached_amount.class) && first_amount.to_s('F') == '1000.25' && cached_amount.to_s('F') == '1000.25',
+        first_type: first_amount.class.name, cached_type: cached_amount.class.name,
+        first_value: first_amount.to_s, cached_value: cached_amount.to_s, outbound_requests: requests.length }
+    end
+  end
+
+  def root_back_reference
+    check(id: 'Q1-ROOT-BACKREF-001', source: '[PROJECT POLICY] Q1 local references', severity: 'P2',
+          expected: 'actual root filename back-reference resolves without REF_ID_DUPLICATE') do
+      path = File.join(ROOT, 'acceptance/independent/ref-root/openapi.yaml')
+      resolved = Paygen::Core::Input.resolve(Paygen::Core::Input.read(path), base_dir: File.dirname(path))
+      schema = resolved.dig('paths', '/payouts', 'post', 'requestBody', 'content', 'application/json', 'schema')
+      { passed: schema.dig('properties', 'reference', 'type') == 'string',
+        resolved_type: schema.dig('properties', 'reference', 'type') }
+    end
+  end
+
+  def write_report
+    sha, = Open3.capture2('git', 'rev-parse', 'HEAD', chdir: ROOT)
+    branch, = Open3.capture2('git', 'branch', '--show-current', chdir: ROOT)
+    status, = Open3.capture2('git', 'status', '--porcelain=v1', chdir: ROOT)
+    all_pass = @cases.all? { |item| item[:verdict] == 'PASS' }
+    report = {
+      schema_version: 1, role: '06', phase: 'QA-B',
+      status: all_pass ? 'READY_FOR_REVIEW' : 'BLOCKED_DEPENDENCY',
+      verdict: all_pass ? 'LOCAL_REGRESSION_SLICE_PASS' : 'LOCAL_RELEASE_NOT_READY',
+      base_sha: '92ef59bc2c8eb102c7452136ee4ea8a46887fd52', tested_sha: sha.strip,
+      branch: branch.strip, dirty_state: status.empty? ? 'clean' : 'dirty',
+      interface_version: 'baseline-92ef59b', dependencies_received: [],
+      environment: { ruby: RUBY_DESCRIPTION, os_architecture: RUBY_PLATFORM, network_mode: 'no provider network; injected transports only' },
+      totals: { cases: @cases.length, executed: @cases.length, passed: @cases.count { |item| item[:verdict] == 'PASS' },
+                failed: @cases.count { |item| item[:verdict] == 'FAIL' }, skipped: 0, blocked: 0 },
+      mutation_controls: { verdict: 'NOT_RUN', reason: 'not part of this baseline five-regression slice' },
+      cases: @cases,
+      exclusions: ['Q0 full fresh install/OCI', 'Q6 full fuzz and mutation controls', 'Q7 full demo/docs', 'QA-C', 'QA-D Pages'],
+      artifact_hashes: { root_fixture_sha256: Digest::SHA256.file(File.join(ROOT, 'acceptance/independent/ref-root/openapi.yaml')).hexdigest,
+                         child_fixture_sha256: Digest::SHA256.file(File.join(ROOT,
+                                                                             'acceptance/independent/ref-root/schemas/payout.yaml')).hexdigest }
+    }
+    FileUtils.mkdir_p(File.dirname(REPORT))
+    File.write(REPORT, "#{JSON.pretty_generate(report)}\n")
+    puts JSON.pretty_generate(report)
+    all_pass ? 0 : 1
+  end
+end
+
+exit IndependentAcceptance.new.run
