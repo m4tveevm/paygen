@@ -149,6 +149,50 @@ RSpec.describe Paygen::Core::Input do
     expect(WebMock).to have_requested(:get, final_url).once
   end
 
+  %w[3.0.3 3.1.0].each do |version|
+    it "canonicalizes HTTPS retrieval identities consistently for OAS #{version}" do
+      url = 'https://PROVIDER.EXAMPLE:443/specs/../%6fpenapi.json?version=%31'
+      original = document.merge('openapi' => version, 'components' => { 'schemas' => {
+        'Value' => { 'type' => 'string' },
+        'Local' => { '$ref' => '#/components/schemas/Value' },
+        'Absolute' => { '$ref' => 'https://provider.example/openapi.json?version=1#/components/schemas/Value' }
+      } })
+      imported = described_class.graph(original, source_uri: url)
+      %w[Local Absolute].each do |name|
+        expect(imported.dig('components', 'schemas', name, '$ref')).to eq('#/components/schemas/Value')
+      end
+      expect(described_class.resolve(imported).dig('components', 'schemas', 'Absolute', 'type')).to eq('string')
+    end
+
+    it "resolves absolute and relative self-references against the final redirect URL for OAS #{version}" do
+      url = 'https://provider.example/start.json'
+      final = 'https://cdn.example/specs/openapi.json'
+      original = document.merge('openapi' => version, 'components' => { 'schemas' => {
+        'Value' => { 'type' => 'string' },
+        'Absolute' => { '$ref' => "#{final}#/components/schemas/Value" },
+        'Relative' => { '$ref' => 'openapi.json#/components/schemas/Value' }
+      } })
+      allow(Resolv).to receive(:getaddresses).with('provider.example').and_return(['93.184.216.34'])
+      allow(Resolv).to receive(:getaddresses).with('cdn.example').and_return(['93.184.216.34'])
+      stub_request(:get, url).to_return(status: 302, headers: { 'Location' => '/redirect.json' })
+      stub_request(:get, 'https://provider.example/redirect.json')
+        .to_return(status: 307, headers: { 'Location' => final })
+      stub_request(:get, final).to_return(body: JSON.generate(original))
+
+      imported = described_class.load(url)
+      %w[Absolute Relative].each do |name|
+        expect(imported.dig('components', 'schemas', name, '$ref')).to eq('#/components/schemas/Value')
+      end
+      expect(described_class.resolve(imported).dig('components', 'schemas', 'Relative', 'type')).to eq('string')
+      expect(WebMock).to have_requested(:get, final).once
+
+      original['components']['schemas']['Foreign'] = { '$ref' => 'other.json#/components/schemas/Value' }
+      stub_request(:get, final).to_return(body: JSON.generate(original))
+      expect { described_class.load(url) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('REF_EXTERNAL_DENIED') }
+      expect(WebMock).not_to have_requested(:get, 'https://cdn.example/specs/other.json')
+    end
+  end
+
   it 'uses one root document for filename and in-directory symlink aliases' do
     Dir.mktmpdir do |dir|
       source = File.join(dir, 'main.yaml')
