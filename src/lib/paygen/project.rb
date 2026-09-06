@@ -10,11 +10,8 @@ module Paygen
     def self.init(input, output:, stdin: $stdin, profile: nil)
       destination = File.expand_path(output)
       raise Error, 'Output already exists; choose an empty project path' if File.exist?(destination)
-      raw_document = Core::Input.read(input, stdin: stdin)
+      document = Core::Input.load(input, stdin: stdin)
       remote = input.to_s == '-' || input.to_s.match?(/\Ahttps?:/i)
-      base_dir = remote ? nil : File.dirname(File.realpath(input))
-      document = Core::Input.graph(raw_document, base_dir: base_dir, source_path: remote ? nil : input,
-                                  source_uri: remote && input.to_s != '-' ? input.to_s : nil)
       project = new(destination, create: true)
       DIRECTORIES.each { |directory| FileUtils.mkdir_p(project.path(directory)) }
       project.write('source/openapi.json', Paygen.json(document))
@@ -189,11 +186,8 @@ module Paygen
     end
 
     def update(input)
-      document = Core::Input.read(input)
+      document = Core::Input.load(input)
       remote = input.to_s == '-' || input.to_s.match?(/\Ahttps?:/i)
-      base_dir = remote ? nil : File.dirname(File.realpath(input))
-      document = Core::Input.graph(document, base_dir: base_dir, source_path: remote ? nil : input,
-                                   source_uri: remote && input.to_s != '-' ? input.to_s : nil)
       source_uri = remote ? input.to_s : File.expand_path(input)
       source_body = Paygen.json(document)
       source_sha256 = Digest::SHA256.hexdigest(source_body)
