@@ -32,6 +32,7 @@ effective contract. The verifier should report `"success": true` and
 | Present a working integration | [Seven-minute demo](demo.md) |
 | Look up commands and output files | [CLI reference](cli.md) |
 | Configure an unfamiliar payment API | [Native API onboarding](native-onboarding.md) |
+| Compare provider evidence and download generated samples | [Provider catalog](provider-catalog.md) |
 | Test the adapter over HTTP | [Bruno demo](bruno-demo.md) |
 | Explore Russian payment APIs | [Russian bank examples](ru-bank-examples.md) |
 | Understand the generator and runtime | [Architecture](architecture.md) |
@@ -41,3 +42,7 @@ effective contract. The verifier should report `"success": true` and
 The manual describes Paygen. Each generated integration also has its own portable
 Markdown or HTML guide, effective OpenAPI and examples. These can be delivered
 with the adapter without publishing a website.
+
+GitHub Pages serves this static manual and synthetic downloads only. It cannot
+run the Ruby adapter, simulator, or demo backend. Run those locally as described
+in the demo, without real credentials or payment-card data.

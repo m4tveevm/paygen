@@ -10,6 +10,8 @@ items:
     href: architecture.md
   - name: Native API onboarding
     href: native-onboarding.md
+  - name: Provider catalog and downloads
+    href: provider-catalog.md
   - name: Russian bank examples
     href: ru-bank-examples.md
   - name: Bruno adapter demo
@@ -20,3 +22,5 @@ items:
     href: testing.md
   - name: Development
     href: development.md
+  - name: Page not found
+    href: 404.md

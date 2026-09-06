@@ -1,35 +1,88 @@
-name: Publish documentation (manual)
+name: Documentation Pages
+
 on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'fixtures/novapay/**'
+      - 'lib/**'
+      - 'script/docs*'
+      - 'script/diplodoc-*'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Gemfile.lock'
+      - 'Dockerfile.docs'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
+    inputs:
+      accepted_sha:
+        description: Full, reviewed commit SHA to build and deploy
+        required: true
+        type: string
+
 permissions:
   contents: read
-  pages: write
-  id-token: write
+
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
   cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Validate accepted identity
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ACCEPTED_SHA: ${{ inputs.accepted_sha }}
+        run: test "${#ACCEPTED_SHA}" -eq 40 && [[ "$ACCEPTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: '22'
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Assert immutable checkout
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+          cache: npm
+      - uses: ruby/setup-ruby@d5126b9b3579e429dd52e51e68624dda2e05be25 # v1.267.0
+        with:
+          ruby-version: '.ruby-version'
+          bundler-cache: true
       - run: npm install --global npm@11.9.0
       - run: npm ci --ignore-scripts --engine-strict
       - run: npm run docs:test
       - run: npm run docs:build
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+        env:
+          PAYGEN_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+        if: github.event_name == 'workflow_dispatch'
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        if: github.event_name == 'workflow_dispatch'
         with:
           path: docs/_build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: docs-preview-${{ github.event.pull_request.head.sha }}
+          path: docs/_build
+          if-no-files-found: error
+          retention-days: 7
+
   deploy:
+    if: github.event_name == 'workflow_dispatch'
     needs: build
-    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy accepted artifact
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
