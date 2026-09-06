@@ -89,6 +89,12 @@ RSpec.describe Paygen::Runtime::StateFuzzer do
   end
 
   it 'detects source-schema validation being skipped for otherwise plausible successful responses' do
+    # Isolate this deliberately disabled schema guard. Explicit correlation is
+    # an independent second defense and has its own negative controls; leaving
+    # it enabled would correctly reject this same missing-amount mutation.
+    configuration = Marshal.load(Marshal.dump(adapter.paygen_config))
+    configuration.delete('response_bindings')
+    adapter.define_singleton_method(:paygen_config) { configuration }
     adapter.define_singleton_method(:response_contract_failure) { |_response, _role, _status, _payload| nil }
     report = fuzzer.replay(trace('invalid_response', %w[create]))
     expect(report.dig('failure', 'invariant')).to eq('invalid_response_accepted')

@@ -8,13 +8,14 @@ module Paygen
 
     def valid?(rule)
       return false unless rule.is_a?(Hash) && (rule.key?('from') ^ rule.key?('value'))
-      return false unless (rule.keys - %w[from value transform fallback_from default when]).empty?
+      return false unless (rule.keys - %w[from value transform fallback_from fallback_conflict default when]).empty?
       return false if rule.key?('from') && !path?(rule['from'])
       return false if rule.key?('value') && (rule.key?('fallback_from') || rule.key?('default'))
       if rule.key?('fallback_from')
         paths = rule['fallback_from']
         return false unless paths.is_a?(Array) && paths.length.between?(1, 16) && paths.all? { |path| path?(path) }
       end
+      return false if rule.key?('fallback_conflict') && (rule['fallback_conflict'] != 'reject' || !rule.key?('fallback_from'))
       return true unless rule.key?('when')
 
       condition = rule['when']
@@ -35,11 +36,14 @@ module Paygen
     def value(rule)
       return rule['value'] if rule.key?('value')
 
-      [rule.fetch('from'), *rule.fetch('fallback_from', [])].each do |path|
-        found = yield path
-        return found unless found.nil?
+      primary = yield rule.fetch('from')
+      return primary unless primary.nil?
+
+      fallbacks = rule.fetch('fallback_from', []).map { |path| yield path }.compact
+      if rule['fallback_conflict'] == 'reject' && fallbacks.uniq.length > 1
+        raise ArgumentError, 'conflicting fallback mapping evidence; supply the primary field explicitly'
       end
-      rule['default']
+      fallbacks.empty? ? rule['default'] : fallbacks.first
     end
 
     def path?(value)
