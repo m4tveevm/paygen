@@ -248,7 +248,13 @@ module Paygen
       def value_references(value)
         case value
         when Hash
-          return value_references(value['context']) if value.key?('selector') && value.key?('context') && value.key?('type')
+          if value.key?('selector') && value.key?('context') && value.key?('type')
+            context = value['context']
+            if value['type'] == 'jsonpointer' && context.is_a?(String) && !context.include?('#')
+              return [context + '#' + value['selector']]
+            end
+            return value_references(context)
+          end
           value.values.flat_map { |child| value_references(child) }
         when Array then value.flat_map { |child| value_references(child) }
         when String then value.start_with?('$') ? [value] : value.scan(/\{(\$[^{}]+)\}/).flatten
@@ -298,29 +304,56 @@ module Paygen
       end
 
       def validate_reference_target!(workflow, reference)
-        base = reference.split('#', 2).first
-        if (match = base.match(/\A\$steps\.([^.\[]+)(?:\.(.*))?\z/))
-          validate_output_reference!(step_for_output(workflow, match[1]), match[2])
-        elsif (match = base.match(/\A\$workflows\.([^.\[]+)(?:\.(.*))?\z/))
-          target = find_workflow(match[1])
-          if (step = match[2]&.match(/\Asteps\.([^.\[]+)(?:\.(.*))?\z/))
-            validate_output_reference!(step_for_output(target, step[1]), step[2])
-          else
-            validate_output_reference!(target, match[2])
+        tokens = reference_tokens(reference)
+        root = tokens.shift&.first
+        return if tokens.empty?
+        case root
+        when 'steps'
+          validate_output_reference!(step_for_output(workflow, tokens.shift.first), tokens)
+        when 'workflows'
+          target = find_workflow(tokens.shift.first)
+          # Keep the existing policy for cross-workflow step dependencies: a
+          # value reference cannot silently authorize running another workflow.
+          if target != workflow && !workflow.fetch('dependsOn', []).include?(target['workflowId'])
+            invalid('ARAZZO_DEPENDENCY', 'Cross-workflow result references require an explicit workflow dependsOn')
           end
-        elsif (match = base.match(/\A\$sourceDescriptions\.([^.\[]+)/))
-          source_declaration(match[1])
+          if tokens.first&.first == 'steps' && tokens.length > 1
+            tokens.shift
+            validate_output_reference!(step_for_output(target, tokens.shift.first), tokens)
+          else
+            validate_output_reference!(target, tokens)
+          end
+        when 'sourceDescriptions'
+          source_declaration(tokens.first.first)
         end
+      end
+
+      # Preserve the distinction between dot notation (which permits a declared
+      # output named "a.b") and pointer tokens (where "a.b" is one literal key).
+      def reference_tokens(reference)
+        base, pointer = reference.split('#', 2)
+        tokens = base.delete_prefix('$').split('.').map { |part| [part, :dot] }
+        if pointer && !pointer.empty?
+          decoded = URI::DEFAULT_PARSER.unescape(pointer)
+          validate_selector!('jsonpointer', decoded)
+          tokens.concat(decoded.split('/', -1).drop(1).map { |part| [part.gsub('~1', '/').gsub('~0', '~'), :pointer] })
+        end
+        tokens
       end
 
       def step_for_output(workflow, id)
         workflow.fetch('steps').find { |step| step['stepId'] == id } || invalid('ARAZZO_OUTPUT_REF', 'Expression references an unknown step')
       end
 
-      def validate_output_reference!(owner, path)
-        return unless path&.start_with?('outputs.')
-        output = path.delete_prefix('outputs.')
+      def validate_output_reference!(owner, tokens)
+        return unless tokens.first&.first == 'outputs' && tokens.length > 1
+        parts = tokens.drop(1)
         declared = owner.fetch('outputs', {}).keys
+        if parts.first.last == :pointer
+          return if declared.include?(parts.first.first)
+          invalid('ARAZZO_OUTPUT_REF', 'Expression references an undeclared output')
+        end
+        output = parts.take_while { |_value, kind| kind == :dot }.map(&:first).join('.')
         return if declared.any? { |name| output == name || output.start_with?(name + '.', name + '[') }
         invalid('ARAZZO_OUTPUT_REF', 'Expression references an undeclared output')
       end
@@ -452,11 +485,11 @@ module Paygen
 
       def implicit_dependencies(workflow, step)
         step_references(workflow, step, before_request: true).filter_map do |reference|
-          base = reference.split('#', 2).first
-          if (match = base.match(/\A\$steps\.([^.\[]+)/))
-            match[1]
-          elsif (match = base.match(/\A\$workflows\.([^.\[]+)\.steps\.([^.\[]+)/))
-            match[1] == workflow['workflowId'] ? match[2] : "$workflows.#{match[1]}.steps.#{match[2]}"
+          parts = reference_tokens(reference).map(&:first)
+          if parts[0] == 'steps' && parts[1]
+            parts[1]
+          elsif parts[0] == 'workflows' && parts[2] == 'steps' && parts[3]
+            parts[1] == workflow['workflowId'] ? parts[3] : "$workflows.#{parts[1]}.steps.#{parts[3]}"
           end
         end
       end
