@@ -62,6 +62,7 @@ jobs:
       - run: pnpm --dir docs install --frozen-lockfile --ignore-scripts
       - name: Report documentation dependency advisories
         run: pnpm --dir docs audit --json > docs/pnpm-audit.json
+      - run: pnpm --dir docs run docs:examples
       - run: pnpm --dir docs run docs:test
       - run: pnpm --dir docs run docs:build
       - name: Rebuild and compare every published byte
@@ -85,6 +86,7 @@ jobs:
           path: |
             docs/pnpm-lock.yaml
             docs/pnpm-audit.json
+            tmp/docs-examples/
   integration:
     needs: [ruby, docs]
     runs-on: ubuntu-latest

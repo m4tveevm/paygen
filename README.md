@@ -68,6 +68,10 @@ synthetic credentials and payment data.
 HTML and collection generation require only Ruby. Node is needed for the optional
 Bruno CLI and the Paygen manual's site build. Export directories must be new.
 
+Try the [complete dataset walkthrough](docs/content/dataset-walkthrough.md):
+confirmed and ambiguous contracts, mandatory operator decisions, `demo` versus
+`serve`, and one command to verify all seven executable profiles.
+
 ## Configure another API
 
 The following is a template for your own inputs: replace `provider.yaml` with an

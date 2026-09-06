@@ -1,0 +1,30 @@
+overlay: 1.1.0
+info:
+  title: NovaPay conditional recipient contract correction
+  version: 1.0.0
+actions:
+- target: $.components.schemas.Recipient
+  update:
+    oneOf:
+    - properties:
+        type:
+          enum: [sbp]
+        bank_code:
+          minLength: 1
+      required: [bank_code]
+    - properties:
+        type:
+          enum: [card]
+        card_number:
+          minLength: 1
+      required: [card_number]
+- target: $.components.schemas.PayoutResponse
+  update:
+    required:
+    - id
+    - external_id
+    - status
+    - amount
+    - currency
+- target: $.components.schemas.PayoutError.properties.code.enum
+  remove: true

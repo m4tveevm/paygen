@@ -6,7 +6,8 @@
     "docs:build": "pnpm run docs:render && ../src/run exec ruby docs/scripts/docs_provider_assets.rb docs/_build && pnpm run docs:seal && pnpm run docs:check",
     "docs:seal": "node scripts/docs-site-check.cjs _build /paygen/ --seal",
     "docs:check": "node scripts/docs-site-check.cjs _build /paygen/",
-    "docs:test": "node --require ./scripts/diplodoc-compat.cjs --test ./scripts/diplodoc-compat.test.cjs ./scripts/docs-site-check.test.cjs && ../src/run test docs/scripts/docs_provider_assets_spec.rb"
+    "docs:test": "node --require ./scripts/diplodoc-compat.cjs --test ./scripts/diplodoc-compat.test.cjs ./scripts/docs-site-check.test.cjs && ../src/run test docs/scripts/docs_provider_assets_spec.rb",
+    "docs:examples": "../src/run exec ruby docs/scripts/verify-examples.rb"
   },
   "devDependencies": {
     "@diplodoc/cli": "5.39.4",
