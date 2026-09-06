@@ -28,6 +28,7 @@ RSpec.describe Paygen::Documentation do
       expect(guide).to include('| create | 409 | duplicate | reconcile |', '| cancel | 409 | invalid_status | reject |')
       expect(guide).not_to include('| roles |')
       expect(guide).to include('No gateway configuration is declared')
+      expect(guide).to include('state_namespace_required', 'state_migration_required', 'credential rotation', 'Never clear the store')
       overridden = Paygen::Generator.new(project).render(overrides: { 'servers' => ['https://sandbox.example.test'] }).fetch('INTEGRATION.md')
       expect(overridden).to include('https://sandbox.example.test/payouts')
     end

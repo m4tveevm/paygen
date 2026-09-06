@@ -6,7 +6,7 @@ not provider sandbox acceptance.
 
 | Provider/example | Source kind | Executable profile | Signature verification | Independent local contract | Live sandbox |
 | --- | --- | --- | --- | --- | --- |
-| NovaPay | Authored case fixture | Focused SBP payout | HMAC-SHA256 over exact raw body | Local simulator and runtime tests | Not performed |
+| NovaPay | Authored case fixture | SBP and card payout mappings | HMAC-SHA256 over exact raw body | Local simulator, runtime and mapping tests | Not performed |
 | Stripe | Curated focused contract | Focused payout | Stripe v1 callback | Local synthetic contract | Not performed |
 | Adyen | Curated focused contract | Focused payout | HMAC profile | Local synthetic contract | Not performed |
 | PayPal | Curated and native imports | Selected payout flow | Provider-specific verification delegated | Native HTTP expectations | Not performed |

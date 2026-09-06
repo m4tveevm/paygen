@@ -102,3 +102,4 @@ jobs:
             tmp/bruno-verification/
             tmp/fuzz-verification/
             tmp/acceptance-independent/
+            tmp/container-verification/

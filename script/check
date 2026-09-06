@@ -28,10 +28,15 @@ if [[ -n "$(git status --porcelain)" ]]; then PAYGEN_SOURCE_DIRTY=dirty; fi
 docker build --build-arg "PAYGEN_SOURCE_SHA=$PAYGEN_SOURCE_SHA" --build-arg "PAYGEN_SOURCE_DIRTY=$PAYGEN_SOURCE_DIRTY" -t paygen-verification .
 docker run --rm paygen-verification doctor
 docker run --rm --entrypoint bash paygen-verification script/smoke
-docker run --rm --entrypoint bundle paygen-verification exec rspec
-docker run --rm --entrypoint bundle paygen-verification exec ruby script/acceptance-independent
-docker run --rm --entrypoint bash paygen-verification examples/showcase/run
-docker build -f Dockerfile.docs -t paygen-docs-verification .
+mkdir -p tmp/container-verification
+PAYGEN_CONTAINER_REPORTS=$(mktemp -d "$PWD/tmp/container-verification/run.XXXXXX")
+docker run --rm --entrypoint bundle paygen-verification exec rspec | tee "$PAYGEN_CONTAINER_REPORTS/rspec.log"
+docker run --rm --mount "type=bind,src=$PAYGEN_CONTAINER_REPORTS,dst=/evidence" \
+  -e PAYGEN_ACCEPTANCE_REPORT=/evidence/independent.json \
+  --entrypoint bundle paygen-verification exec ruby script/acceptance-independent
+docker run --rm --mount "type=bind,src=$PAYGEN_CONTAINER_REPORTS,dst=/evidence" \
+  --entrypoint bash paygen-verification examples/showcase/run /evidence/showcase
+docker build --build-arg "PAYGEN_SOURCE_SHA=$PAYGEN_SOURCE_SHA" -f Dockerfile.docs -t paygen-docs-verification .
 PAYGEN_DOCS_CONTAINER=$(docker run -d -p 127.0.0.1::80 paygen-docs-verification)
 cleanup_docs() {
   local result=$?
