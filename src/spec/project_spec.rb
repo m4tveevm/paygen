@@ -82,6 +82,34 @@ RSpec.describe 'Project generation lifecycle' do
     expect(File.read(project.path('source/openapi.json'))).to eq(before)
   end
 
+  it 'regenerates a moved HTTPS project with absolute root self-references without refetching' do
+    url = 'https://provider.example/openapi.json'
+    remote_document = Paygen::Core::Input.read(source)
+    rewrite_refs = lambda do |value|
+      case value
+      when Hash
+        value.transform_values.with_index do |child, _index|
+          child.is_a?(String) && child.start_with?('#/') ? url + child : rewrite_refs.call(child)
+        end
+      when Array then value.map { |child| rewrite_refs.call(child) }
+      else value
+      end
+    end
+    remote_document = rewrite_refs.call(remote_document)
+    allow(Paygen::Core::Input).to receive(:read).and_call_original
+    expect(Paygen::Core::Input).to receive(:read).with(url, stdin: anything).once.and_return(remote_document)
+    remote_project = Paygen::Project.init(url, output: File.join(@directory, 'remote'))
+    Paygen::Generator.new(remote_project).generate
+
+    moved = File.join(@directory, 'moved', 'integration')
+    FileUtils.mkdir_p(File.dirname(moved))
+    FileUtils.mv(remote_project.root, moved)
+    moved_project = Paygen::Project.new(moved)
+    expect { Paygen::Generator.new(moved_project).generate }.not_to raise_error
+    expect(moved_project.lock['source_uri']).to eq(url)
+    expect(File.read(moved_project.path('source/openapi.json'))).not_to include(url)
+  end
+
   it 'orders mixed JSON and YAML overlays globally during generation and update' do
     overlay = { 'overlay' => '1.1.0', 'info' => { 'title' => 'Version', 'version' => '1' },
                 'actions' => [{ 'target' => '$.info', 'update' => { 'version' => '1.5.0' } }] }
