@@ -1,10 +1,10 @@
 # Scope and verification
 
-Paygen generates a Ruby payout integration from an OpenAPI document and an
-explicit payment profile. The prototype covers parsing, service generation,
-integration documentation and local verification. NovaPay implements explicit
-SBP and card recipient mappings with conditional schema validation. Additional
-profiles exercise different API shapes and payment semantics.
+Paygen generates a Ruby payout integration from an OpenAPI document and a payment
+profile. It parses the contract, generates the service and its documentation, and
+verifies the result locally. The NovaPay example has separate SBP and card
+recipient mappings with conditional schema validation. The other profiles cover
+different API shapes and payment rules.
 
 ## Case requirements
 

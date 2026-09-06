@@ -1,7 +1,8 @@
 # Development
 
-For executable success and operator-review examples, adapter export, and the
-`demo`/`serve` distinction, see [Run the datasets yourself](dataset-walkthrough.md).
+The [dataset walkthrough](dataset-walkthrough.md) has complete examples for both
+a successful setup and one that needs an operator's review. It also covers
+adapter export and the difference between `demo` and `serve`.
 
 ## Repository layout
 
@@ -71,11 +72,8 @@ tests cover those module interfaces and rendered output.
 
 ## Checks
 
-Complete the Ruby and Node dependency setup above first. All commands below use
-Bash and start at the repository root. Individual application runs need no Docker.
-
-
-Run the Ruby tests and the seven example profiles locally:
+Complete the Ruby and Node setup above first. Run the following commands in Bash
+from the repository root. You do not need Docker for these checks:
 
 ```bash
 src/run test
