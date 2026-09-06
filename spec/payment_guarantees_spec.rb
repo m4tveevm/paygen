@@ -72,6 +72,154 @@ RSpec.describe 'Payment guarantees against an independent provider' do
     config['idempotency'] = { 'strategy' => 'provider_key', 'header' => 'X-Payout-Key', 'ttl_seconds' => 60 }
   end
 
+  def correlation_policy
+    config['response_bindings'] = {
+      'merchant_reference' => { 'response_path' => 'external_id', 'operation_path' => 'id',
+                                'roles' => %w[create status cancel], 'required' => true },
+      'amount' => { 'response_path' => 'amount', 'operation_path' => 'amount',
+                    'roles' => %w[create status cancel], 'required' => true, 'response_unit' => 'minor' },
+      'currency' => { 'response_path' => 'currency', 'operation_path' => 'currency',
+                      'roles' => %w[create status cancel], 'required' => true }
+    }
+    schema = { 'type' => 'object', 'required' => %w[id status amount currency], 'properties' => {
+      'id' => { 'type' => 'string' }, 'status' => { 'type' => 'string' },
+      'external_id' => { 'type' => 'string' }, 'amount' => { 'type' => 'number' }, 'currency' => { 'type' => 'string' }
+    } }
+    %w[create status cancel].each do |role|
+      config['endpoints'][role]['responses'] = { '200' => { 'content' => { 'application/json' => { 'schema' => schema } } } }
+    end
+    schema
+  end
+
+  { 'merchant_reference' => { 'external_id' => 'unrelated-operation' },
+    'amount' => { 'amount' => 1235 }, 'currency' => { 'currency' => 'USD' } }.each do |binding, mismatch|
+    it "rejects schema-valid foreign #{binding} on create and requires reconciliation instead of caching approval" do
+      schema = correlation_policy
+      payload = { 'id' => 'p-1', 'status' => 'completed', 'external_id' => 'merchant-operation',
+                  'amount' => 1234, 'currency' => 'RUB' }.merge(mismatch)
+      expect(JSONSchemer.schema(schema).valid?(payload)).to be(true)
+      adapter = build_adapter(independent_transport { |_request| { status: 200, headers: {}, body: JSON.generate(payload) } })
+      expect(adapter.create_request(operation).dig('error'))
+        .to include('code' => 'response_binding_mismatch', 'binding' => binding, 'ambiguous' => true, 'retryable' => false)
+      expect(adapter.create_request(operation).dig('error', 'code')).to eq('reconciliation_required')
+      expect(requests.length).to eq(1)
+    end
+
+    %w[status cancel].each do |role|
+      it "does not poison lifecycle or the successful create cache with #{role} #{binding} mismatch" do
+        correlation_policy
+        transport = independent_transport do |_request|
+          extras = { 'external_id' => 'merchant-operation' }
+          extras.merge!(mismatch) if requests.length == 2
+          payout_response(status: requests.length == 1 ? 'pending' : 'completed', extra: extras)
+        end
+        adapter = build_adapter(transport)
+        expect(adapter.create_request(operation)['status']).to eq('in_progress')
+        bound = operation.merge('provider_id' => 'p-1')
+        result = role == 'status' ? adapter.fetch_status(bound) : adapter.cancel(bound)
+        expect(result.dig('error')).to include('code' => 'response_binding_mismatch', 'binding' => binding)
+        expect(adapter.create_request(operation)).to include('status' => 'in_progress', 'duplicate' => true)
+        expect(adapter.fetch_status(bound)['status']).to eq('approved')
+        expect(requests.length).to eq(3)
+      end
+    end
+  end
+
+  it 'checks an explicit provider identity binding independently of the normal routing ID' do
+    correlation_policy
+    config['response_bindings']['provider_id'] = {
+      'response_path' => 'details.payout_id', 'operation_path' => 'provider_id',
+      'roles' => ['status'], 'required' => true
+    }
+    transport = independent_transport do |_request|
+      payout_response(status: 'completed', extra: { 'external_id' => 'merchant-operation',
+                                                   'details' => { 'payout_id' => 'some-other-payout' } })
+    end
+    result = build_adapter(transport).fetch_status(operation.merge('provider_id' => 'p-1'))
+    expect(result.dig('error')).to include('code' => 'response_binding_mismatch', 'binding' => 'provider_id')
+  end
+
+  it 'rejects missing required evidence even when the response schema makes that field optional' do
+    schema = correlation_policy
+    response = payout_response(status: 'completed')
+    expect(JSONSchemer.schema(schema).valid?(JSON.parse(response.fetch(:body)))).to be(true)
+    result = build_adapter(independent_transport { |_request| response }).create_request(operation)
+    expect(result.dig('error')).to include('code' => 'missing_response_evidence', 'binding' => 'merchant_reference', 'ambiguous' => true)
+  end
+
+  it 'treats optional evidence as skippable only when absent, not when a wrong value is present' do
+    correlation_policy
+    config['response_bindings']['merchant_reference']['required'] = false
+    adapter = build_adapter(independent_transport do |_request|
+      payout_response(status: 'completed', extra: requests.length == 1 ? {} : { 'external_id' => 'wrong-operation' })
+    end)
+    expect(adapter.create_request(operation)['status']).to eq('approved')
+    expect(adapter.create_request(operation.merge('id' => 'another-operation')).dig('error'))
+      .to include('code' => 'response_binding_mismatch', 'binding' => 'merchant_reference')
+    expect(requests.length).to eq(2)
+  end
+
+  it 'requires the expected operation fields before HTTP for required applicable bindings only' do
+    correlation_policy
+    adapter = build_adapter(independent_transport { |_request| raise 'Missing operation evidence must be rejected before HTTP' })
+    expect(adapter.fetch_status('provider_id' => 'p-1').dig('error'))
+      .to include('code' => 'response_binding_input_missing', 'binding' => 'merchant_reference', 'ambiguous' => false)
+    expect(requests).to be_empty
+    config['response_bindings'].each_value { |rule| rule['roles'] = ['create'] }
+    valid = build_adapter(independent_transport { |_request| payout_response(status: 'completed') })
+    expect(valid.fetch_status('provider_id' => 'p-1')['status']).to eq('approved')
+  end
+
+  it 'compares declared major-unit evidence exactly beyond the Float integer precision range' do
+    correlation_policy
+    config['response_bindings']['amount']['response_unit'] = 'major'
+    transport = independent_transport do |_request|
+      { status: 200, headers: {}, body: '{"id":"p-1","status":"completed","external_id":"merchant-operation","amount":90071992547409.93,"currency":"RUB"}' }
+    end
+    adapter = build_adapter(transport)
+    exact = operation.merge('amount' => '90071992547409.93')
+    expect(adapter.create_request(exact)['status']).to eq('approved')
+    expect(adapter.create_request(exact).dig('data', 'amount')).to eq(BigDecimal('90071992547409.93'))
+    expect(requests.length).to eq(1)
+  end
+
+  it 'does not round excessive precision or accept Float evidence from an already parsed transport body' do
+    correlation_policy
+    config['response_bindings']['amount']['response_unit'] = 'major'
+    [BigDecimal('12.3401'), 12.34].each do |amount|
+      payload = { 'id' => 'p-1', 'status' => 'completed', 'external_id' => 'merchant-operation', 'amount' => amount, 'currency' => 'RUB' }
+      adapter = adapter_class.new(transport: independent_transport { |_request| { status: 200, headers: {}, body: payload } })
+      expect(adapter.create_request(operation).dig('error'))
+        .to include('code' => 'response_binding_mismatch', 'binding' => 'amount')
+    end
+  end
+
+  it 'converts declared major response units against operations already expressed in minor units' do
+    correlation_policy
+    config['amount']['input_unit'] = 'minor'
+    config['response_bindings']['amount']['response_unit'] = 'major'
+    result = build_adapter(independent_transport do |_request|
+      { status: 200, headers: {}, body: '{"id":"p-1","status":"completed","external_id":"merchant-operation","amount":12.34,"currency":"RUB"}' }
+    end).create_request(operation.merge('amount' => 1234))
+    expect(result['status']).to eq('approved')
+  end
+
+  it 'uses exact currency comparison and makes no undeclared case normalization' do
+    correlation_policy
+    result = build_adapter(independent_transport do |_request|
+      payout_response(status: 'completed', extra: { 'external_id' => 'merchant-operation', 'currency' => 'rub' })
+    end).create_request(operation)
+    expect(result.dig('error')).to include('code' => 'response_binding_mismatch', 'binding' => 'currency')
+  end
+
+  it 'does not infer response bindings in a profile that has not opted in' do
+    expect(config).not_to have_key('response_bindings')
+    result = build_adapter(independent_transport do |_request|
+      payout_response(status: 'completed', extra: { 'external_id' => 'unbound-reference', 'amount' => 1, 'currency' => 'USD' })
+    end).create_request(operation)
+    expect(result['status']).to eq('approved')
+  end
+
   it 'rejects every unscoped external-store user before transport, store access or callback effects' do
     expect(store).not_to receive(:synchronize)
     effects = []
@@ -169,6 +317,40 @@ RSpec.describe 'Payment guarantees against an independent provider' do
     end
     store.synchronize { |state| expect(state).to eq(legacy) }
     expect(requests).to be_empty
+  end
+
+  it 'does not bypass legacy unscoped state when adding a newly required account' do
+    unscoped = "request:independent-contract:sandbox::#{Digest::SHA256.hexdigest(operation.fetch('id'))}"
+    store.synchronize { |state| state[unscoped] = { 'result' => { 'status' => 'approved', 'provider_id' => 'already-paid' } } }
+    adapter = adapter_class.new(state_store: store, account: 'newly-explicit-account',
+                                transport: independent_transport { |_request| raise 'An old unscoped reservation must not be ignored' })
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('state_migration_required')
+    expect(requests).to be_empty
+    store.synchronize { |state| expect(state.keys).to eq([unscoped]) }
+  end
+
+  it 'snapshots scope configuration without freezing or following caller-owned mutable strings' do
+    namespace = +'integration-a'
+    account = +'merchant-a'
+    mode = +'sandbox'
+    adapter = adapter_class.new(state_store: store, state_namespace: namespace, account: account, mode: mode,
+                                transport: independent_transport { |_request| payout_response })
+    expect(adapter.create_request(operation)['success']).to be(true)
+    namespace.replace('integration-b')
+    account.replace('merchant-b')
+    mode.replace('live')
+    expect(adapter.create_request(operation)).to include('success' => true, 'duplicate' => true)
+    expect(requests.length).to eq(1)
+  end
+
+  it 'also snapshots the stable account supplied through credentials without freezing the caller value' do
+    account = +'merchant-from-credentials'
+    adapter = adapter_class.new(state_store: store, credentials: { account: account },
+                                transport: independent_transport { |_request| payout_response })
+    expect(adapter.create_request(operation)['success']).to be(true)
+    account.replace('rotated-caller-value')
+    expect(adapter.create_request(operation)).to include('success' => true, 'duplicate' => true)
+    expect(requests.length).to eq(1)
   end
 
   it 'delivers distinct progress evidence but deduplicates event IDs and repeated terminal effects' do

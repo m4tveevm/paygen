@@ -174,7 +174,7 @@ RSpec.describe 'Offline provider golden packs' do
   end
 
   it 'generates a card adapter request at exactly 1000 RUB without SBP-only fields' do
-    with_adapter('novapay') do |adapter, fixture, requests, project|
+    with_adapter('novapay', ['card_created']) do |adapter, fixture, requests, project|
       original = File.binread(File.join(packs_root, 'novapay', 'openapi.yaml'))
       operation = fixture.fetch('card_operation')
       expect(adapter.check_conditions(operation)['success']).to be(true)
@@ -215,6 +215,18 @@ RSpec.describe 'Offline provider golden packs' do
       both.fetch('payout_requisite')['card'] = fixture.dig('card_operation', 'payout_requisite', 'card')
       expect(adapter.create_request(both)['success']).to be(true)
       expect(JSON.parse(requests.fetch(0).fetch(:body)).fetch('recipient').keys).to contain_exactly('type', 'phone', 'bank_code')
+    end
+  end
+
+  it 'rejects ambiguous legacy phone fallbacks until an explicit primary phone resolves them' do
+    with_adapter('novapay', ['card_created']) do |adapter, fixture, requests|
+      operation = Marshal.load(Marshal.dump(fixture.fetch('card_operation')))
+      operation.fetch('payout_requisite')['sbp'] = { 'phone' => '79991112233', 'bank_code' => '044525225' }
+      expect(adapter.create_request(operation).dig('error', 'code')).to eq('validation_error')
+      expect(requests).to be_empty
+      operation.fetch('payout_requisite')['phone'] = operation.dig('payout_requisite', 'card', 'phone')
+      expect(adapter.create_request(operation)['success']).to be(true)
+      expect(JSON.parse(requests.fetch(0).fetch(:body)).dig('recipient', 'phone')).to eq('79001234567')
     end
   end
 
