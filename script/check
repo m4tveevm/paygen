@@ -16,6 +16,7 @@ src/run exec ruby script/architecture-audit.rb
 src/run exec ruby script/research-experiments
 pnpm --dir docs install --frozen-lockfile --ignore-scripts
 pnpm --dir docs audit --audit-level=high
+pnpm --dir docs run docs:examples
 pnpm --dir docs run docs:test
 pnpm --dir docs run docs:build
 pnpm --dir tools/bruno install --frozen-lockfile --ignore-scripts

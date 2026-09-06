@@ -129,3 +129,17 @@ for (const href of ['404.html', '/paygen/404.html?missing=1', '%34%30%34.html', 
     assert.throws(() => checkSite(root, '/paygen/', {seal: true}), /404 page must not appear in navigation/);
   });
 }
+
+
+test('seals recording bytes and rejects arbitrary files alongside approved media', (t) => {
+  const {root, put} = fixture(t);
+  fs.mkdirSync(path.join(root, 'media/dataset-examples'), {recursive: true});
+  put('media/dataset-examples/confirmed-contract.gif', 'GIF89a');
+  put('index.html', '<h1 id="intro">Paygen</h1><img src="media/dataset-examples/confirmed-contract.gif">');
+  const manifest = checkSite(root, '/paygen/', {seal: true});
+  assert.equal(manifest.files['media/dataset-examples/confirmed-contract.gif'], digest('GIF89a'));
+  put('media/dataset-examples/confirmed-contract.gif', 'changed recording');
+  assert.throws(() => checkSite(root, '/paygen/'), /manifest mismatch/);
+  put('media/dataset-examples/unreviewed.js', 'alert(1)');
+  assert.throws(() => checkSite(root, '/paygen/'), /unapproved artifact/);
+});

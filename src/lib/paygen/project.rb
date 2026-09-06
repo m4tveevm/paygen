@@ -18,7 +18,8 @@ module Paygen
       DIRECTORIES.each { |directory| FileUtils.mkdir_p(project.path(directory)) }
       project.write('source/openapi.json', Paygen.json(document))
       recipe = available_recipes.find { |candidate| matches?(candidate, document) }
-      defaults = recipe ? recipe.fetch('profile') : Core::IR.new(document).profile
+      # Persist harmless naming defaults, not inferred payment decisions as operator answers.
+      defaults = recipe ? recipe.fetch('profile') : Core::IR.new(document).profile.reject { |key, _| %w[operations auth].include?(key) }
       supplied = profile ? Core::Input.read(profile) : {}
       project.write('integration.yml', YAML.dump(Paygen.deep_merge(defaults, supplied)))
       if recipe
