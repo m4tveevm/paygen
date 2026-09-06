@@ -22,7 +22,10 @@ mkdir -p tmp/bruno-verification
 PAYGEN_BRUNO_REPORTS=$(mktemp -d tmp/bruno-verification/run.XXXXXX)
 rmdir "$PAYGEN_BRUNO_REPORTS"
 bundle exec ruby script/verify-bruno.rb --cli tools/bruno/node_modules/@usebruno/cli/bin/bru.js --output "$PAYGEN_BRUNO_REPORTS"
-docker build -t paygen-verification .
+PAYGEN_SOURCE_SHA=$(git rev-parse HEAD)
+PAYGEN_SOURCE_DIRTY=clean
+if [[ -n "$(git status --porcelain)" ]]; then PAYGEN_SOURCE_DIRTY=dirty; fi
+docker build --build-arg "PAYGEN_SOURCE_SHA=$PAYGEN_SOURCE_SHA" --build-arg "PAYGEN_SOURCE_DIRTY=$PAYGEN_SOURCE_DIRTY" -t paygen-verification .
 docker run --rm paygen-verification doctor
 docker run --rm --entrypoint bash paygen-verification script/smoke
 docker run --rm --entrypoint bundle paygen-verification exec rspec
