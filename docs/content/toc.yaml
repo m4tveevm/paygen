@@ -10,6 +10,8 @@ items:
     href: cli.md
   - name: Architecture and safety
     href: architecture.md
+  - name: Host application bridge
+    href: host-bridge.md
   - name: Native API onboarding
     href: native-onboarding.md
   - name: Provider catalog and downloads

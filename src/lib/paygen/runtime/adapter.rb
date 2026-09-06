@@ -10,6 +10,7 @@ require_relative 'security'
 require_relative 'result_codec'
 require_relative '../mapping_rule'
 require_relative '../response_bindings'
+require_relative '../capabilities'
 
 module Paygen
   module Runtime
@@ -18,6 +19,8 @@ module Paygen
     module Adapter
       class ParameterValidationError < ArgumentError; end
       TRANSPORT_HEADERS = %w[host content-length transfer-encoding connection proxy-authorization proxy-connection te trailer upgrade expect].freeze
+
+      OUTGOING_ROLES = Capabilities::OUTGOING_ROLES
 
       DEFAULT_OPERATION_ATTRIBUTES = %w[
         id amount currency payout_requisite provider_operation_id provider_id
@@ -54,12 +57,15 @@ module Paygen
 
       def check_conditions(operation, request_method = 'create')
         ensure_configured
+        role = canonical_action(request_method)
+        return paygen_failure('operation_not_supported') unless role
+
         base_result = super(operation, request_method) if defined?(super)
         return base_result if paygen_result_failed?(base_result)
 
-        body = build_body(operation, request_method.to_s)
+        body = build_body(operation, role)
         problems = []
-        if request_method.to_s == 'create'
+        if role == 'create'
           amount = paygen_config.fetch('amount', {})
           value = minor_amount(read_path(operation, 'amount'))
           problems << 'amount must be positive' unless value.positive?
@@ -70,13 +76,13 @@ module Paygen
           problems << 'currency is unsupported' if !currencies.empty? && !currencies.include?(currency)
           problems << 'operation id is required' if read_path(operation, 'id').to_s.empty?
         end
-        schema = endpoint(request_method.to_s)['request_schema']
+        schema = endpoint(role)['request_schema']
         if schema && !schema.empty?
           JSONSchemer.schema(validation_schema(schema)).validate(body).each do |error|
             problems << "#{error['data_pointer']}: #{error['type']}"
           end
         end
-        problems.concat(Array(paygen_validate(operation, request_method.to_s, body)))
+        problems.concat(Array(paygen_validate(operation, role, body)))
         return paygen_failure('validation_error', details: { 'violations' => problems }) unless problems.empty?
 
         { 'success' => true, 'status' => 'valid' }
@@ -269,6 +275,14 @@ module Paygen
         end
       end
 
+      # Host action names are declarative aliases, never HTTP verbs or Ruby methods.
+      # Resolve once before prechecks, reservation and lifecycle/idempotency rules.
+      def canonical_action(action)
+        name = action.to_s
+        role = OUTGOING_ROLES.include?(name) ? name : paygen_config.fetch('action_mapping', {})[name]
+        role if OUTGOING_ROLES.include?(role) && !endpoint(role).empty?
+      end
+
       def endpoint(role)
         paygen_config.fetch('endpoints', {}).fetch(role, {})
       end
@@ -409,6 +423,9 @@ module Paygen
 
       def execute(role, operation)
         ensure_configured
+        logical_action = role
+        role = canonical_action(logical_action)
+        return paygen_failure('operation_not_supported') unless role
         return paygen_failure('state_namespace_required') unless state_namespace_valid?
         return state_migration_failure if legacy_state?(operation: operation, provider_id: operation_provider_id(operation))
 
@@ -416,10 +433,8 @@ module Paygen
         if paygen_config['mode'] && @paygen_mode != paygen_config['mode']
           return paygen_failure('mode_mismatch')
         end
-        if role == 'create'
-          validation = check_conditions(operation, role)
-          return validation if paygen_result_failed?(validation)
-        end
+        validation = check_conditions(operation, logical_action)
+        return validation if paygen_result_failed?(validation)
         binding_failure = response_binding_preflight(role, operation)
         return binding_failure if binding_failure
 
@@ -506,12 +521,12 @@ module Paygen
         url = apply_auth(headers, url)
         body = build_body(operation, role)
         if body
-          encoding = spec['request_encoding'] || paygen_config['request_encoding'] || 'json'
+          encoding = Capabilities.request_encoding(spec, paygen_config)
           if encoding == 'form'
-            set_content_type!(headers, 'application/x-www-form-urlencoded')
+            set_content_type!(headers, Capabilities::REQUEST_ENCODINGS.key(encoding))
             body = URI.encode_www_form(form_pairs(body))
           elsif encoding == 'json'
-            set_content_type!(headers, 'application/json')
+            set_content_type!(headers, Capabilities::REQUEST_ENCODINGS.key(encoding))
             body = JSON.generate(json_decimal_numbers(body))
           else
             raise ArgumentError, 'unsupported request encoding'
@@ -865,6 +880,7 @@ module Paygen
         case auth['type']
         when nil, 'none' then nil
         when 'apiKey'
+          raise ArgumentError, 'unsupported API key location' unless Capabilities::API_KEY_LOCATIONS.include?(auth.fetch('in', 'header'))
           value = credential(auth.fetch('credential', 'api_key'))
           if auth.fetch('in', 'header') == 'header'
             headers[auth.fetch('name', 'X-API-Key')] = value

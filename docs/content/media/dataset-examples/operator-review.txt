@@ -46,8 +46,8 @@ Captured output / selected JSON fields:
 
 ## 4. Explicit contract decisions unlock generation
 
-$ src/run cli configure "$PAYGEN_EXAMPLES_DIR/unknown" --answers fixtures/onboarding/ambiguous/answers.yml > "$PAYGEN_EXAMPLES_DIR/resolved-review.json"
-cp fixtures/onboarding/ambiguous/overlay.yaml "$PAYGEN_EXAMPLES_DIR/unknown/overlays/010-reviewed.yaml"
+$ cp fixtures/onboarding/ambiguous/overlay.yaml "$PAYGEN_EXAMPLES_DIR/unknown/overlays/010-reviewed.yaml"
+src/run cli configure "$PAYGEN_EXAMPLES_DIR/unknown" --answers fixtures/onboarding/ambiguous/answers.yml > "$PAYGEN_EXAMPLES_DIR/resolved-review.json"
 src/run cli generate "$PAYGEN_EXAMPLES_DIR/unknown"
 src/run cli verify "$PAYGEN_EXAMPLES_DIR/unknown" --seed 42 > "$PAYGEN_EXAMPLES_DIR/resolved-verify.json"
 src/run cli docs "$PAYGEN_EXAMPLES_DIR/unknown" --format html --output "$PAYGEN_EXAMPLES_DIR/resolved-guide"

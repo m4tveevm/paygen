@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Sources: repository CLI contract in src/README.md; RSpec Core 3.13 configuration API.
 set -euo pipefail
 PAYGEN_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 export BUNDLE_GEMFILE="$PAYGEN_ROOT/src/Gemfile"
@@ -9,8 +10,8 @@ case "$PAYGEN_TASK" in
   setup) exec bundle install "$@" ;;
   cli) exec bundle exec ruby src/bin/paygen "$@" ;;
   test)
-    if (( $# == 0 )); then set -- src/spec; fi
-    exec bundle exec rspec --options src/.rspec -I src/spec "$@"
+    exec bundle exec rspec --options src/.rspec --default-path src/spec \
+      --require ./src/script/rspec-policy.rb -I src/spec "$@"
     ;;
   lint) exec bundle exec rubocop --config src/.rubocop.yml "$@" ;;
   audit) exec bundle exec bundler-audit check src "$@" ;;

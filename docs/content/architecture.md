@@ -28,7 +28,8 @@ and supporting files without an executable service.
 | `Core::Input` | Parse YAML/JSON, validate OpenAPI 3.0/3.1 and bundle local references |
 | `Core::Overlay` | Apply ordered contract corrections |
 | `Core::IR` | Inventory operations, combine profiles and diagnose unsupported semantics |
-| `Project` | Manage source, profiles, extensions, hashes and generated-file ownership |
+| `Core::Review` | Bind individual explicit decisions to relevant contract dependencies and flag stale review evidence |
+| `Project` | Manage source, profiles, review evidence, extensions, hashes and generated-file ownership |
 | `Generator` | Render the Ruby service, guide, fixtures, effective contract and provenance |
 | `Runtime::Adapter` | Build requests, authenticate, map results and verify callbacks |
 | `Runtime::Simulator` and `Runtime::Demo` | Exercise provider behavior and the generated adapter locally |
@@ -216,3 +217,20 @@ Cross-document expressions accessing another workflow's internal steps are not
 bound; pass nested results through the invoking step's outputs. Base-URI
 normalization, automatic source fetching and asynchronous scheduling are outside
 the executor's scope.
+
+## Code reading map
+
+| Stage | Main code | Responsibility |
+| --- | --- | --- |
+| Import and normalization | `src/lib/paygen/core/input.rb` | Parse the contract and preserve the normalized source graph with guarded references |
+| Effective plan | `core/ir.rb`, `project.rb` | Apply ordered overlays, reviewed profiles and provenance |
+| Diagnostics and capability gate | IR validation and onboarding report | Refuse unsupported selected operations and unresolved integration decisions |
+| Artifacts | `generator.rb`, `documentation.rb` | Emit configuration, adapter, validated examples and matching guides |
+| Runtime and host | `runtime/adapter.rb`, `src/examples/host_bridge.rb` | Encode requests, authenticate bytes and apply the declared host seam |
+| Verification | `src/spec`, fixture gate, verifier and fuzzer | Check independent contract expectations and bounded reproducible scenarios |
+
+Generated service size mostly reflects its embedded configuration; shared runtime
+behavior lives in the Paygen gem or detached runtime sources. The
+[host bridge](host-bridge.md) explains logical actions, backend mutation and the
+host's transaction boundary. Architecture checks are consistency checks, not a
+proof of SOLID or production suitability.
