@@ -1,16 +1,19 @@
 # CLI reference
 
-Run commands from a checkout as `src/run cli COMMAND`.
+Complete [toolchain setup](development.md#toolchain), then run commands in Bash
+from the repository root as `src/run cli COMMAND`.
+The examples below use the bundled NovaPay contract and a new `tmp/cli-provider`
+project. Run the sections in order; choose new paths when repeating exports.
 Use `src/run cli COMMAND --help` for command-specific options.
 
 ## Create and configure
 
 ```bash
-src/run cli inspect provider.yaml --format json
-src/run cli init provider.yaml --output tmp/provider
-src/run cli configure tmp/provider
-src/run cli configure tmp/provider --answers profile.yml
-src/run cli configure tmp/provider --set operations.create=createPayout
+src/run cli inspect fixtures/novapay/openapi.yaml --format json
+src/run cli init fixtures/novapay/openapi.yaml --output tmp/cli-provider
+src/run cli configure tmp/cli-provider
+src/run cli configure tmp/cli-provider --answers fixtures/novapay/integration.yml
+src/run cli configure tmp/cli-provider --set operations.create=createPayout
 ```
 
 `inspect` reads a contract without creating a project. Add `--strict` to return
@@ -25,11 +28,11 @@ which decisions need provider documentation.
 ## Generate and maintain
 
 ```bash
-src/run cli generate tmp/provider
-src/run cli diff tmp/provider --check
-src/run cli explain tmp/provider amount
-src/run cli update tmp/provider provider-v2.yaml
-src/run cli generate tmp/provider
+src/run cli generate tmp/cli-provider
+src/run cli diff tmp/cli-provider --check
+src/run cli explain tmp/cli-provider amount
+src/run cli update tmp/cli-provider fixtures/novapay/openapi.yaml
+src/run cli generate tmp/cli-provider
 ```
 
 `generate` writes the adapter, guide, fixtures and effective configuration. If
@@ -39,16 +42,18 @@ executable adapter. `generate --watch` regenerates after input changes.
 `diff --check` fails when generated output differs from current inputs or was
 edited manually. `explain` shows where a configuration value came from. `update`
 validates a replacement contract against existing corrections before pinning it;
-generate and verify again after updating.
+generate and verify again after updating. The example reimports the unchanged
+fixture to exercise the command; for a real update, supply your revised contract.
 
 Run seeded payment sequences with `fuzz` and replay saved failures:
 
 ```bash
-src/run cli fuzz tmp/provider --seed 42 --cases 100 --steps 30 --output tmp/fuzz.json
-src/run cli fuzz tmp/provider --replay tmp/fuzz.json
+src/run cli fuzz tmp/cli-provider --seed 42 --cases 100 --steps 30 --output tmp/fuzz.json
 ```
 
-The replay command accepts a failure report or trace. See
+A successful report has no failing trace. To replay an actual failure, run
+`src/run cli fuzz tmp/cli-provider --replay PATH_TO_FAILURE_REPORT`; this is a
+template and requires a saved failure report or trace for the same profile. See
 [payment verification](testing.md) for scope, limits and minimized counterexamples.
 
 | Project path | Ownership and purpose |
@@ -68,9 +73,11 @@ defaults; `recipe add PROJECT NAME` and `recipe remove PROJECT` change selection
 ## Verify and run locally
 
 ```bash
-src/run cli verify tmp/provider --seed 42
-src/run cli demo tmp/provider --port 9293
+src/run cli verify tmp/cli-provider --seed 42
 ```
+
+Start `src/run cli demo tmp/cli-provider --port 9293` in a separate terminal;
+it runs until Ctrl-C. Stop it before starting another demo on the same port.
 
 `verify` exercises the adapter with deterministic fault scenarios and prints a
 JSON report. `demo` runs an HTTP application that invokes the generated adapter
@@ -87,10 +94,10 @@ checks configuration consistency and generated-file ownership.
 ## Export
 
 ```bash
-src/run cli docs tmp/provider --format html --output tmp/provider-html
-src/run cli docs tmp/provider --format md --output tmp/provider-md
-src/run cli collection tmp/provider --format bruno --output tmp/provider-bruno
-src/run cli export tmp/provider --standalone --output tmp/provider-standalone
+src/run cli docs tmp/cli-provider --format html --output tmp/cli-provider-html
+src/run cli docs tmp/cli-provider --format md --output tmp/cli-provider-md
+src/run cli collection tmp/cli-provider --format bruno --output tmp/cli-provider-bruno
+src/run cli export tmp/cli-provider --standalone --output tmp/cli-provider-standalone
 ```
 
 Export destinations must be new directories outside the integration project.

@@ -7,7 +7,7 @@ synthetic; the demo binds to loopback and keeps state in memory.
 
 ## Run the demo
 
-From the repository root, with Ruby dependencies installed:
+From the repository root, after [Ruby dependency setup](development.md#toolchain):
 
 ```bash
 src/run cli init fixtures/novapay/openapi.yaml --output tmp/demo
@@ -26,9 +26,15 @@ Generation requires no Node or Bruno installation. For the command-line runner,
 use Node 22.13 or later within Node 22 and pnpm 10.32.1. In a second terminal:
 
 ```bash
+mkdir -p "$HOME/.local/bin"
+corepack enable --install-directory "$HOME/.local/bin"
+export PATH="$HOME/.local/bin:$PATH"
+corepack prepare pnpm@10.32.1 --activate
 pnpm --dir tools/bruno install --frozen-lockfile --ignore-scripts
-cd tmp/demo-bruno
-node ../../tools/bruno/node_modules/@usebruno/cli/bin/bru.js run --env local --noproxy --bail --reporter-json results.json --reporter-junit results.xml
+(
+  cd tmp/demo-bruno
+  node ../../tools/bruno/node_modules/@usebruno/cli/bin/bru.js run --env local --noproxy --bail --reporter-json results.json --reporter-junit results.xml
+)
 ```
 
 Use the default `success` scenario and run sequentially, without `--parallel`.
@@ -56,7 +62,8 @@ omit the corresponding requests.
 ## Run the regression collection set
 
 The repository pins Bruno CLI 4.1.0 separately from the documentation build.
-From the repository root:
+The subshell above leaves your terminal at the repository root. Install the
+Bruno dependencies as above before running this regression set:
 
 ```bash
 pnpm --dir tools/bruno audit --audit-level=high

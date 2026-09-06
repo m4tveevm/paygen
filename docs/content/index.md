@@ -10,12 +10,15 @@ and run requests through Bruno or curl.
 
 ## Run an example
 
-Requires Ruby 3.3 or later. Run from the repository root; `tmp/novapay` must be a
-new directory.
+Clone [the repository](https://github.com/m4tveevm/paygen) first. Select Ruby
+4.0.6 as described in [toolchain setup](development.md#toolchain); Ruby 3.3 and
+later are supported. Run in Bash from the checkout root; `tmp/novapay` must be a
+new directory. These commands run locally, not on the Pages website.
 
 ```bash
 gem install bundler -v 4.0.20
 src/run setup
+src/run cli doctor
 src/run cli init fixtures/novapay/openapi.yaml --output tmp/novapay
 src/run cli generate tmp/novapay
 src/run cli verify tmp/novapay --seed 42

@@ -4,9 +4,14 @@ This directory pins Bruno CLI 4.1.0 for local HTTP regression tests, separately
 from the Ruby gem and documentation build. It requires Node 22.13 or later within
 Node 22 and pnpm 10.32.1.
 
-From the repository root:
+Complete [Ruby setup](../../docs/content/development.md#toolchain) and select
+Node 22.22.0, then run from the repository root:
 
 ```sh
+mkdir -p "$HOME/.local/bin"
+corepack enable --install-directory "$HOME/.local/bin"
+export PATH="$HOME/.local/bin:$PATH"
+corepack prepare pnpm@10.32.1 --activate
 pnpm --dir tools/bruno install --frozen-lockfile --ignore-scripts
 pnpm --dir tools/bruno audit --audit-level=high
 src/run exec ruby script/verify-bruno.rb --cli tools/bruno/node_modules/@usebruno/cli/bin/bru.js --output tmp/bruno-verification
@@ -35,5 +40,5 @@ The lock applies patched versions to dependencies pinned by Bruno 4.1.0:
 | `uuid` | 11.1.1 |
 
 When updating the lock, rerun the audit and collection checks. CI installs this
-locked graph with `pnpm --dir tools/bruno install --frozen-lockfile`; the generated Paygen collections cover the scenarios
+locked graph with `pnpm --dir tools/bruno install --frozen-lockfile --ignore-scripts`; the generated Paygen collections cover the scenarios
 in [the Bruno demo](../../docs/content/bruno-demo.md).

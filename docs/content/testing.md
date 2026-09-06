@@ -18,7 +18,8 @@ not a count of payment scenarios.
 
 ## Generate payment sequences
 
-Start with an existing, up-to-date generated project:
+Start with the `tmp/novapay` project from the [quickstart](index.md#run-an-example),
+with `generate` completed and its files unchanged:
 
 ```bash
 src/run cli fuzz tmp/novapay --seed 42 --cases 100 --steps 30 \
@@ -48,6 +49,10 @@ invariant, with a bounded number of attempts. Replay the saved failure report:
 ```bash
 src/run cli fuzz tmp/novapay --replay tmp/novapay-fuzz.json
 ```
+
+Only replay an actual failure report or saved trace: a successful fuzz report
+does not contain a replayable failure. For a reproducible failure and fixed
+control, use the showcase below.
 
 Replay prefers `shrunk_trace`. The trace records the seed, mode, actions and
 configuration digest. A malformed trace or different integration configuration
@@ -85,7 +90,9 @@ The Ruby matrix runs unit, contract, lifecycle and standards tests. Provider smo
 checks also run seeded sequences for NovaPay and Raiffeisen. The integration job
 runs Bruno, the independent regression acceptance, full Ruby tests and the
 showcase inside the Ruby container. `script/acceptance-independent` can also be
-run locally; it writes a fresh report below `tmp/acceptance-independent/`.
+run with `src/run exec ruby script/acceptance-independent`; it replaces
+`tmp/acceptance-independent/latest.json`. Set `PAYGEN_ACCEPTANCE_REPORT` to keep
+a separately named report.
 
 CI retains verification logs, fuzz reports and Bruno JSON/JUnit reports, including
 failed runs. A successful retry of CI does not invalidate an earlier failure;

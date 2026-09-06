@@ -6,10 +6,15 @@ does not establish: direction, amount units, settlement states and signing rules
 
 ## Create and configure a project
 
+Complete [toolchain setup](development.md#toolchain) and run in Bash from the
+repository root. This copyable example uses the supplied native Paystack source
+and reviewed profile; all output paths must be new. For your own API, replace
+both fixture paths with your existing contract and profile files.
+
 ```bash
-src/run cli init provider.yaml --output /tmp/new-provider
+src/run cli init fixtures/native-paystack/openapi.yaml --output /tmp/new-provider
 src/run cli configure /tmp/new-provider
-src/run cli configure /tmp/new-provider --answers confirmed-profile.yml
+src/run cli configure /tmp/new-provider --answers fixtures/native-paystack/profile.yml
 src/run cli generate /tmp/new-provider
 ```
 

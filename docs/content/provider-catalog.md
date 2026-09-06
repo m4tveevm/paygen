@@ -50,7 +50,8 @@ publication transform identifier; the runtime and source contract are not change
 
 ## Updating the catalog
 
-After a provider source, profile, recipe, or generator change, run:
+After [Ruby and Node dependency setup](development.md#toolchain), run from the
+repository root whenever a provider source, profile, recipe, or generator changes:
 
 ```bash
 src/run test src/spec/generated_docs_spec.rb src/spec/native_packs_spec.rb
