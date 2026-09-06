@@ -11,6 +11,24 @@ module DocsProviderAssets
   FILES = %w[INTEGRATION.md fixtures.json config.json diagnostics.json provenance.json].freeze
   ROOT = File.expand_path('..', __dir__)
 
+  # A publication-only transform. Functional adapter configuration and local
+  # generated artifacts retain exact values; public downloads are not wire fixtures.
+  def self.publication_bytes(name, bytes)
+    return bytes.gsub(/\b\d{13,19}\b/, '[REDACTED]') unless name.end_with?('.json')
+
+    "#{JSON.pretty_generate(redact_identifiers(JSON.parse(bytes)))}\n"
+  end
+
+  def self.redact_identifiers(value)
+    case value
+    when Hash then value.transform_values { |child| redact_identifiers(child) }
+    when Array then value.map { |child| redact_identifiers(child) }
+    when String then value.gsub(/\b\d{13,19}\b/, '[REDACTED]')
+    when Integer then value.abs.to_s.length.between?(13, 19) ? '[REDACTED]' : value
+    else value
+    end
+  end
+
   def self.source_sha
     supplied = ENV['PAYGEN_SOURCE_SHA']
     if File.exist?(File.join(ROOT, '.git'))
@@ -46,9 +64,13 @@ module DocsProviderAssets
       Paygen::Generator.new(project).generate
       # Copy only known generated outputs, never the project, environment or state.
       FileUtils.mkdir_p(downloads)
-      FILES.each { |name| FileUtils.cp(project.path("generated/#{name}"), File.join(downloads, name)) }
+      generated_hashes = FILES.to_h do |name|
+        bytes = File.binread(project.path("generated/#{name}"))
+        File.write(File.join(downloads, name), publication_bytes(name, bytes), mode: 'wx')
+        [name, Digest::SHA256.hexdigest(bytes)]
+      end
       manifest = {
-        'schema_version' => 2,
+        'schema_version' => 3,
         'source_code_sha' => revision,
         'generator_version' => Paygen::VERSION,
         'provider' => 'novapay',
@@ -58,6 +80,8 @@ module DocsProviderAssets
         'profile_sha256' => Digest::SHA256.file(profile).hexdigest,
         # Includes the effective profile, selected recipe, ordered overlays and workflows.
         'generated_input_sha256' => project.lock.fetch('inputs'),
+        'unpublished_generated_sha256' => generated_hashes,
+        'publication_transform' => 'long-payment-identifiers-redacted-v1',
         'files' => FILES.to_h { |name| [name, Digest::SHA256.file(File.join(downloads, name)).hexdigest] }
       }
       File.write(File.join(downloads, 'manifest.json'), "#{JSON.pretty_generate(manifest)}\n", mode: 'wx')
