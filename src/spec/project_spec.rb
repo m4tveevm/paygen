@@ -126,6 +126,7 @@ RSpec.describe 'Project generation lifecycle' do
       expect(project.lock).to include(result.slice('source_uri', 'source_sha256'))
       expect(project.lock['generated']).to eq(generated_before)
       expect(project.effective_document.dig('info', 'description')).to eq('Reviewed contract')
+      project.configure(project.profile) # Explicitly accept the reviewed replacement contract.
       generator.generate
       expect(project.lock).to include(result.slice('source_uri', 'source_sha256'))
       expect(generator.diff).to be_empty

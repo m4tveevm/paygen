@@ -59,6 +59,7 @@ RSpec.describe Paygen::Collection do
     profile = project.profile
     profile['request_mapping']['memo'] = { 'from' => 'memo' }
     project.write('integration.yml', YAML.dump(profile))
+    project.configure(profile) # Explicitly review the authored source and profile together.
     export
     request = request_named('create-operation')
     expression = request.lines.find { |line| line.include?('const operation = ') }.strip.delete_prefix('const operation = ').delete_suffix(';')
@@ -113,6 +114,7 @@ RSpec.describe Paygen::Collection do
     document.delete('security')
     document['paths']['/payouts']['post']['security'] = []
     project.write('source/openapi.json', Paygen.json(document))
+    project.configure(profile) # Confirm the replacement no-auth contract.
     export
     expect(Dir[File.join(output, '*cancel*.bru')]).to be_empty
     expect(Dir[File.join(output, '*callback*.bru')]).to be_empty

@@ -28,6 +28,7 @@ module Paygen
       credential_names.each { |name| lines << "    #{name.dump} => ENV.fetch(#{environment_name(name).dump})," }
       lines += ['  },', "  mode: #{@config.fetch('mode', 'sandbox').dump}", ')', '```', '',
                 'Use your BaseService constructor arguments where required. The default transport performs HTTPS requests to the configured provider; run the simulator or demo explicitly for offline tests.',
+                'Optional action_mapping maps host logical actions to create, status, cancel or balance before prechecks and idempotency; no aliases are assumed by default. Actions are not HTTP verbs.',
                 'Object operations may expose provider_operation_id; legacy provider_id and provider_payment_id remain accepted. BaseService.check_conditions failures are returned before provider HTTP requests.', '',
                 'Hash operations support the mapped fields directly. For model objects, explicitly permit additional trusted attribute roots (for example metadata) with configure_paygen(allowed_attributes: ["metadata"]). Profiles cannot grant method access.', '',
                 '## Operations', '', '| Role | Method | URL template | Operation ID |', '| --- | --- | --- | --- |']
@@ -45,7 +46,7 @@ module Paygen
       lines += ['', 'Server variables use their declared defaults. Callback paths describe inbound contracts; your application chooses its own public receiver URL.', '',
                 '## Authentication', '', *authentication_lines,
                 '', '## Request mappings and parameters', '',
-                'Mappings below are explicit reviewed profile facts. Required path, query and header parameters are validated before transport.', '',
+                'Mappings below are effective profile values. Check provenance.json for their source and review state, and diagnostics.json for unresolved decisions; a diagnostic draft is not a ready integration. Required path, query and header parameters are validated before transport.', '',
                 '```json', Paygen.json(@config.slice('request_encoding', 'request_mapping', 'parameter_mapping')).rstrip, '```', '',
                 '## Amounts', '', "Input unit: #{cell(@config.dig('amount', 'input_unit') || 'major')}. Scale: #{cell(@config.dig('amount', 'scale'))}.",
                 "Allowed currencies: #{cell(Array(@config.dig('amount', 'currencies')).join(', '))}.",
@@ -69,16 +70,19 @@ module Paygen
                 '## Errors', '', '| Scope | HTTP | Classification | Action |', '| --- | --- | --- | --- |']
       errors = @config.fetch('errors', {})
       errors.reject { |key, _| key == 'roles' }.each { |code, rule| lines << error_row('all roles', code, rule) }
-      errors.fetch('roles', {}).each do |role, rules|
+      role_errors = errors['roles'].is_a?(Hash) ? errors['roles'] : {}
+      role_errors.each do |role, rules|
+        next unless rules.is_a?(Hash)
         rules.each { |code, rule| lines << error_row(role, code, rule) }
       end
       lines += ['', 'Role-specific rules override the shared rule for that HTTP status.', '', *gateway_lines,
                 '## Fixtures and local documentation', '',
-                'fixtures.json retains all inline named request and response examples, plus separate synthesized candidates. source_pointer and origin identify the source of each case.',
+                'fixtures.json retains all inline named request and response examples, plus separate synthesized candidates. source_pointer and origin identify provenance. suitability is independent: positive means schema-valid, negative identifies a schema-valid intentional adapter rejection, and unresolved means unvalidated or schema-invalid. Only positive candidates populate request/response primary aliases. HTTP error payloads can be positive contract examples.',
                 'External examples are listed by URL and are not fetched. schema_validation checks only the declared selected schema; it does not prove business validity or provider acceptance.',
                 "Signed callback fixtures use public test credentials only and a fixed clock of #{FIXTURE_TIME} Unix seconds. Keep raw_body byte-for-byte; parsing and reserializing changes a signature.",
                 'callback.cases are independent deliveries. adapter_validation records an actual offline run using a fresh adapter and its adapter_context (account, mode and clock); expected_adapter_result records that outcome. mapped_operation_status separately records the profile mapping. Replays and transition ordering require separate scenario tests.',
                 'effective-openapi.json contains the full effective graph, including unselected operations and preserved local references. It describes the provider API, not the adapter demo HTTP API.',
+                'The simulator advances configured status scenarios. It does not implement OTP entry/finalization or human payment approval; reviewing integration settings is a separate developer task.',
                 'Use paygen docs PROJECT --format html --output DIR for a local HTML bundle, or --format md for Markdown. Publication and access control belong to the owner of the integration.', '',
                 '## Extensions and backend callback seam', '',
                 'User-owned Ruby files live in extensions/. Load them explicitly after the generated service. YAML does not execute Ruby.',
@@ -101,25 +105,39 @@ module Paygen
         request_examples = contents.flat_map do |content_type, content|
           examples(content, "#{pointer}/requestBody/content/#{pointer_token(content_type)}", content_type)
         end
-        primary = request_examples.find { |item| item['content_type'] == media && item.key?('value') }
+        request_schema = operation.fetch('request_schema', {})
+        primary = request_examples.find { |item| item['content_type'] == media && positive?(item) }
         unless primary
-          value = role == 'create' && semantic_request ? semantic_request : @example_builder.call(operation.fetch('request_schema', {}))
-          primary = candidate('synthesized', value, role == 'create' && semantic_request ? 'profile-mapping' : 'schema-synthesis', pointer, operation.fetch('request_schema', {}), media)
-          request_examples << primary
+          value = role == 'create' && semantic_request ? semantic_request : @example_builder.call(request_schema)
+          proposal = candidate('synthesized', value, role == 'create' && semantic_request ? 'profile-mapping' : 'schema-synthesis', "#{pointer}/requestBody", request_schema, media)
+          request_examples << proposal
+          unless positive?(proposal) || request_schema == {}
+            request_examples << candidate('schema_synthesized', @example_builder.call(request_schema), 'schema-synthesis', "#{pointer}/requestBody", request_schema, media)
+          end
+          primary = request_examples.find { |item| item['content_type'] == media && positive?(item) }
         end
+        require_positive(request_examples.select { |item| item['content_type'] == media }, "#{pointer}/requestBody", role, media) unless request_schema == {}
         responses = operation.fetch('responses', {}).to_h do |status, response|
           cases = response.fetch('content', {}).flat_map do |content_type, content|
             location = "#{pointer}/responses/#{pointer_token(status)}/content/#{pointer_token(content_type)}"
             found = examples(content, location, content_type)
-            if found.empty?
+            unless found.any? { |item| positive?(item) }
               found << candidate('synthesized', @example_builder.call(content.fetch('schema', {})), 'schema-synthesis', location, content.fetch('schema', {}), content_type)
+            end
+            if Capabilities.json_media?(content_type) && content.fetch('schema', {}) != {}
+              require_positive(found, location, role, content_type, status)
             end
             found
           end
           [status, cases]
         end
-        entry = { 'request' => primary['value'], 'request_examples' => request_examples, 'response_examples' => responses }
-        responses.each { |status, cases| entry["response_#{status}"] = cases.find { |item| item.key?('value') }&.fetch('value') }
+        entry = { 'request_examples' => request_examples, 'response_examples' => responses }
+        entry['request'] = primary['value'] if primary
+        responses.each do |status, cases|
+          selected = cases.select { |item| positive?(item) && Capabilities.json_media?(item['content_type']) }
+                          .min_by { |item| item['content_type'] == 'application/json' ? 0 : 1 }
+          entry["response_#{status}"] = selected['value'] if selected
+        end
         entry['cases'] = callback_cases(request_examples, operation) if role == 'callback'
         [role, entry]
       end
@@ -299,15 +317,29 @@ module Paygen
           values << candidate(name, example['value'], 'openapi-example', location, schema, media)
         else
           values << { 'name' => name, 'origin' => 'openapi-external-example', 'source_pointer' => location,
-                      'external_value' => example['externalValue'], 'available' => false, 'content_type' => media }
+                      'external_value' => example['externalValue'], 'available' => false, 'content_type' => media, 'suitability' => 'unresolved' }
         end
       end
       values
     end
 
+    def positive?(item) = item['suitability'] == 'positive' && item.dig('schema_validation', 'valid') == true
+
+    def require_positive(cases, pointer, role, media, status = nil)
+      return if cases.any? { |item| positive?(item) }
+      @ir.diagnostics << { 'code' => 'FIXTURE_UNRESOLVED', 'severity' => 'blocker', 'path' => pointer,
+                           'message' => "Supply a positive example for #{role} #{status || 'request'} (#{media}); schema or adapter checks failed. Review the declared schema and callback event/status settings" }
+    end
+
     def candidate(name, value, origin, pointer, schema, media)
+      validation = schema_validation(schema, value)
+      suitability = validation['valid'] == true ? 'positive' : 'unresolved'
+      if validation['valid'] == false
+        @ir.diagnostics << { 'code' => 'FIXTURE_SCHEMA_INVALID', 'severity' => 'warning', 'path' => pointer,
+                             'message' => "Preserved invalid #{origin} example #{name} (#{media}); it is excluded from positive primary fixtures" }
+      end
       { 'name' => name, 'value' => value, 'origin' => origin, 'source_pointer' => pointer,
-        'content_type' => media, 'schema_validation' => schema_validation(schema, value),
+        'content_type' => media, 'schema_validation' => validation, 'suitability' => suitability,
         'provider_acceptance_verified' => false }
     end
 
@@ -337,7 +369,7 @@ module Paygen
         next if represented.include?(canonical)
         status = @config.fetch('status_mapping', {}).find { |_external, mapped| (mapped.is_a?(Hash) ? mapped['status'] : mapped) == canonical }&.first
         next unless status
-        payload = JSON.parse(JSON.generate(cases.first&.fetch('payload') || @example_builder.call(operation.fetch('request_schema', {})) || {}))
+        payload = JSON.parse(JSON.generate(cases.find { |item| item['suitability'] == 'positive' }&.fetch('payload') || @example_builder.call(operation.fetch('request_schema', {})) || {}))
         next unless payload.is_a?(Hash)
         callback = @config.fetch('callback', {})
         write_path(payload, callback.fetch('id', 'id'), "fixture-#{canonical}")
@@ -349,6 +381,11 @@ module Paygen
         write_path(payload, callback['mode_field'], callback.fetch('mode_values', {}).fetch(@config.fetch('mode', 'sandbox'), @config.fetch('mode', 'sandbox'))) if callback['mode_field']
         callback.fetch('constraints', {}).each { |path, value| write_path(payload, path, value) }
         cases << callback_case("synthesized_#{canonical}", payload, 'profile-status-synthesis', 'integration.yml#/callback', operation)
+      end
+      %w[approved rejected].each do |canonical|
+        next unless @config.fetch('status_mapping', {}).values.any? { |value| (value.is_a?(Hash) ? value['status'] : value) == canonical }
+        matching = cases.select { |item| item['mapped_operation_status'] == canonical }
+        require_positive(matching, "#{operation.fetch('source_pointer', '')}/requestBody/#{canonical}", 'callback', operation.fetch('content_type', 'application/json'))
       end
       cases
     end
@@ -378,12 +415,18 @@ module Paygen
       adapter = fixture_adapter.configure_paygen(credentials: callback_credentials, account: context['account'],
                                                  mode: context['mode'], clock: -> { Time.at(FIXTURE_TIME) })
       outcome = adapter.process_callback(payload, raw_body: raw, headers: headers)
+      validation = schema_validation(operation.fetch('request_schema', {}), payload)
+      suitability = validation['valid'] == true ? (outcome['success'] || signature['algorithm'] == 'provider_verification' ? 'positive' : 'negative') : 'unresolved'
+      if validation['valid'] == false
+        @ir.diagnostics << { 'code' => 'FIXTURE_SCHEMA_INVALID', 'severity' => 'warning', 'path' => pointer,
+                             'message' => "Callback case #{name} is schema-invalid after status substitutions; excluded from positive examples" }
+      end
       { 'name' => name, 'payload' => payload, 'raw_body' => raw, 'headers' => headers,
         'origin' => origin, 'source_pointer' => pointer, 'expected_operation_status' => outcome['status'],
         'mapped_operation_status' => expected || 'unknown', 'expected_adapter_result' => outcome,
         'adapter_validation' => { 'checked' => true, 'success' => outcome['success'] }, 'adapter_context' => context,
         'signature_generated' => !headers.empty?, 'requires_provider_verification' => signature['algorithm'] == 'provider_verification',
-        'schema_validation' => schema_validation(operation.fetch('request_schema', {}), payload),
+        'schema_validation' => validation, 'suitability' => suitability,
         'provider_acceptance_verified' => false }
     end
 
