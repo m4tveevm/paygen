@@ -26,15 +26,7 @@ module PaygenShowcase
       @started = true
       trap('INT') { raise Interrupt }
       trap('TERM') { raise Interrupt }
-      if File.exist?(File.join(@root, '.git'))
-        command('tested-sha', ['git', 'rev-parse', 'HEAD'], suffix: 'txt')
-        command('dirty-state', ['git', 'status', '--porcelain'], suffix: 'txt')
-      else
-        # Container build contexts intentionally exclude .git. Do not invent a
-        # tested commit: retain hashes of the actual input snapshot instead.
-        File.write(File.join(@output, 'tested-sha.txt'), "UNAVAILABLE: not a Git checkout; see source-snapshot-sha256.json\n")
-        File.write(File.join(@output, 'dirty-state.txt'), "UNAVAILABLE: not a Git checkout\n")
-      end
+      record_revision
       snapshot = %w[lib bin fixtures examples/showcase].to_h { |name| [name, hashes(File.join(@root, name))] }
       snapshot['dependencies'] = %w[Gemfile Gemfile.lock paygen.gemspec].to_h { |name| [name, Digest::SHA256.file(File.join(@root, name)).hexdigest] }
       save('source-snapshot-sha256.json', snapshot)
@@ -81,6 +73,26 @@ module PaygenShowcase
 
     def read(name)
       JSON.parse(File.read(File.join(@output, name)))
+    end
+
+    def record_revision
+      if File.exist?(File.join(@root, '.git'))
+        command('tested-sha', ['git', 'rev-parse', 'HEAD'], suffix: 'txt')
+        command('dirty-state', ['git', 'status', '--porcelain'], suffix: 'txt')
+        save('source-revision.json', 'kind' => 'git_checkout', 'verified_git_checkout' => true)
+      else
+        # A container build declaration is useful provenance, not a verified
+        # checkout. Snapshot hashes identify the actual code independently.
+        revision = ENV['PAYGEN_SOURCE_SHA']
+        raise Failure, 'PAYGEN_SOURCE_SHA must be exactly 40 hexadecimal characters' if revision && !revision.match?(/\A[0-9a-fA-F]{40}\z/)
+        dirty = ENV.fetch('PAYGEN_SOURCE_DIRTY', 'unknown')
+        raise Failure, 'PAYGEN_SOURCE_DIRTY must be clean, dirty, unknown, 0 or 1' unless %w[clean dirty unknown 0 1].include?(dirty)
+        dirty = { '0' => 'clean', '1' => 'dirty' }.fetch(dirty, dirty)
+        File.write(File.join(@output, 'tested-sha.txt'), "#{revision || 'UNAVAILABLE: not a Git checkout; see source-snapshot-sha256.json'}\n")
+        File.write(File.join(@output, 'dirty-state.txt'), "Build-declared: #{dirty}\n")
+        save('source-revision.json', 'kind' => revision ? 'build_declared' : 'unavailable',
+             'sha' => revision, 'dirty' => dirty, 'verified_git_checkout' => false)
+      end
     end
 
     def check(id, condition)
