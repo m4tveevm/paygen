@@ -13,7 +13,7 @@ module Paygen
       raw_document = Core::Input.read(input, stdin: stdin)
       remote = input.to_s == '-' || input.to_s.match?(/\Ahttps?:/i)
       base_dir = remote ? nil : File.dirname(File.realpath(input))
-      document = Core::Input.graph(raw_document, base_dir: base_dir)
+      document = Core::Input.graph(raw_document, base_dir: base_dir, source_path: remote ? nil : input)
       project = new(destination, create: true)
       DIRECTORIES.each { |directory| FileUtils.mkdir_p(project.path(directory)) }
       project.write('source/openapi.json', Paygen.json(document))
@@ -150,7 +150,7 @@ module Paygen
         document = overlay.apply(Core::Input.read(path(relative)), overlay_uri: file)
         @overlay_diagnostics.concat(overlay.diagnostics)
       end
-      Core::Input.graph(document, base_dir: File.dirname(path('source/openapi.json')))
+      Core::Input.graph(document, source_path: path('source/openapi.json'))
     end
 
     def ir(overrides: {})
@@ -190,7 +190,7 @@ module Paygen
       document = Core::Input.read(input)
       remote = input.to_s == '-' || input.to_s.match?(/\Ahttps?:/i)
       base_dir = remote ? nil : File.dirname(File.realpath(input))
-      document = Core::Input.graph(document, base_dir: base_dir)
+      document = Core::Input.graph(document, base_dir: base_dir, source_path: remote ? nil : input)
       source_uri = remote ? input.to_s : File.expand_path(input)
       source_body = Paygen.json(document)
       source_sha256 = Digest::SHA256.hexdigest(source_body)

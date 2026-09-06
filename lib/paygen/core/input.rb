@@ -32,7 +32,7 @@ module Paygen
           source = path_or_url.to_s
           document = read(source, stdin: stdin)
           base_dir = source == '-' || source.match?(/\Ahttps?:/i) ? nil : File.dirname(File.realpath(source))
-          graph(document, base_dir: base_dir)
+          graph(document, base_dir: base_dir, source_path: base_dir && source)
         rescue Errno::ENOENT, Errno::EACCES, Errno::EISDIR => e
           raise Error.new("Cannot read source: #{e.class}", code: 'INPUT_IO', exit_code: 2)
         end
@@ -85,22 +85,22 @@ module Paygen
           fail_security('INPUT_COMPLEXITY', 'OpenAPI validation exceeded the time limit')
         end
 
-        def resolve(document, base_dir: nil)
-          Resolver.new(document, base_dir: base_dir).resolve
+        def resolve(document, base_dir: nil, source_path: nil)
+          Resolver.new(document, base_dir: base_dir, source_path: source_path).resolve
         end
 
         # Retain local reference edges and legal recursive schemas during
         # import. Generation expands only the selected operations, where cycles
         # and dynamic references receive explicit unsupported diagnostics.
-        def graph(document, base_dir: nil)
-          bundled = Resolver.new(document, base_dir: base_dir, preserve_internal: true, graph: true).resolve
+        def graph(document, base_dir: nil, source_path: nil)
+          bundled = Resolver.new(document, base_dir: base_dir, source_path: source_path, preserve_internal: true, graph: true).resolve
           validate!(bundled)
         end
 
         # Fragments retain the schema resource scope in which they were declared.
         # Expansion has the same budgets and reference restrictions as resolve.
-        def resolve_fragment(document, value, base_dir: nil, schema_context: false)
-          Resolver.new(document, base_dir: base_dir).resolve(value, schema_context: schema_context)
+        def resolve_fragment(document, value, base_dir: nil, source_path: nil, schema_context: false)
+          Resolver.new(document, base_dir: base_dir, source_path: source_path).resolve(value, schema_context: schema_context)
         end
 
         # Follow a Reference Object chain while retaining the target's child
@@ -113,8 +113,8 @@ module Paygen
         # Keep root-document pointers so source overlays retain their intended
         # locations, while resolving external refs in their own document scope.
         # graph also validates retained targets and the OpenAPI document shape.
-        def bundle(document, base_dir: nil)
-          Resolver.new(document, base_dir: base_dir, preserve_internal: true).resolve
+        def bundle(document, base_dir: nil, source_path: nil)
+          Resolver.new(document, base_dir: base_dir, source_path: source_path, preserve_internal: true).resolve
         end
 
         # RFC 6901 pointer lookup; missing is different from a JSON null value.
@@ -307,12 +307,16 @@ module Paygen
       end
 
       class Resolver
-        def initialize(document, base_dir:, preserve_internal: false, graph: false)
+        def initialize(document, base_dir:, source_path: nil, preserve_internal: false, graph: false)
           @preserve_internal = preserve_internal
           @graph = graph
           @document = document
-          @base_dir = base_dir && File.realpath(base_dir)
-          @documents = { '<root>' => document }
+          @root_path = source_path && File.realpath(source_path)
+          @base_dir = base_dir ? File.realpath(base_dir) : (@root_path && File.dirname(@root_path))
+          if @root_path && !@root_path.start_with?(@base_dir + File::SEPARATOR)
+            Input.fail_security('REF_PATH', 'Source file must be beneath the source directory')
+          end
+          @documents = { @root_path || '<root>' => document }
           @refs = 0
           @nodes = 0
           @targets = {}
@@ -321,7 +325,13 @@ module Paygen
           @anchors = {}
           @index_nodes = 0
           @schema_resources = document['openapi'].to_s.start_with?('3.1.')
-          @root_uri = @base_dir ? file_uri(File.join(@base_dir, '__paygen_root__.json')) : 'paygen-local:///root.json'
+          @root_uri = if @root_path
+                        file_uri(@root_path)
+                      elsif @base_dir
+                        file_uri(File.join(@base_dir, '__paygen_root__.json'))
+                      else
+                        'paygen-local:///root.json'
+                      end
           index_document('<root>', document, @root_uri)
         end
 
@@ -394,9 +404,20 @@ module Paygen
           validate_ref(ref)
           target_scope, fragment = reference_scope(ref, scope)
           target_location = @resources.fetch(target_scope).fetch(:location)
-          if @preserve_internal && location == '<root>' && target_location == '<root>'
+          if @preserve_internal && target_location == '<root>'
             reference_target(target_scope, fragment) if @graph
-            return { '$ref' => ref }.merge(visit(value.reject { |key, _| key == '$ref' }, location, stack, depth + 1, schema_context, false, scope))
+            target = reference_target(target_scope, fragment)
+            resource_scope = @scopes.fetch(target, target_scope)
+            retained_ref = if target_scope == @root_uri && (scope == @root_uri || document_scope?(scope))
+                             "##{fragment}"
+                           elsif location != '<root>' && @resources[resource_scope]&.fetch(:value).equal?(target)
+                             resource_scope
+                           elsif target_scope == @root_uri
+                             Input.fail_input('REF_SCOPE_UNSUPPORTED', 'Normalize cross-resource root pointers before bundling a schema with its own $id')
+                           else
+                             ref
+                           end
+            return { '$ref' => retained_ref }.merge(visit(value.reject { |key, _| key == '$ref' }, location, stack, depth + 1, schema_context, false, scope))
           end
           @refs += 1
           Input.fail_security('REF_LIMIT', 'Too many expanded references') if @refs > MAX_REFS
@@ -470,6 +491,11 @@ module Paygen
             Input.fail_input('REF_ID_DUPLICATE', 'Schema resource IDs must be unique after URI resolution')
           end
           @resources[uri] = { value: value, location: location }
+        end
+
+        def document_scope?(scope)
+          value = @resources.fetch(scope).fetch(:value)
+          !value.key?('$id') && @documents.values.any? { |document| document.equal?(value) }
         end
 
         def resource_id(id, scope)
@@ -550,7 +576,8 @@ module Paygen
             index_document(candidate, @documents[candidate], file_uri(candidate))
           end
           # A symlink may be a second local retrieval URI for the same resource.
-          register_resource(uri.to_s, @documents.fetch(candidate), candidate)
+          location = candidate == @root_path ? '<root>' : candidate
+          register_resource(uri.to_s, @documents.fetch(candidate), location)
         rescue Errno::ENOENT, Errno::EACCES, Errno::ELOOP
           Input.fail_input('REF_MISSING', 'Referenced file is missing or inaccessible')
         end

@@ -195,7 +195,7 @@ module Paygen
           end
           candidate = Paygen.deep_merge(overlay, 'actions' => overlay.fetch('actions') + additions)
           effective = replay(project, file, candidate)
-          Core::Input.graph(effective, base_dir: File.dirname(project.path('source/openapi.json')))
+          Core::Input.graph(effective, source_path: project.path('source/openapi.json'))
           project.write(file, File.extname(file) == '.json' ? Paygen.json(candidate) : YAML.dump(candidate))
           emit({ 'status' => 'patched', 'file' => file, 'actions' => additions })
         end

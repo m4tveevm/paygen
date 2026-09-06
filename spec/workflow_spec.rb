@@ -491,6 +491,49 @@ RSpec.describe Paygen::Core::Workflow do
     expect(transport).to have_received(:request).with(hash_including(method: 'POST')).once
   end
 
+  it 'schedules implicit output dependencies even when the consumer appears first' do
+    document['workflows'][0]['steps'] = [status_step, create_step]
+    outcome = engine.run('payout', inputs: { 'amount' => 1_500_000 })
+    expect(outcome['success']).to be(true)
+    expect(outcome['trace'].map { |event| event['stepId'] }).to eq(%w[create status])
+  end
+
+  %w[$steps.missing.outputs.id $steps.create.outputs.missing $workflows.payout.steps.create.outputs.missing].each do |reference|
+    it "rejects #{reference} before a payout" do
+      status_step['parameters'][0]['value'] = reference
+      expect(transport).not_to receive(:request)
+      expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_OUTPUT_REF') }
+    end
+  end
+
+  it 'validates output references in interpolated payloads and reusable action criteria before effects' do
+    document['components'] = { 'failureActions' => { 'recover' => {
+      'name' => 'recover', 'type' => 'end', 'criteria' => [{ 'condition' => '$steps.missing.outputs.id == 1' }]
+    } } }
+    status_step['onFailure'] = [{ 'reference' => '$components.failureActions.recover' }]
+    expect(transport).not_to receive(:request)
+    expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_OUTPUT_REF') }
+    status_step.delete('onFailure')
+    status_step['requestBody'] = { 'payload' => { 'reference' => 'prefix-{$steps.create.outputs.missing}' } }
+    expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_OUTPUT_REF') }
+  end
+
+  it 'rejects implicit cycles and self-dependent request values before effects' do
+    create_step['requestBody']['payload']['previous'] = '$steps.status.outputs.state'
+    expect(transport).not_to receive(:request)
+    expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_DEPENDENCY') }
+    create_step['requestBody']['payload']['previous'] = '$steps.create.outputs.id'
+    expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_DEPENDENCY') }
+  end
+
+  it 'can structurally round-trip unsupported execution dialects without running them' do
+    status_step['successCriteria'] = [{ 'context' => '$response.body', 'condition' => '/status', 'type' => 'xpath' }]
+    expect(engine.validate!(execution: false)).to be(engine)
+    expect(Paygen::Core::Input.parse(engine.export(format: :json))).to eq(document)
+    expect(transport).not_to receive(:request)
+    expect { engine.run('payout', inputs: { 'amount' => 42 }) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_UNSUPPORTED') }
+  end
+
   it 'rejects cyclic step prerequisites before any provider request' do
     create_step['dependsOn'] = ['status']
     status_step['dependsOn'] = ['create']
