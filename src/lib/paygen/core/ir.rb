@@ -40,7 +40,7 @@ module Paygen
           record_provenance(layer, '', origin)
         end
         validate_profile
-        ProfileValidation.new(profile, diagnostics).validate
+        ProfileValidation.new(@profile, diagnostics).validate
         validate_capabilities
         provenance.each do |path, fact|
           next unless path.start_with?('operations.', 'auth.') && fact['origin'] == 'inference'
