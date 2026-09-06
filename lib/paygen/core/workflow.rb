@@ -31,11 +31,11 @@ module Paygen
       end
 
       def self.import(path_or_url, **options)
-        new(Input.read(path_or_url), **options).tap(&:validate!)
+        new(Input.read(path_or_url), **options).tap { |workflow| workflow.validate!(execution: false) }
       end
 
       def export(format: :yaml)
-        validate!
+        validate!(execution: false)
         case format.to_s
         when 'json' then JSON.pretty_generate(@document) + "\n"
         when 'yaml', 'yml' then Psych.dump(JSON.parse(JSON.generate(@document)))
@@ -43,7 +43,7 @@ module Paygen
         end
       end
 
-      def validate!
+      def validate!(execution: true)
         invalid('ARAZZO_INVALID', 'Arazzo document must be an object') unless @document.is_a?(Hash)
         unless @document['arazzo'].is_a?(String) && @document['arazzo'].match?(/\A1\.1\.\d+\z/)
           invalid('ARAZZO_VERSION', 'Expected Arazzo 1.1.x')
@@ -70,8 +70,11 @@ module Paygen
             validate_workflow_reference!(step['workflowId']) if step['workflowId']
             validate_operation_reference!(step)
           end
-          dependency_order(workflow)
-          validate_capabilities!(workflow, require_sources: false)
+          if execution
+            validate_static_references!(workflow)
+            dependency_order(workflow)
+            validate_capabilities!(workflow, require_sources: false)
+          end
         end
         validate_workflow_cycles!
         self
@@ -240,6 +243,88 @@ module Paygen
         end
       end
 
+      # Inspect only fields evaluated by this runner. A response JSON Pointer is
+      # dynamic, but its workflow, step and declared output names are static.
+      def value_references(value)
+        case value
+        when Hash
+          return value_references(value['context']) if value.key?('selector') && value.key?('context') && value.key?('type')
+          value.values.flat_map { |child| value_references(child) }
+        when Array then value.flat_map { |child| value_references(child) }
+        when String then value.start_with?('$') ? [value] : value.scan(/\{(\$[^{}]+)\}/).flatten
+        else []
+        end
+      end
+
+      def parameter_references(parameters)
+        parameters.flat_map { |parameter| value_references(reusable(parameter)['value']) }
+      end
+
+      def criterion_references(criteria)
+        criteria.flat_map do |criterion|
+          references = value_references(criterion['context'])
+          if criterion.fetch('type', 'simple') == 'simple'
+            Condition.new(criterion['condition'], ->(reference) { references << reference; 0 }).evaluate
+          end
+          references
+        end
+      end
+
+      def action_references(actions)
+        actions.flat_map do |item|
+          action = reusable(item)
+          criterion_references(action.fetch('criteria', [])) + parameter_references(action.fetch('parameters', []))
+        end
+      end
+
+      def step_references(workflow, step, before_request: false)
+        references = parameter_references(merge_parameters(workflow.fetch('parameters', []), step.fetch('parameters', [])))
+        body = step.fetch('requestBody', {})
+        references.concat(value_references(body['payload']))
+        body.fetch('replacements', []).each { |item| references.concat(value_references(item['value'])) }
+        return references if before_request
+        references.concat(value_references(step.fetch('outputs', {})))
+        references.concat(criterion_references(step.fetch('successCriteria', [])))
+        %w[onSuccess onFailure].each { |field| references.concat(action_references(step.fetch(field, []))) }
+        references
+      end
+
+      def validate_static_references!(workflow)
+        references = value_references(workflow.fetch('outputs', {}))
+        references.concat(parameter_references(workflow.fetch('parameters', [])))
+        %w[successActions failureActions].each { |field| references.concat(action_references(workflow.fetch(field, []))) }
+        workflow['steps'].each { |step| references.concat(step_references(workflow, step)) }
+        references.uniq.each { |reference| validate_reference_target!(workflow, reference) }
+      end
+
+      def validate_reference_target!(workflow, reference)
+        base = reference.split('#', 2).first
+        if (match = base.match(/\A\$steps\.([^.\[]+)(?:\.(.*))?\z/))
+          validate_output_reference!(step_for_output(workflow, match[1]), match[2])
+        elsif (match = base.match(/\A\$workflows\.([^.\[]+)(?:\.(.*))?\z/))
+          target = find_workflow(match[1])
+          if (step = match[2]&.match(/\Asteps\.([^.\[]+)(?:\.(.*))?\z/))
+            validate_output_reference!(step_for_output(target, step[1]), step[2])
+          else
+            validate_output_reference!(target, match[2])
+          end
+        elsif (match = base.match(/\A\$sourceDescriptions\.([^.\[]+)/))
+          source_declaration(match[1])
+        end
+      end
+
+      def step_for_output(workflow, id)
+        workflow.fetch('steps').find { |step| step['stepId'] == id } || invalid('ARAZZO_OUTPUT_REF', 'Expression references an unknown step')
+      end
+
+      def validate_output_reference!(owner, path)
+        return unless path&.start_with?('outputs.')
+        output = path.delete_prefix('outputs.')
+        declared = owner.fetch('outputs', {}).keys
+        return if declared.any? { |name| output == name || output.start_with?(name + '.', name + '[') }
+        invalid('ARAZZO_OUTPUT_REF', 'Expression references an undeclared output')
+      end
+
       def validate_values!(value)
         case value
         when Hash
@@ -353,7 +438,8 @@ module Paygen
         ordered = []
         until remaining.empty?
           ready = remaining.index do |step|
-            step.fetch('dependsOn', []).all? do |reference|
+            dependencies = step.fetch('dependsOn', []) + implicit_dependencies(workflow, step)
+            dependencies.uniq.all? do |reference|
               local = local_dependency(workflow, reference)
               !local || ordered.any? { |candidate| candidate['stepId'] == local }
             end
@@ -362,6 +448,17 @@ module Paygen
           ordered << remaining.delete_at(ready)
         end
         ordered
+      end
+
+      def implicit_dependencies(workflow, step)
+        step_references(workflow, step, before_request: true).filter_map do |reference|
+          base = reference.split('#', 2).first
+          if (match = base.match(/\A\$steps\.([^.\[]+)/))
+            match[1]
+          elsif (match = base.match(/\A\$workflows\.([^.\[]+)\.steps\.([^.\[]+)/))
+            match[1] == workflow['workflowId'] ? match[2] : "$workflows.#{match[1]}.steps.#{match[2]}"
+          end
+        end
       end
 
       def local_dependency(workflow, reference)
