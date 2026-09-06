@@ -109,6 +109,21 @@ Both exports need only Ruby.
 Keep the original Paygen project for future regeneration: standalone changes
 are maintained separately.
 
+## Reproducible output
+
+Generation depends on pinned source bytes, profile, ordered overlays, recipe,
+generator version and locked dependencies. Identical inputs produce identical
+managed files in independent project directories. Paths to those directories do
+not define provider behavior. Source hashes and provenance deliberately change
+when the source bytes change, even for semantically equivalent YAML and JSON.
+Missing semantic decisions remain blockers; they are not filled by random guesses
+or an LLM. Use `diff --check` to detect drift within a project.
+
+The product manual is authored in English. Provider descriptions and examples
+retain the language and bytes of their source contract; generation does not
+silently translate upstream data. HTML and Markdown exports describe the effective
+contract of the selected project, separately from the static Paygen manual.
+
 ## Exit codes
 
 | Code | Meaning |

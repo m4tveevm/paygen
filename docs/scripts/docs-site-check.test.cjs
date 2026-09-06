@@ -121,3 +121,11 @@ test('normalizes renderer-generated IDs repeatably without changing content or l
   assert.match(first, /href="#inline-code-id-1"/);
   assert.match(first, /sample inline-code-id-literal/);
 });
+
+for (const href of ['404.html', '/paygen/404.html?missing=1']) {
+  test(`rejects the error page in navigation: ${href}`, (t) => {
+    const {root, put} = fixture(t);
+    put('toc.js', `window.__DATA__.data.toc = ${JSON.stringify({items: [{href}]})};`);
+    assert.throws(() => checkSite(root, '/paygen/', {seal: true}), /404 page must not appear in navigation/);
+  });
+}
