@@ -708,10 +708,12 @@ RSpec.describe Paygen::Runtime::Adapter do
   it 'retains strict create reservations across adapters sharing a state store and does not unlock on 404' do
     config['idempotency'] = { 'strategy' => 'reconcile_before_retry', 'header' => nil, 'from' => 'id' }
     store = Paygen::Runtime::MemoryStateStore.new
-    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, state_store: store)
+    adapter.configure_paygen(credentials: { api_key: 'key' }, transport: transport, state_store: store,
+                             state_namespace: 'reference-integration')
     expect(transport).to receive(:request).once.and_return(response({}, status: 429, headers: { 'Retry-After' => '1' }))
     expect(adapter.create_request(operation).dig('error')).to include('retryable' => false, 'action' => 'reconcile_before_retry')
-    another = adapter.class.new(credentials: { api_key: 'new-key' }, transport: transport, state_store: store)
+    another = adapter.class.new(credentials: { api_key: 'new-key' }, transport: transport, state_store: store,
+                                state_namespace: 'reference-integration')
     expect(another.create_request(operation).dig('error', 'code')).to eq('reconciliation_required')
     expect(transport).to receive(:request).once.and_return(response({}, status: 404))
     expect(another.fetch_status(operation.merge('provider_operation_id' => 'p-1')).dig('error', 'code')).to eq('not_found')
