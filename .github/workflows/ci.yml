@@ -44,21 +44,34 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: '22'
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+          cache: npm
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1, Ruby 4.0.6 support
+        with:
+          ruby-version: '.ruby-version'
+          bundler-cache: true
       - run: npm install --global npm@11.9.0
       - run: npm ci --ignore-scripts --engine-strict
       - name: Report documentation dependency advisories
         run: npm audit --json > npm-audit.json
       - run: npm run docs:test
       - run: npm run docs:build
-      - uses: actions/upload-artifact@v4
+      - name: Rebuild and compare every published byte
+        run: |
+          cp docs/_build/publication-manifest.json "$RUNNER_TEMP/accepted-docs-manifest.json"
+          npm run docs:build
+          cmp "$RUNNER_TEMP/accepted-docs-manifest.json" docs/_build/publication-manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: documentation
           path: docs/_build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
         with:
           name: node-lock
           path: |
