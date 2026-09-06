@@ -66,19 +66,38 @@ For focused commands and the local HTTP flow, see the
 ```bash
 npm run docs:test
 npm run docs:build
+npm run docs:check
 ```
 
-The manual is built into `docs/_build/`. To serve it using the documentation
+`docs:build` renders the manual, generates allowlisted NovaPay downloads with the
+Ruby generator, validates internal links/assets for the `/paygen/` project Pages
+prefix, rejects symlinks and forbidden paths, and writes
+`publication-manifest.json`. The manifest binds the artifact to the source commit,
+an HTML digest, and per-file SHA-256 values. The manual is built into
+`docs/_build/`. To serve it using the documentation
 container:
 
 ```bash
-docker build -f Dockerfile.docs -t paygen-docs .
+docker build -f Dockerfile.docs --build-arg PAYGEN_SOURCE_SHA=$(git rev-parse HEAD) \
+  -t paygen-docs .
 docker run --rm -p 127.0.0.1:8080:80 paygen-docs
 ```
 
-Open `http://127.0.0.1:8080/`. To publish the manual, configure the repository's
-Pages source as **GitHub Actions**, then run the **Publish documentation**
-workflow. The deployment job displays the published URL.
+Open `http://127.0.0.1:8080/paygen/`. To test the same prefix without a container,
+copy `docs/_build` to a temporary server root as `paygen/`, serve that root, and
+request `/paygen/`, `/paygen/provider-catalog.html`, a download, and a missing
+path. The missing path must return 404 rather than a redirect to the home page.
+
+Pull requests run the Pages build and artifact gate without deployment. A trusted
+maintainer can manually dispatch **Publish documentation** with the full accepted
+commit SHA. The workflow checks out that immutable SHA, rebuilds and revalidates
+the artifact, then deploys it through the protected `github-pages` environment.
+Configure the repository's Pages source as **GitHub Actions** first. Do not use a
+moving branch name as the accepted ref.
+
+Rollback is another normal dispatch using the full SHA of a previously reviewed
+release. It rebuilds that revision and deploys its checked artifact; do not rewrite
+branch history or reuse an unverified local archive.
 
 The manual documents Paygen itself. Documentation for an individual integration
 is generated with `paygen docs`; it can be viewed locally or published separately.
