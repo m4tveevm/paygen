@@ -93,6 +93,32 @@ payouts. The [example catalog](fixtures/README.md) distinguishes full source
 contracts from focused fixtures. T-Bank and Tochka illustrate signing and workflow
 requirements that need additional integration work.
 
+## Reproducible generation
+
+The same normalized contract, reviewed profile, ordered overlays, selected recipe
+and locked generator/toolchain versions produce the same files under `generated/`,
+independently of the output directory. Generation does not use an LLM or live
+provider responses. Changing one of these inputs can change the result.
+
+OpenAPI alone can leave payment decisions unresolved. In that case Paygen emits
+diagnostics and blocks executable generation; it does not guess amount units,
+settlement statuses or safe retry rules. Import parses the source and stores
+canonical JSON in `source/openapi.json`; `paygen.lock` hashes that normalized
+contract. Formatting changes, YAML comments and equivalent YAML/JSON can therefore
+produce the same source hash and provenance. This is not an original-file checksum;
+retain the original file and its own checksum separately when byte-level audit
+identity is required.
+
+Run the independent-directory and semantic-equivalence checks after Ruby setup:
+
+```bash
+src/run exec ruby script/research-experiments
+```
+
+The published Diplodoc site is the product manual. `src/run cli docs PROJECT`
+exports the guide for a particular generated integration. Those exports use the
+project's effective contract; the site's 404 page is only an error handler.
+
 ## Documentation
 
 - [Published Diplodoc manual](https://m4tveevm.github.io/paygen/).

@@ -42,7 +42,10 @@ effective contract. The verifier should report `"success": true` and
 | Check supported features and limitations | [Scope](scope.md) |
 | Run tests, build containers or publish the manual | [Development](development.md) |
 
-The manual describes Paygen. Each generated integration also has its own portable
+The manual is authored in English and describes Paygen. Generation is
+repeatable for the same pinned source, profile, overlays, recipe and toolchain;
+see [reproducible output](cli.md#reproducible-output). Missing payment semantics
+produce diagnostics rather than guessed executable behavior. Each generated integration also has its own portable
 Markdown or HTML guide, effective OpenAPI and examples. These can be delivered
 with the adapter without publishing a website.
 
