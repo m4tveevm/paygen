@@ -1,5 +1,13 @@
 # Seven-minute demo
 
+For an automated, repeatable proof, run `examples/showcase/run NEW_EMPTY_DIR`.
+The [showcase pack](../examples/showcase/README.md) executes NovaPay, Stripe,
+PayPal and Adyen adapters through loopback HTTP, checks independent invalid wire
+requests, demonstrates profile + Overlay adaptation, and compares a disposable
+failing mutant with the unchanged adapter on the exact same shrunk trace.
+The panel loads editable provider-specific synthetic examples from `/sample`;
+it does not hardcode a NovaPay request for every provider.
+
 This walkthrough generates a NovaPay adapter, checks repeatability and failure
 handling, then makes HTTP requests through it. All requests stay on the local
 machine and use synthetic payment data.
