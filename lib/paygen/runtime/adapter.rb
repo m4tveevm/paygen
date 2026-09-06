@@ -9,6 +9,7 @@ require 'timeout'
 require_relative 'security'
 require_relative 'result_codec'
 require_relative '../mapping_rule'
+require_relative '../response_bindings'
 
 module Paygen
   module Runtime
@@ -30,12 +31,12 @@ module Paygen
         @paygen_sensitive_values = []
         @paygen_allow_local = allow_local
         @paygen_transport = transport || HTTPTransport.new(allow_local: allow_local)
-        @paygen_mode = mode.to_s
-        @paygen_account = account || @paygen_credentials['account']
+        @paygen_mode = mode.to_s.dup.freeze
+        @paygen_account = (account || @paygen_credentials['account'])&.to_s&.dup&.freeze
         # A shared store cannot infer merchant identity from rotating secrets.
         # Hosts must supply a stable, non-secret account or integration namespace.
         @paygen_external_store = !state_store.nil?
-        @paygen_state_namespace = (state_namespace || @paygen_account)&.to_s
+        @paygen_state_namespace = (state_namespace || @paygen_account)&.to_s&.dup&.freeze
         @paygen_token_provider = token_provider
         @paygen_store = state_store || MemoryStateStore.new
         @paygen_clock = clock || -> { Time.now }
@@ -419,6 +420,8 @@ module Paygen
           validation = check_conditions(operation, role)
           return validation if paygen_result_failed?(validation)
         end
+        binding_failure = response_binding_preflight(role, operation)
+        return binding_failure if binding_failure
 
         return paygen_failure('operation_identity_mismatch') if cached_identity_mismatch?(role, operation)
 
@@ -931,6 +934,90 @@ module Paygen
         config.merge(config.fetch('roles', {}).fetch(role, {}))
       end
 
+      def response_binding_preflight(role, operation)
+        bindings = paygen_config.fetch('response_bindings', {})
+        unless bindings.is_a?(Hash) && bindings.all? { |name, rule| ResponseBindings.valid?(name, rule) }
+          raise ArgumentError, 'invalid response bindings configuration'
+        end
+        bindings.each do |name, rule|
+          next unless rule['roles'].include?(role) && rule['required']
+
+          expected = read_path(operation, rule['operation_path'])
+          if expected.nil?
+            return paygen_failure('response_binding_input_missing', details: { 'binding' => name })
+          end
+          valid = correlation_input_valid?(name, expected)
+          return paygen_failure('response_binding_input_invalid', details: { 'binding' => name }) unless valid
+        end
+        nil
+      end
+
+      def response_binding_failure(payload, role, operation)
+        paygen_config.fetch('response_bindings', {}).each do |name, rule|
+          next unless rule['roles'].include?(role)
+
+          actual = read_path(payload, rule['response_path'])
+          next if actual.nil? && !rule['required']
+
+          expected = read_path(operation, rule['operation_path'])
+          code = if actual.nil?
+                   'missing_response_evidence'
+                 elsif expected.nil?
+                   'response_binding_input_missing'
+                 elsif !correlation_equal?(name, actual, expected, rule)
+                   'response_binding_mismatch'
+                 end
+          next unless code
+
+          details = { 'binding' => name }
+          details['action'] = 'reconcile_before_retry' if role == 'create'
+          return paygen_failure(code, ambiguous: role == 'create', details: details)
+        end
+        nil
+      end
+
+      def correlation_scalar?(name, value)
+        name == 'currency' ? value.is_a?(String) && !value.empty? :
+          (value.is_a?(String) && !value.empty?) || value.is_a?(Integer)
+      end
+
+      def correlation_input_valid?(name, value)
+        return correlation_scalar?(name, value) unless name == 'amount'
+
+        minor_amount(value)
+        true
+      rescue ArgumentError, TypeError
+        false
+      end
+
+      def correlation_equal?(name, actual, expected, rule)
+        if name == 'amount'
+          response_minor_amount(actual, rule.fetch('response_unit')) == minor_amount(expected)
+        else
+          correlation_scalar?(name, actual) && correlation_scalar?(name, expected) && actual == expected
+        end
+      rescue ArgumentError, TypeError
+        false
+      end
+
+      def response_minor_amount(value, unit)
+        unless value.is_a?(Integer) || value.is_a?(BigDecimal) ||
+               (value.is_a?(String) && value.match?(/\A-?\d+(?:\.\d+)?\z/))
+          raise ArgumentError, 'response amount must be an exact decimal or integer'
+        end
+        decimal = BigDecimal(value.to_s)
+        raise ArgumentError, 'response amount must be finite' unless decimal.finite?
+
+        scale = paygen_config.fetch('amount', {}).fetch('scale', 100)
+        unless scale.is_a?(Integer) && scale.positive? && scale.to_s.match?(/\A10*\z/)
+          raise ArgumentError, 'invalid response amount scale'
+        end
+        minor = unit == 'major' ? decimal * scale : decimal
+        raise ArgumentError, 'response amount exceeds currency precision' unless minor.frac.zero?
+
+        minor.to_i
+      end
+
       def interpret_response(response, role, operation)
         status = Integer(response.fetch('status'))
         raw = response['body']
@@ -942,6 +1029,8 @@ module Paygen
 
         contract_failure = response_contract_failure(response, role, status, payload)
         return contract_failure if contract_failure
+        binding_failure = response_binding_failure(payload, role, operation)
+        return binding_failure if binding_failure
 
         mismatch = identity_mismatch(payload, mapping)
         return paygen_failure(mismatch) if mismatch
@@ -1147,15 +1236,20 @@ module Paygen
       def legacy_state?(operation: nil, provider_id: nil)
         return false unless @paygen_external_store
 
-        prefix = [paygen_config['provider'], @paygen_mode, @paygen_account].join(':')
         keys = []
         merchant_id = read_path(operation, 'id') if operation
-        if merchant_id && !merchant_id.to_s.empty?
-          keys << "request:#{prefix}:#{Digest::SHA256.hexdigest(merchant_id.to_s)}"
-          explicit_key = read_path(operation, paygen_config.fetch('idempotency', {}).fetch('from', 'idempotency_key'))
-          keys << "idempotency:#{prefix}:#{explicit_key}" unless explicit_key.to_s.empty?
+        # Adding a required account must not silently bypass reservations made
+        # by the old unscoped implementation. Their ownership is ambiguous and
+        # can only be resolved by reviewed migration, not an inferred new owner.
+        [@paygen_account, nil].uniq.each do |old_account|
+          prefix = [paygen_config['provider'], @paygen_mode, old_account].join(':')
+          if merchant_id && !merchant_id.to_s.empty?
+            keys << "request:#{prefix}:#{Digest::SHA256.hexdigest(merchant_id.to_s)}"
+            explicit_key = read_path(operation, paygen_config.fetch('idempotency', {}).fetch('from', 'idempotency_key'))
+            keys << "idempotency:#{prefix}:#{explicit_key}" unless explicit_key.to_s.empty?
+          end
+          keys << "lifecycle:#{prefix}:#{provider_id}" unless provider_id.to_s.empty?
         end
-        keys << "lifecycle:#{prefix}:#{provider_id}" unless provider_id.to_s.empty?
         @paygen_store.synchronize { |state| keys.any? { |key| state.key?(key) } }
       end
 
