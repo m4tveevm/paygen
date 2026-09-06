@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Sources: repository CLI contract in src/README.md; RSpec Core 3.13 configuration API.
 set -euo pipefail
 PAYGEN_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 export BUNDLE_GEMFILE="$PAYGEN_ROOT/src/Gemfile"
@@ -11,7 +12,8 @@ case "$PAYGEN_TASK" in
   test)
     # RSpec's default is ./spec, but this checkout keeps tests in src/spec.
     # An explicit default path also applies when the caller supplies options.
-    exec bundle exec rspec --options src/.rspec --default-path src/spec -I src/spec "$@"
+    exec bundle exec rspec --options src/.rspec --default-path src/spec \
+      --require ./src/script/rspec-policy.rb -I src/spec "$@"
     ;;
   lint) exec bundle exec rubocop --config src/.rubocop.yml "$@" ;;
   audit) exec bundle exec bundler-audit check src "$@" ;;

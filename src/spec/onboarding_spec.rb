@@ -102,6 +102,8 @@ RSpec.describe 'Unfamiliar API onboarding' do
       File.write(project.path('integration.yml'), YAML.dump(partial.merge('operations' => { 'create' => 'createPayout' })))
       expect(project.ir.diagnostics.map { |d| d['path'] }).to include('operations.status', 'auth.type')
       File.write(project.path('integration.yml'), YAML.dump(answers))
+      # Selecting a different create contract invalidates dependent old decisions.
+      project.configure(answers)
       expect(Paygen::Core::Onboarding.new(project.ir).report['ready']).to be(true)
       expect(Paygen::Generator.new(project).generate['files']).to include('training_service.rb')
       expect(File.binread(project.path('source/openapi.json'))).to eq(before)

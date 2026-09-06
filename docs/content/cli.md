@@ -42,6 +42,7 @@ executable adapter. `generate --watch` regenerates after input changes.
 `diff --check` fails when generated output differs from current inputs or was
 edited manually. `explain` shows where a configuration value came from. `update`
 validates a replacement contract against existing corrections before pinning it;
+review any `REVIEW_STALE` decisions with `configure --answers` or `--set`, then
 generate and verify again after updating. The example reimports the unchanged
 fixture to exercise the command; for a real update, supply your revised contract.
 
@@ -60,6 +61,7 @@ template and requires a saved failure report or trace for the same profile. See
 | --- | --- |
 | `source/` | Pinned API source |
 | `integration.yml` | Your semantic profile |
+| `review.json` | Per-field review evidence and relevant contract dependencies |
 | `overlays/` | Ordered contract corrections |
 | `recipes/`, `workflows/`, `scenarios/` | Defaults and workflow descriptions |
 | `extensions/` | Your Ruby hooks, preserved by regeneration |
@@ -112,9 +114,10 @@ are maintained separately.
 ## Reproducible output
 
 Generation depends on the normalized contract, profile, ordered overlays, recipe,
-generator version and locked dependencies. Identical inputs produce identical
-managed files in independent project directories. Paths to those directories do
-not define provider behavior.
+saved review evidence (`review.json`), generator version and locked dependencies.
+Identical inputs produce identical managed files in independent project directories. Paths to those directories do
+not define provider behavior. Different review histories can change generated
+provenance even when effective payment settings match.
 
 `init` parses and resolves the input, writes canonical JSON to
 `source/openapi.json`, and records its SHA-256 as `source_sha256` in `paygen.lock`.
@@ -142,7 +145,33 @@ static Paygen manual.
 | 0 | Success |
 | 1 | A check failed or generated output changed |
 | 2 | Invalid arguments or project |
-| 3 | Invalid specification |
-| 4 | Unresolved integration semantics |
+| 3 | Invalid specification, profile or review metadata |
+| 4 | Unresolved integration semantics or required fixture artifacts |
 | 5 | An input or path failed a security check |
 | 70 | Internal error |
+
+## Capability refusals
+
+Selected outgoing request bodies support `application/json` and
+`application/x-www-form-urlencoded`. JSON is preferred when both exist; a
+`request_encoding: form` profile explicitly selects form only when the contract
+offers it. XML and multipart bodies are unsupported. JSON responses (including
+structured `+json` media types) are supported; JSON callbacks require their own
+reviewed signature policy.
+
+API keys are supported in headers or query parameters, not cookies. An effective
+security requirement must match the configured authentication. OR alternatives
+are choices; an AND combination of security schemes cannot be satisfied by
+pretending one credential covers all of them. `security: []` explicitly permits
+an anonymous operation. Unsupported unselected operations produce scope warnings;
+selected unsupported operations produce blockers before execution.
+
+For XML-only or cookie-only APIs, setting `request_encoding: json` or changing a
+credential label does not implement the missing protocol. Use a genuinely
+supported provider representation or implement the missing capability separately.
+A failed regeneration retains previous files and explicitly reports them as stale;
+it does not publish them as the result of the failed attempt.
+
+Nested invalid profiles report paths such as `errors.400` or
+`callback.signature.encoding`, expected options/types and actual types. Values
+that may contain secrets are not repeated in validation messages.

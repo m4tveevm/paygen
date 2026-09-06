@@ -1,3 +1,5 @@
+Источники: https://github.com/m4tveevm/paygen (Ruby implementation and declared local host example).
+
 # Paygen Ruby application
 
 This directory owns the Ruby application, Gemfile and lockfile, gemspec, Ruby
@@ -24,9 +26,14 @@ and `require 'paygen'` normally.
 
 Application source and runtime assets are in `lib/`, the CLI entrypoint is
 `bin/paygen`, and bundled provider recipes are in `recipes/`. Provider fixtures,
-examples, research and the Diplodoc manual live outside this directory.
+dataset demonstrations, research and the Diplodoc manual live outside this directory.
+The executable Ruby host contract is in `examples/host_bridge.rb`.
 
 This README is also included in the installed gem; checkout-only commands above
 require the full repository. See [the development guide](https://m4tveevm.github.io/paygen/development.html) for the full toolchain
 and container commands. `LICENSE` is the copy shipped in the gem; package tests
 check it against the repository license.
+
+`src/run test` defaults to `src/spec` even with only flags such as `--seed 29193`.
+Explicit paths, line filters and formatters still work. Zero selected examples
+(including unmatched filters) fail; there is no successful empty-suite exception.

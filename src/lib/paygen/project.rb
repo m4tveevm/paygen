@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require 'tempfile'
 require 'tmpdir'
+require_relative 'core/review'
 
 module Paygen
   class Project
@@ -32,6 +33,7 @@ module Paygen
       end
       project.write('extensions/README.md', "# User-owned extensions\n\nAdd trusted Ruby hooks here. Paygen never executes or overwrites these files during generation.\n")
       project.write('paygen.lock', Paygen.json({ 'version' => 1, 'source_uri' => remote ? input.to_s : File.expand_path(input), 'source_sha256' => Digest::SHA256.hexdigest(Paygen.json(document)), 'generated' => {} }))
+      project.write('review.json', Paygen.json(Core::Review.new(project.ir(review: false)).capture(initial: true)))
       project
     rescue StandardError
       FileUtils.remove_entry(destination) if defined?(project) && project && File.directory?(destination)
@@ -152,11 +154,12 @@ module Paygen
       Core::Input.graph(document, source_path: path('source/openapi.json'))
     end
 
-    def ir(overrides: {})
+    def ir(overrides: {}, review: true)
       document = effective_document
       selected = path('recipes/selected.yml')
       defaults = File.file?(selected) ? Core::Input.read(selected).fetch('profile', {}) : {}
       result = Core::IR.new(document, recipe: defaults, profile: profile, overrides: overrides)
+      Core::Review.new(result, review_state).apply if review
       result.diagnostics.concat(@overlay_diagnostics)
       Dir[path('workflows/*.{json,yaml,yml}')].each do |file|
         relative = Pathname.new(file).relative_path_from(Pathname.new(root)).to_s
@@ -165,9 +168,30 @@ module Paygen
       result
     end
 
+    def review_state
+      File.file?(path('review.json')) ? Core::Input.read(path('review.json')) : nil
+    end
+
+    def configure(edits)
+      transaction do
+        # Validate all shapes before changing either user configuration or evidence.
+        result = ir(overrides: edits, review: false)
+        state = Core::Review.new(result, review_state).capture(Core::Review.paths(edits))
+        previous = File.read(path('integration.yml'))
+        write('integration.yml', YAML.dump(Paygen.deep_merge(profile, edits)))
+        begin
+          write('review.json', Paygen.json(state))
+        rescue StandardError
+          write('integration.yml', previous)
+          raise
+        end
+      end
+    end
+
     def input_hashes
       files = %w[source/openapi.json integration.yml] +
               Dir[path('{overlays,recipes,workflows,scenarios}/**/*')].select { |file| File.file?(file) }.map { |file| Pathname.new(file).relative_path_from(Pathname.new(root)).to_s }
+      files << 'review.json' if File.file?(path('review.json'))
       files.sort.to_h { |file| [file, Digest::SHA256.file(path(file)).hexdigest] }
     end
 
