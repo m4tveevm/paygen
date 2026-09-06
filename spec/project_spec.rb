@@ -201,13 +201,13 @@ RSpec.describe 'Project generation lifecycle' do
     script = <<~'RUBY'
       require 'json'
       exported, repository = ARGV
-      source_lib = File.join(repository, 'lib')
+      source_lib = File.join(repository, 'src/lib')
       # CI installs third-party gems below repository/vendor/bundle. Keep those
       # dependencies while excluding only the source gem's executable code.
       $LOAD_PATH.reject! { |path| File.expand_path(path) == source_lib || File.expand_path(path).start_with?(source_lib + '/') }
       # Bundler evaluates the source gemspec/version before this script, but no
       # executable runtime/helper from that gem may satisfy the detached load.
-      source_runtime = -> { $LOADED_FEATURES.any? { |path| path.start_with?(repository + '/lib/paygen') && !path.end_with?('/paygen/version.rb') } }
+      source_runtime = -> { $LOADED_FEATURES.any? { |path| path.start_with?(repository + '/src/lib/paygen') && !path.end_with?('/paygen/version.rb') } }
       raise 'source runtime was already loaded' if source_runtime.call
       $LOAD_PATH.unshift(File.join(exported, 'lib'))
       module Provider

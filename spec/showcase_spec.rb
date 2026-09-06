@@ -76,13 +76,13 @@ RSpec.describe 'Disposable showcase tooling' do
       project = Paygen::Project.init(File.expand_path('../fixtures/novapay/openapi.yaml', __dir__), output: File.join(directory, 'project'))
       Paygen::Generator.new(project).generate
       before = Digest::SHA256.file(project.path('generated/novapay_service.rb')).hexdigest
-      stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-Ilib', 'examples/showcase/mutation.rb', project.root, directory)
+      stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-Isrc/lib', 'examples/showcase/mutation.rb', project.root, directory)
       expect(status.success?).to be(true), "#{stdout}\n#{stderr}"
       summary = JSON.parse(stdout)
       expect(summary.fetch('shrunk_steps')).to be < summary.fetch('original_steps')
       failed = JSON.parse(File.read(File.join(directory, 'mutant-replay.json')))
       expect(failed.dig('failure', 'invariant')).to eq('duplicate_payout')
-      stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-Ilib', 'bin/paygen', 'fuzz', project.root,
+      stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-Isrc/lib', 'src/bin/paygen', 'fuzz', project.root,
                                             '--replay', File.join(directory, 'mutant-trace.json'))
       expect(status.success?).to be(true), "#{stdout}\n#{stderr}"
       fixed = JSON.parse(stdout)

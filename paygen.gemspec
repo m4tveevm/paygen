@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-require_relative 'lib/paygen/version'
+require_relative 'src/lib/paygen/version'
 Gem::Specification.new do |s|
   s.name = 'paygen'
   s.version = Paygen::VERSION
@@ -8,10 +8,10 @@ Gem::Specification.new do |s|
   s.license = 'MIT'
   s.homepage = 'https://github.com/m4tveevm/paygen'
   s.required_ruby_version = '>= 3.3'
-  s.files = Dir['lib/**/*', 'bin/*', 'recipes/**/*', 'README.md', 'LICENSE']
-  s.bindir = 'bin'
+  s.files = Dir['src/lib/**/*', 'src/bin/*', 'src/recipes/**/*', 'README.md', 'LICENSE']
+  s.bindir = 'src/bin'
   s.executables = ['paygen']
-  s.require_paths = ['lib']
+  s.require_paths = ['src/lib']
   s.add_dependency 'dry-cli', '~> 1.3'
   s.add_dependency 'json_schemer', '~> 2.4'
   s.add_dependency 'json', '~> 2.21'

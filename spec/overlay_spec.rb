@@ -113,7 +113,7 @@ RSpec.describe Paygen::Core::Overlay do
 end
 
 RSpec.describe 'Pinned RFC 9535 JSONPath compliance suite' do
-  suite = JSON.parse(File.read(File.expand_path('../lib/paygen/core/schemas/jsonpath-cts.json', __dir__)))
+  suite = JSON.parse(File.read(File.expand_path('../src/lib/paygen/core/schemas/jsonpath-cts.json', __dir__)))
   suite.fetch('tests').each do |test|
     it test.fetch('name') do
       if test['invalid_selector']

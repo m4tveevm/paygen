@@ -5,8 +5,7 @@ on:
     paths:
       - 'docs/**'
       - 'fixtures/novapay/**'
-      - 'recipes/**'
-      - 'lib/**'
+      - 'src/**'
       - 'script/docs*'
       - 'script/diplodoc-*'
       - 'package.json'
@@ -15,7 +14,7 @@ on:
       - 'Gemfile'
       - 'paygen.gemspec'
       - '.ruby-version'
-      - 'Dockerfile.docs'
+      - 'tools/docs/Dockerfile'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
     inputs:

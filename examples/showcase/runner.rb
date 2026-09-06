@@ -27,7 +27,7 @@ module PaygenShowcase
       trap('INT') { raise Interrupt }
       trap('TERM') { raise Interrupt }
       record_revision
-      snapshot = %w[lib bin fixtures examples/showcase].to_h { |name| [name, hashes(File.join(@root, name))] }
+      snapshot = %w[src/lib src/bin src/recipes fixtures examples/showcase].to_h { |name| [name, hashes(File.join(@root, name))] }
       snapshot['dependencies'] = %w[Gemfile Gemfile.lock paygen.gemspec].to_h { |name| [name, Digest::SHA256.file(File.join(@root, name)).hexdigest] }
       save('source-snapshot-sha256.json', snapshot)
       cli('doctor', 'doctor')
@@ -109,7 +109,7 @@ module PaygenShowcase
     end
 
     def cli(name, *arguments, expected: 0)
-      command(name, [RbConfig.ruby, '-Ilib', 'bin/paygen', *arguments], expected: expected)
+      command(name, [RbConfig.ruby, '-Isrc/lib', 'src/bin/paygen', *arguments], expected: expected)
     end
 
     def hashes(directory)
@@ -136,9 +136,9 @@ module PaygenShowcase
       port = socket.addr[1]
       socket.close
       argv = if probe
-               [RbConfig.ruby, '-Ilib', 'examples/showcase/provider_probe.rb', project_path, port.to_s]
+               [RbConfig.ruby, '-Isrc/lib', 'examples/showcase/provider_probe.rb', project_path, port.to_s]
              else
-               [RbConfig.ruby, '-Ilib', 'bin/paygen', 'demo', project_path, '--port', port.to_s]
+               [RbConfig.ruby, '-Isrc/lib', 'src/bin/paygen', 'demo', project_path, '--port', port.to_s]
              end
       pid = @processes.start(argv, log: File.join(@output, "#{label}-server.log"))
       client = Client.new(port)
@@ -295,7 +295,7 @@ module PaygenShowcase
 
     def mutation
       before = hashes(File.join(project('novapay'), 'generated'))
-      command('mutant-summary', [RbConfig.ruby, '-Ilib', 'examples/showcase/mutation.rb', project('novapay'), @output])
+      command('mutant-summary', [RbConfig.ruby, '-Isrc/lib', 'examples/showcase/mutation.rb', project('novapay'), @output])
       cli('fixed-replay', 'fuzz', project('novapay'), '--replay', File.join(@output, 'mutant-trace.json'))
       fixed = read('fixed-replay.json')
       mutant = read('mutant-replay.json')

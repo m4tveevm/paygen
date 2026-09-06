@@ -7,9 +7,9 @@ require 'tmpdir'
 require 'fileutils'
 require 'json'
 require 'puma'
-require_relative '../lib/paygen'
-require_relative '../lib/paygen/collection'
-require_relative '../lib/paygen/runtime/demo'
+require_relative '../src/lib/paygen'
+require_relative '../src/lib/paygen/collection'
+require_relative '../src/lib/paygen/runtime/demo'
 
 module Paygen
   # Runs a separately installed, pinned Bruno CLI against real loopback HTTP.

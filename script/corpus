@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-require_relative '../lib/paygen'
+require_relative '../src/lib/paygen'
 require 'time'
 
 # Read-only, network-free benchmark of a separately downloaded source cache.

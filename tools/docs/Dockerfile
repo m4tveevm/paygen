@@ -7,9 +7,9 @@ WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential libyaml-dev \
     && rm -rf /var/lib/apt/lists/*
 COPY Gemfile Gemfile.lock paygen.gemspec ./
-COPY lib ./lib
-COPY bin ./bin
-COPY recipes ./recipes
+COPY src/lib ./src/lib
+COPY src/bin ./src/bin
+COPY src/recipes ./src/recipes
 COPY fixtures/novapay ./fixtures/novapay
 COPY script/docs_provider_assets.rb ./script/docs_provider_assets.rb
 RUN gem install bundler -v 4.0.20 --no-document && bundle install --jobs 4 --retry 3

@@ -5,7 +5,7 @@ require 'fileutils'
 require 'json'
 require 'open3'
 require 'tmpdir'
-require_relative '../lib/paygen'
+require_relative '../src/lib/paygen'
 
 module DocsProviderAssets
   FILES = %w[INTEGRATION.md fixtures.json config.json diagnostics.json provenance.json].freeze

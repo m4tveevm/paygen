@@ -6,8 +6,8 @@ require 'fileutils'
 require 'json'
 require 'open3'
 require 'openssl'
-require_relative '../lib/paygen'
-require_relative '../lib/paygen/runtime/adapter'
+require_relative '../src/lib/paygen'
+require_relative '../src/lib/paygen/runtime/adapter'
 require_relative '../spec/support/provider_harness'
 
 ROOT = File.expand_path('..', __dir__)

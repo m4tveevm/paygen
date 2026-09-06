@@ -21,7 +21,7 @@ not a count of payment scenarios.
 Start with an existing, up-to-date generated project:
 
 ```bash
-bundle exec bin/paygen fuzz tmp/novapay --seed 42 --cases 100 --steps 30 \
+bundle exec src/bin/paygen fuzz tmp/novapay --seed 42 --cases 100 --steps 30 \
   --output tmp/novapay-fuzz.json
 ```
 
@@ -46,7 +46,7 @@ smaller `shrunk_trace`. Shrinking removes actions while retaining the same faile
 invariant, with a bounded number of attempts. Replay the saved failure report:
 
 ```bash
-bundle exec bin/paygen fuzz tmp/novapay --replay tmp/novapay-fuzz.json
+bundle exec src/bin/paygen fuzz tmp/novapay --replay tmp/novapay-fuzz.json
 ```
 
 Replay prefers `shrunk_trace`. The trace records the seed, mode, actions and

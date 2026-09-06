@@ -252,7 +252,7 @@ RSpec.describe Paygen::Runtime::Simulator do
 
   it 'keeps the PayPal batch contract valid when a successful payout item later fails or returns' do
     document = Paygen::Core::Input.load(File.expand_path('../fixtures/paypal/openapi.yaml', __dir__))
-    profile = Paygen::Core::Input.read(File.expand_path('../recipes/paypal.yml', __dir__)).fetch('profile')
+    profile = Paygen::Core::Input.read(File.expand_path('../src/recipes/paypal.yml', __dir__)).fetch('profile')
     config = Paygen::Core::IR.new(document, profile: profile).config
     config['simulator']['scenarios']['booked_then_returned'] = { 'statuses' => %w[SUCCESS RETURNED] }
     request_body = {
