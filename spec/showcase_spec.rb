@@ -21,6 +21,21 @@ RSpec.describe 'Disposable showcase tooling' do
     end
   end
 
+  it 'labels a container revision as a build declaration and rejects malformed metadata' do
+    Dir.mktmpdir do |directory|
+      runner = PaygenShowcase::Runner.new(directory)
+      allow(File).to receive(:exist?).and_call_original
+      allow(File).to receive(:exist?).with(File.expand_path('../.git', __dir__)).and_return(false)
+      allow(ENV).to receive(:[]).with('PAYGEN_SOURCE_SHA').and_return('a' * 40)
+      allow(ENV).to receive(:fetch).with('PAYGEN_SOURCE_DIRTY', 'unknown').and_return('clean')
+      runner.send(:record_revision)
+      report = JSON.parse(File.read(File.join(directory, 'source-revision.json')))
+      expect(report).to include('kind' => 'build_declared', 'verified_git_checkout' => false, 'dirty' => 'clean', 'sha' => 'a' * 40)
+      allow(ENV).to receive(:[]).with('PAYGEN_SOURCE_SHA').and_return('not-a-revision')
+      expect { runner.send(:record_revision) }.to raise_error(PaygenShowcase::Failure, /40 hexadecimal/)
+    end
+  end
+
   it 'refuses an occupied port without signaling or starting another process' do
     runner = PaygenShowcase::Runner.new
     expect(TCPServer).to receive(:new).with('127.0.0.1', 9293).and_raise(Errno::EADDRINUSE)

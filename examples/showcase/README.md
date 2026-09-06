@@ -89,9 +89,12 @@ docker run --rm --network none \
 ```
 
 The image build can require network access; the run uses only container loopback.
-The build context excludes `.git`: the run records the actual source-file hashes
-in `source-snapshot-sha256.json` and marks Git metadata unavailable instead of
-inventing a tested commit. Archive the host commit/dirty state and image ID too.
+The build context excludes `.git`: the run records actual source-file hashes
+in `source-snapshot-sha256.json`. If the image supplies `PAYGEN_SOURCE_SHA`
+(exactly 40 hexadecimal characters) and `PAYGEN_SOURCE_DIRTY`
+(`clean`/`dirty`/`unknown`, or `0`/`1`), `source-revision.json` labels them
+`build_declared`, not a verified checkout. Otherwise Git metadata is unavailable.
+An actual checkout takes precedence. Archive the host commit/dirty state and image ID too.
 An installed, reachable Docker daemon is required. An unexecuted container recipe
 is not container-test evidence. Never mount production credentials or a Docker
 socket into this demo.
