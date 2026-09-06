@@ -31,8 +31,9 @@ module Paygen
         def load(path_or_url, stdin: $stdin)
           source = path_or_url.to_s
           document = read(source, stdin: stdin)
-          base_dir = source == '-' || source.match?(/\Ahttps?:/i) ? nil : File.dirname(File.realpath(source))
-          graph(document, base_dir: base_dir, source_path: base_dir && source)
+          remote = source.match?(/\Ahttps?:/i)
+          base_dir = source == '-' || remote ? nil : File.dirname(File.realpath(source))
+          graph(document, base_dir: base_dir, source_path: base_dir && source, source_uri: remote ? source : nil)
         rescue Errno::ENOENT, Errno::EACCES, Errno::EISDIR => e
           raise Error.new("Cannot read source: #{e.class}", code: 'INPUT_IO', exit_code: 2)
         end
@@ -92,8 +93,9 @@ module Paygen
         # Retain local reference edges and legal recursive schemas during
         # import. Generation expands only the selected operations, where cycles
         # and dynamic references receive explicit unsupported diagnostics.
-        def graph(document, base_dir: nil, source_path: nil)
-          bundled = Resolver.new(document, base_dir: base_dir, source_path: source_path, preserve_internal: true, graph: true).resolve
+        def graph(document, base_dir: nil, source_path: nil, source_uri: nil)
+          bundled = Resolver.new(document, base_dir: base_dir, source_path: source_path, source_uri: source_uri,
+                                 preserve_internal: true, graph: true).resolve
           validate!(bundled)
         end
 
@@ -307,7 +309,7 @@ module Paygen
       end
 
       class Resolver
-        def initialize(document, base_dir:, source_path: nil, preserve_internal: false, graph: false)
+        def initialize(document, base_dir:, source_path: nil, source_uri: nil, preserve_internal: false, graph: false)
           @preserve_internal = preserve_internal
           @graph = graph
           @document = document
@@ -326,7 +328,9 @@ module Paygen
           @emitted_resources = {}
           @index_nodes = 0
           @schema_resources = document['openapi'].to_s.start_with?('3.1.')
-          @root_uri = if @root_path
+          @root_uri = if source_uri
+                        Input.https_uri(source_uri).to_s
+                      elsif @root_path
                         file_uri(@root_path)
                       elsif @base_dir
                         file_uri(File.join(@base_dir, '__paygen_root__.json'))

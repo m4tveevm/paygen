@@ -57,11 +57,12 @@ acceptance and live settlement are separate from the local test suite.
 [Russian bank examples](ru-bank-examples.md) and
 [provider configuration](native-onboarding.md) describe the exact supported flows.
 
-HTTPS import does not yet preserve retrieval identity for absolute self-references
-through the complete import, serialization and project-regeneration pipeline.
-Use an equivalent reviewed contract with local fragment references for that case;
-arbitrary external network references remain denied. This limitation is not
-silently reported as a successful complete integration.
+HTTPS import preserves retrieval identity while bundling, so an absolute
+self-reference to the downloaded root is rewritten to a portable local fragment
+(or the internal `paygen-local:///root.json` identity where needed). Resource IDs
+identify already loaded
+schemas; they never grant permission to fetch arbitrary external URLs.
+Regeneration therefore performs no network fetch.
 
 ## Demonstration and checks
 

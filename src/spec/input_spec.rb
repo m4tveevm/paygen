@@ -84,6 +84,29 @@ RSpec.describe Paygen::Core::Input do
     end
   end
 
+  it 'makes an HTTPS root self-reference portable without authorizing external fetches' do
+    url = 'https://provider.example/openapi.json'
+    original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+      'Recipient' => { 'type' => 'string' },
+      'Wrapper' => { 'type' => 'object', 'properties' => {
+        'recipient' => { '$ref' => "#{url}#/components/schemas/Recipient" }
+      } }
+    } })
+    allow(described_class).to receive(:read).with(url, stdin: anything).and_return(original)
+
+    imported = described_class.load(url)
+    expect(imported.dig('components', 'schemas', 'Wrapper', 'properties', 'recipient', '$ref'))
+      .to eq('#/components/schemas/Recipient')
+    serialized = JSON.parse(JSON.generate(imported))
+    expect(described_class.resolve(serialized).dig('components', 'schemas', 'Wrapper', 'properties', 'recipient', 'type')).to eq('string')
+
+    external = original.dup
+    external['components'] = { 'schemas' => { 'Foreign' => { '$ref' => 'https://other.example/schema.json' } } }
+    expect { described_class.graph(external, source_uri: url) }.to raise_error(Paygen::Error) do |error|
+      expect(error.code).to eq('REF_EXTERNAL_DENIED')
+    end
+  end
+
   it 'uses one root document for filename and in-directory symlink aliases' do
     Dir.mktmpdir do |dir|
       source = File.join(dir, 'main.yaml')
