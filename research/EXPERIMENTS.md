@@ -5,7 +5,7 @@
 ## Исполняемый пакет E02–E05
 
 ```bash
-bundle exec ruby script/research-experiments
+src/run exec ruby script/research-experiments
 ```
 
 Скрипт создаёт новый каталог `tmp/research-experiments/run-<UTC>-<pid>/`: `report.json`, `artifact-sha256.json`, stdout/stderr команд, проекты и native RSpec JSON. Можно передать явный **новый** каталог под `tmp/research-experiments/`; старое evidence не перезаписывается. Сохраняются SHA исходников и Gemfile.lock, hash исполняемого скрипта, Ruby/platform/Bundler, network/cache scope, seed, команды, exit codes и generated hashes. Значения окружения и реальные credentials не выгружаются. E05 использует checked-in синтетические HTTP oracles с WebMock, а не сеть провайдеров.

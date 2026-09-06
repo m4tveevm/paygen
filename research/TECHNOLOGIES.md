@@ -15,6 +15,6 @@
 | PropCheck 1.0.2 | Отдельные amount properties | Генерация/shrink в focused tests | Не product StateFuzzer | Таблица boundary examples |
 | Собственный StateFuzzer | Stateful sequence/fault/replay | Domain actions и reducer под контролем | Bounded actions/seeds; не exhaustive | Handwritten sequences |
 | Rack/Puma | Simulator/Demo local HTTP | Реальная loopback serialization boundary | Не provider sandbox | In-process Rack call |
-| Diplodoc/npm | Published documentation | Проверяемая static docs build | Node toolchain дополнительно | Markdown only |
+| Diplodoc/pnpm | Published documentation | Проверяемая static docs build | Node toolchain дополнительно | Markdown only |
 | Bruno | Executable collection smoke | Переносимые HTTP examples | Collection не проверяет adapter internals | curl script |
 | OCI Dockerfiles + GitHub Actions | Reproducible CI/docs | Изолированные jobs and deploy artifact | Container ≠ production certification | Local `script/check` |

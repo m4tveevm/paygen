@@ -8,3 +8,9 @@ tmp
 output
 docs/_build
 .env
+
+src/.bundle
+src/vendor
+src/*.gem
+docs/node_modules
+docs/pnpm-audit.json

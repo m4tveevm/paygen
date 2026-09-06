@@ -43,8 +43,8 @@ Native examples keep the specifications unchanged and define payment behavior in
 separate profiles. Their HTTP expectations are independent of the simulator.
 `review.yml` documents unsupported scenarios; it is not an integration profile.
 An import result establishes structural compatibility, separate from adapter
-execution. See [provider configuration](../docs/native-onboarding.md) and
-[Russian bank examples](../docs/ru-bank-examples.md).
+execution. See [provider configuration](../docs/content/native-onboarding.md) and
+[Russian bank examples](../docs/content/ru-bank-examples.md).
 
 ## Replay an Arazzo workflow
 
@@ -53,4 +53,4 @@ native request body from `fixtures.json`. The workflow transport owns HTTP
 authentication; the generated adapter owns application-to-provider amount
 conversion. A successful workflow result means its HTTP checks passed: inspect
 the returned payout state before interpreting settlement. See
-[the workflow interface](../docs/architecture.md#overlay-and-arazzo-support).
+[the workflow interface](../docs/content/architecture.md#overlay-and-arazzo-support).

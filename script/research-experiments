@@ -55,8 +55,8 @@ class ResearchExperiments
                      network: 'local files only; native HTTP examples intercepted by WebMock',
                      cache: 'existing dependencies; this is not a cold-start timing experiment',
                      seed: 42, budget: 'four finite experiments; no comparative fuzz budget' },
-      reproduce: 'bundle exec ruby script/research-experiments',
-      lock_sha256: Digest::SHA256.file(File.join(ROOT, 'Gemfile.lock')).hexdigest,
+      reproduce: 'src/run exec ruby script/research-experiments',
+      lock_sha256: Digest::SHA256.file(File.join(ROOT, 'src/Gemfile.lock')).hexdigest,
       core_before_sha256: @core_before, core_after_sha256: manifest(File.join(ROOT, 'src/lib')),
       commands: @commands, experiments: @experiments,
       future_studies: { E06: 'NOT_RUN: matched-budget stateful/stateless comparison',
@@ -196,7 +196,7 @@ class ResearchExperiments
                    scope: 'Selected payout create/status; not full API or provider sandbox acceptance' }]
     end
     command('e05-native-http-examples', RbConfig.ruby, Gem.bin_path('rspec-core', 'rspec'),
-            'spec/native_packs_spec.rb', '--seed', '42', '--format', 'json',
+            '--options', 'src/.rspec', '-I', 'src/spec', 'src/spec/native_packs_spec.rb', '--seed', '42', '--format', 'json',
             '--out', File.join(@output, 'e05-native-rspec.json'))
     result = JSON.parse(File.read(File.join(@output, 'e05-native-rspec.json'))).fetch('summary')
     passed = result.fetch('example_count').positive? && result.fetch('failure_count').zero? &&

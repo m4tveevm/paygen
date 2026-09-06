@@ -6,15 +6,6 @@ on:
       - 'docs/**'
       - 'fixtures/novapay/**'
       - 'src/**'
-      - 'script/docs*'
-      - 'script/diplodoc-*'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'Gemfile.lock'
-      - 'Gemfile'
-      - 'paygen.gemspec'
-      - '.ruby-version'
-      - 'tools/docs/Dockerfile'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
     inputs:
@@ -83,29 +74,29 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.22.0'
-          cache: npm
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1, Ruby 4.0.6 support
         with:
           ruby-version: '.ruby-version'
           bundler-cache: true
-      - run: npm install --global npm@11.9.0
-      - run: npm ci --ignore-scripts --engine-strict
-      - run: npm audit
-      - run: npm run docs:test
-      - run: npm run docs:build
+          working-directory: src
+      - run: corepack enable && corepack prepare pnpm@10.32.1 --activate
+      - run: pnpm --dir docs install --frozen-lockfile --ignore-scripts
+      - run: pnpm --dir docs audit
+      - run: pnpm --dir docs run docs:test
+      - run: pnpm --dir docs run docs:build
         env:
           PAYGEN_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
       - name: Rebuild and compare every published byte
         run: |
           cp docs/_build/publication-manifest.json "$RUNNER_TEMP/accepted-docs-manifest.json"
-          npm run docs:build
+          pnpm --dir docs run docs:build
           cmp "$RUNNER_TEMP/accepted-docs-manifest.json" docs/_build/publication-manifest.json
       - name: Verify accepted artifact digest without modifying it
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           PAYGEN_SOURCE_SHA: ${{ inputs.accepted_sha }}
           PAYGEN_ACCEPTED_ARTIFACT_SHA256: ${{ inputs.accepted_artifact_sha256 }}
-        run: npm run docs:check
+        run: pnpm --dir docs run docs:check
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
         id: pages
         if: github.event_name == 'workflow_dispatch' && inputs.publish
