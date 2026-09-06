@@ -61,19 +61,19 @@ success to a universal-import claim.
 
 Run from the repository root. This report records the historical PR #9; current
 source paths are under `src/`, and current release instructions are in
-[`docs/development.md`](../docs/development.md).
+[`docs/content/development.md`](../docs/content/development.md).
 
 ```bash
-bundle exec rspec
-bundle exec ruby script/acceptance-independent
+src/run test
+src/run exec ruby script/acceptance-independent
 examples/showcase/run tmp/showcase-new
-bundle exec ruby script/research-experiments
-npm run docs:test
-npm run docs:build
+src/run exec ruby script/research-experiments
+pnpm --dir docs run docs:test
+pnpm --dir docs run docs:build
 script/check
 ```
 
-Use the locked Ruby/Node toolchains described in `docs/development.md`. The last
+Use the locked Ruby/Node toolchains described in `docs/content/development.md`. The last
 command also requires Docker. CI runs Ruby 3.3.12, 3.4.10 and 4.0.6, full OCI Ruby
 tests, independent acceptance, the OCI showcase and a real `/paygen/` docs-server
 check with a negative 404 control. Evidence is retained in GitHub Actions artifacts,

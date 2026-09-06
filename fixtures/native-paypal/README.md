@@ -6,10 +6,10 @@ separate from the existing curated PayPal pack: no replacement schema, source
 overlay or prepared recipe is applied to the native document.
 
 ```sh
-bundle exec src/bin/paygen init fixtures/native-paypal/openapi.json \
+src/run cli init fixtures/native-paypal/openapi.json \
   --profile fixtures/native-paypal/profile.yml --output /tmp/paypal-native
-bundle exec src/bin/paygen generate /tmp/paypal-native
-bundle exec rspec spec/native_packs_spec.rb
+src/run cli generate /tmp/paypal-native
+src/run test src/spec/native_packs_spec.rb
 ```
 
 The profile covers one email recipient and USD. The application supplies an

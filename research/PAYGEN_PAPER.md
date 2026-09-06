@@ -105,7 +105,7 @@ Dataset фиксируется именем файла, SHA-256, license/provena
 
 ## 6. Наблюдаемые результаты и уровни evidence
 
-Исторический baseline — полный `bundle exec rspec` на `92ef59b…`, Linux x86_64, Ruby 3.4.4, seed 1016, WebMock с разрешённым localhost. Результат: **1119 examples, 0 failures**, 96,69 s внутри RSpec; line coverage 4098/4581 = 89,46%, branch coverage 1884/2520 = 74,76%. Raw log и exit code находятся в `research/evidence/`. Из 1119 примеров **703 — JSONPath CTS**, не платёжные сценарии. Интегратор сообщил промежуточный прогон 1141/0, seed 42570 на `09013a6…`; raw log не сохранён, поэтому это REPORTED, а не архивированный результат финальной версии.
+Исторический baseline — полный `src/run test` на `92ef59b…`, Linux x86_64, Ruby 3.4.4, seed 1016, WebMock с разрешённым localhost. Результат: **1119 examples, 0 failures**, 96,69 s внутри RSpec; line coverage 4098/4581 = 89,46%, branch coverage 1884/2520 = 74,76%. Raw log и exit code находятся в `research/evidence/`. Из 1119 примеров **703 — JSONPath CTS**, не платёжные сценарии. Интегратор сообщил промежуточный прогон 1141/0, seed 42570 на `09013a6…`; raw log не сохранён, поэтому это REPORTED, а не архивированный результат финальной версии.
 
 Проверка доступности 11 первичных URL через `curl -L` дала HTTP 200 для каждого; это подтверждает доступ в момент проверки, но не содержание каждого claim. Код и lockfile подтверждают фактическое применение Ruby, JSONSchemer, Janeway, BigDecimal/OpenSSL, RSpec/WebMock/PropCheck, Rack/Puma и Diplodoc toolchain. Семь исполняемых профилей baseline и два native imports — разные категории; T-Bank/Tochka/corpus не считаются готовыми интеграциями.
 
