@@ -1,7 +1,7 @@
 # Seven-minute demo
 
 For an automated, repeatable proof, run `examples/showcase/run NEW_EMPTY_DIR`.
-The [showcase pack](../examples/showcase/README.md) executes NovaPay, Stripe,
+The [showcase pack](testing.md) executes NovaPay, Stripe,
 PayPal and Adyen adapters through loopback HTTP, checks independent invalid wire
 requests, demonstrates profile + Overlay adaptation, and compares a disposable
 failing mutant with the unchanged adapter on the exact same shrunk trace.
