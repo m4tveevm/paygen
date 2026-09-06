@@ -217,16 +217,24 @@ class IndependentAcceptance
   end
 
   def write_report
-    sha, = Open3.capture2('git', 'rev-parse', 'HEAD', chdir: ROOT)
-    branch, = Open3.capture2('git', 'branch', '--show-current', chdir: ROOT)
-    status, = Open3.capture2('git', 'status', '--porcelain=v1', chdir: ROOT)
+    if File.exist?(File.join(ROOT, '.git'))
+      sha, = Open3.capture2('git', 'rev-parse', 'HEAD', chdir: ROOT)
+      branch, = Open3.capture2('git', 'branch', '--show-current', chdir: ROOT)
+      status, = Open3.capture2('git', 'status', '--porcelain=v1', chdir: ROOT)
+      dirty_state = status.empty? ? 'clean' : 'dirty'
+    else
+      revision = ENV['PAYGEN_SOURCE_SHA'].to_s
+      sha = revision.match?(/\A[0-9a-f]{40}\z/) ? revision : 'unknown'
+      branch = 'not available in detached/container build'
+      dirty_state = %w[clean dirty].include?(ENV['PAYGEN_SOURCE_DIRTY']) ? ENV['PAYGEN_SOURCE_DIRTY'] : 'unknown'
+    end
     all_pass = @cases.all? { |item| item[:verdict] == 'PASS' }
     report = {
       schema_version: 1, role: '06', phase: 'QA-B',
       status: all_pass ? 'READY_FOR_REVIEW' : 'BLOCKED_DEPENDENCY',
       verdict: all_pass ? 'LOCAL_REGRESSION_SLICE_PASS' : 'LOCAL_RELEASE_NOT_READY',
       base_sha: '92ef59bc2c8eb102c7452136ee4ea8a46887fd52', tested_sha: sha.strip,
-      branch: branch.strip, dirty_state: status.empty? ? 'clean' : 'dirty',
+      branch: branch.strip, dirty_state: dirty_state,
       interface_version: 'integration-2026-09-06', dependencies_received: ['PR #5', 'PR #6', 'PR #7', 'PR #8'],
       environment: { ruby: RUBY_DESCRIPTION, os_architecture: RUBY_PLATFORM, network_mode: 'no provider network; injected transports only' },
       totals: { cases: @cases.length, executed: @cases.length, passed: @cases.count { |item| item[:verdict] == 'PASS' },
