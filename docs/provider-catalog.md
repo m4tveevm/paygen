@@ -11,7 +11,7 @@ not provider sandbox acceptance.
 | Adyen | Curated focused contract | Focused payout | HMAC profile | Local synthetic contract | Not performed |
 | PayPal | Curated and native imports | Selected payout flow | Provider-specific verification delegated | Native HTTP expectations | Not performed |
 | Paystack | Full native import | Selected transfer flow | Not claimed | Native HTTP expectations | Not performed |
-| Raiffeisen | Full native import | Single-stage non-fiscal SBP | Configured request signing | Injected-transport expectations | Not performed |
+| Raiffeisen | Full native import | Single-stage non-fiscal SBP | Not claimed; request authentication is bearer | Injected-transport expectations | Not performed |
 | T-Bank | Full native import | No completed integration | Certificate signing unimplemented | Import/review only | Not performed |
 | Tochka | Documentation review | No | Not implemented | Review only | Not performed |
 
@@ -27,10 +27,19 @@ The documentation build creates these files by running the same Ruby
 - <a href="downloads/novapay/provenance.json" download>provenance</a>
 - <a href="downloads/novapay/manifest.json" download>source/profile/generator manifest</a>
 
-All examples are synthetic. The build deliberately excludes service source,
-uploaded specifications, environment files, state, credentials, and raw traces
-from the Pages artifact. Generate a complete project locally when you need the
-Ruby adapter or effective OpenAPI contract.
+All examples are synthetic. Fixtures include the deliberately public test secret
+`paygen-public-fixture-secret` to reproduce callback signatures. Never use it as
+an application credential. The configuration contains credential **names**, not
+your runtime credentials, and may include contract schemas and synthetic examples.
+
+The build publishes only the five generated files listed above and their manifest;
+it excludes service source, the full uploaded specification, environment files,
+state and raw traces. The artifact gate rejects unexpected files, symbolic/hard
+links, obvious private-key/token patterns and unmasked long payment identifiers
+in downloads. These checks supplement human review; they are not a proof that
+arbitrary uploaded data is safe to publish. Downloads are built from the pinned
+NovaPay case fixture, never from user uploads. Generate a complete project locally
+when you need the Ruby adapter or effective OpenAPI contract.
 
 ## Updating the catalog
 
@@ -43,6 +52,7 @@ npm run docs:check
 ```
 
 Review the evidence level above rather than increasing it automatically. The
-generated download manifest records the exact input hashes and generator version;
+generated download manifest records the source fixture hash, profile hash, all
+effective generator-input hashes (including recipe/overlays) and generator version;
 `publication-manifest.json` at the site root records the source commit and hashes
 every published file.
