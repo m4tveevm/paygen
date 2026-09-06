@@ -7,6 +7,11 @@ baseline logs в этом каталоге не изменены. Указанн
 заменяет архив: перед передачей результатов следует сохранить каталоги evidence
 или повторить команды и приложить новые логи. Числа разных запусков не складываются.
 
+Команды ниже сохранены в форме, выполненной на указанных исторических SHA.
+Для текущего дерева используйте `src/run exec ruby script/acceptance-independent`
+и `src/run exec ruby script/research-experiments`; настройка описана в
+[development guide](../../docs/content/development.md).
+
 ## Исторический baseline и промежуточный suite
 
 - Архивированный baseline: `92ef59bc2c8eb102c7452136ee4ea8a46887fd52`,
