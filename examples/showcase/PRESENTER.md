@@ -7,7 +7,7 @@ observable result.
 ## Two-minute pitch
 
 1. **0:00–0:25 — contract to reviewable facts.** [CASE] Show
-   `inspect.json`, then the pinned source and `artifact-sha256.txt`. Paygen reads
+   `novapay-inspect.json`, then the pinned source and `novapay-artifact-sha256.json`. Paygen reads
    OpenAPI plus explicit integration decisions; it does not use an LLM or claim
    to infer every payment semantic.
 2. **0:25–0:55 — generated delivery.** [CASE] Open
@@ -19,7 +19,8 @@ observable result.
    delta of one demonstrate this adapter/simulator contract—not settlement.
 4. **1:35–2:00 — failure evidence and scope.** [Q&A] Submit invalid then valid
    callback; show HTTP status and backend-effect delta. Close with drift refusal,
-   deterministic fuzz/replay and the four generated provider directories.
+   semantic adaptation, a real mutant/fixed replay comparison, and HTTP evidence
+   from four generated providers.
 
 Fallback: if the browser is unavailable, run `examples/showcase/run` and show its
 saved JSON. If startup fails because the port is occupied, choose another with
@@ -31,16 +32,16 @@ saved JSON. If startup fails because the port is occupied, choose another with
 | --- | --- | --- | --- |
 | 0:00–1:00 | `examples/showcase/run tmp/live` | Fresh `inspect`, `init`, `configure`, `generate`; second generation and `diff --check` pass | [CASE] API analysis and sequential launch. Fall back to the command log. |
 | 1:00–2:00 | Generated service/docs/fixtures/config and hashes | Ruby syntax pass, inheritance and endpoint roles in actual files | [CASE] service and generated deliverables. Use terminal `sed` if no editor. |
-| 2:00–3:30 | `http://127.0.0.1:9293/` create/retry/status | Server response contains provider ID; evidence commit delta is one | [PROJECT POLICY] generated adapter really executes. Use saved `run-*-*.json`. |
+| 2:00–3:30 | Start `bundle exec bin/paygen demo tmp/live/novapay --port 9293`, then open its panel | Server response contains provider ID; evidence commit delta is one | [PROJECT POLICY] generated adapter really executes. Use saved `novapay-run-*-*.json`; do not interact during the automated run. |
 | 3:30–4:30 | Invalid/valid callback reports | 422/no effect, then 200/terminal backend effect; HMAC independently checked with OpenSSL | [Q&A] exact raw-body HMAC. Use report JSON. |
-| 4:30–5:15 | `drift.stderr` | Managed edit is refused with exit 1 | [PROJECT POLICY] user work is not overwritten. |
-| 5:15–6:00 | `fuzz.json`, `fuzz-replay.json` | Seed 4242, coverage/actions/faults/invariants and deterministic replay | [PROJECT POLICY] bounded offline state testing. Do not claim mutant demo (known limitation). |
-| 6:00–7:00 | NovaPay/Stripe/PayPal/Adyen directories | Four independently generated and drift-clean contracts | [Q&A] independent core and explicit profiles. Do not describe PayPal hook verification as cryptographic verification or Adyen `booked` as approval. |
+| 4:30–5:15 | `adaptation.json`, `adapt-old-minimum.json`, `adapt-new-minimum.json`, `drift-refusal.stderr` | Profile + Overlay changes executable minimum; source stays pinned, user extension survives; managed edit is refused | [PROJECT POLICY] synthetic contract adaptation, not a real provider contract change. |
+| 5:15–6:00 | `mutant-failure.json`, `mutant-replay.json`, `fixed-replay.json` | Failing trace is reduced and fails again; identical trace/profile passes with the unmodified adapter | [PROJECT POLICY] disposable mutant, bounded shrink/replay, no product bypass flag. Read actual lengths from the reports. |
+| 6:00–7:00 | `stripe-run-0-*`, `paypal-run-0-*`, `adyen-run-0-*`, `wire-*.json` | Four executed adapter contracts plus independent HTTP schema-negative controls | [Q&A] independent core and explicit profiles. PayPal is fail-closed; Adyen `booked` is not approval. |
 
 ## Fifteen-minute technical walkthrough
 
 Use the seven-minute flow, then spend two minutes each on: (1) profile provenance
-and unresolved semantics in `configure.json`; (2) exact money and response-schema
+and unresolved semantics in `novapay-configure.json`; (2) exact money and response-schema
 validation in generated code; (3) raw callback bytes, headers, duplicate/stale
 state boundaries; and (4) evidence deltas across the three sessions plus fuzz
 coverage. Finish with the limits below. Commands remain the launcher commands so
