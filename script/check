@@ -7,6 +7,7 @@ command -v npm >/dev/null
 command -v docker >/dev/null
 bundle check
 bundle exec rspec
+bundle exec ruby script/verify-package.rb
 bundle exec ruby script/acceptance-independent
 bundle exec rubocop --only Lint,Security
 bundle exec bundler-audit check --update
@@ -26,7 +27,7 @@ bundle exec ruby script/verify-bruno.rb --cli tools/bruno/node_modules/@usebruno
 PAYGEN_SOURCE_SHA=$(git rev-parse HEAD)
 PAYGEN_SOURCE_DIRTY=clean
 if [[ -n "$(git status --porcelain)" ]]; then PAYGEN_SOURCE_DIRTY=dirty; fi
-docker build --build-arg "PAYGEN_SOURCE_SHA=$PAYGEN_SOURCE_SHA" --build-arg "PAYGEN_SOURCE_DIRTY=$PAYGEN_SOURCE_DIRTY" -t paygen-verification .
+docker build -f src/Dockerfile --build-arg "PAYGEN_SOURCE_SHA=$PAYGEN_SOURCE_SHA" --build-arg "PAYGEN_SOURCE_DIRTY=$PAYGEN_SOURCE_DIRTY" -t paygen-verification .
 docker run --rm paygen-verification doctor
 docker run --rm --entrypoint bash paygen-verification script/smoke
 mkdir -p tmp/container-verification
@@ -40,7 +41,7 @@ docker run --rm --user "$PAYGEN_REPORT_OWNER" --mount "type=bind,src=$PAYGEN_CON
   --entrypoint bundle paygen-verification exec ruby script/acceptance-independent
 docker run --rm --user "$PAYGEN_REPORT_OWNER" --mount "type=bind,src=$PAYGEN_CONTAINER_REPORTS,dst=/evidence" \
   --entrypoint bash paygen-verification examples/showcase/run /evidence/showcase
-docker build --build-arg "PAYGEN_SOURCE_SHA=$PAYGEN_SOURCE_SHA" -f Dockerfile.docs -t paygen-docs-verification .
+docker build --build-arg "PAYGEN_SOURCE_SHA=$PAYGEN_SOURCE_SHA" -f tools/docs/Dockerfile -t paygen-docs-verification .
 PAYGEN_DOCS_CONTAINER=$(docker run -d -p 127.0.0.1::80 paygen-docs-verification)
 cleanup_docs() {
   local result=$?

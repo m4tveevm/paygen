@@ -28,8 +28,8 @@ or use new directory names. Restarting the demo clears its in-memory operations.
 ## 1. Show the input and configuration — one minute
 
 ```bash
-bundle exec bin/paygen init fixtures/novapay/openapi.yaml --output tmp/presentation
-bundle exec bin/paygen configure tmp/presentation
+bundle exec src/bin/paygen init fixtures/novapay/openapi.yaml --output tmp/presentation
+bundle exec src/bin/paygen configure tmp/presentation
 ```
 
 Open `tmp/presentation/integration.yml`. The bundled profile maps
@@ -42,10 +42,10 @@ alone cannot establish whether money was sent or whether a retry is safe.
 ## 2. Generate and verify — one minute
 
 ```bash
-bundle exec bin/paygen generate tmp/presentation
-bundle exec bin/paygen generate tmp/presentation
-bundle exec bin/paygen diff tmp/presentation --check
-bundle exec bin/paygen verify tmp/presentation --seed 42 > tmp/presentation-checks.json
+bundle exec src/bin/paygen generate tmp/presentation
+bundle exec src/bin/paygen generate tmp/presentation
+bundle exec src/bin/paygen diff tmp/presentation --check
+bundle exec src/bin/paygen verify tmp/presentation --seed 42 > tmp/presentation-checks.json
 ```
 
 The second generation produces the same files; `diff` returns
@@ -59,9 +59,9 @@ the adapter and its matching integration guide. Both come from the same profile.
 ## 3. Export deliverables and start the application — one minute
 
 ```bash
-bundle exec bin/paygen docs tmp/presentation --format html --output tmp/presentation-docs
-bundle exec bin/paygen collection tmp/presentation --format bruno --output tmp/presentation-bruno
-bundle exec bin/paygen demo tmp/presentation --port 9293
+bundle exec src/bin/paygen docs tmp/presentation --format html --output tmp/presentation-docs
+bundle exec src/bin/paygen collection tmp/presentation --format bruno --output tmp/presentation-bruno
+bundle exec src/bin/paygen demo tmp/presentation --port 9293
 ```
 
 Open `tmp/presentation-docs/index.html` in a browser. The directory also contains
@@ -124,7 +124,7 @@ See [Bruno demo](bruno-demo.md) for the optional CLI runner.
 Stop the first server with Ctrl-C, then start a fresh scenario:
 
 ```bash
-bundle exec bin/paygen demo tmp/presentation --scenario timeout_after_commit --port 9293
+bundle exec src/bin/paygen demo tmp/presentation --scenario timeout_after_commit --port 9293
 ```
 
 Repeat the create, retry and evidence requests from step 4. Creation returns
@@ -140,11 +140,11 @@ Stop this server before running the Bruno success collection again.
 ## Optional: a Russian bank contract
 
 ```bash
-bundle exec bin/paygen init fixtures/raiffeisen_payouts/upstream/openapi.json \
+bundle exec src/bin/paygen init fixtures/raiffeisen_payouts/upstream/openapi.json \
   --output tmp/presentation-raiffeisen
-bundle exec bin/paygen generate tmp/presentation-raiffeisen
-bundle exec bin/paygen verify tmp/presentation-raiffeisen --seed 42
-bundle exec bin/paygen docs tmp/presentation-raiffeisen --format html \
+bundle exec src/bin/paygen generate tmp/presentation-raiffeisen
+bundle exec src/bin/paygen verify tmp/presentation-raiffeisen --seed 42
+bundle exec src/bin/paygen docs tmp/presentation-raiffeisen --format html \
   --output tmp/presentation-raiffeisen-docs
 ```
 

@@ -4,7 +4,7 @@ require 'open3'
 require 'rbconfig'
 
 RSpec.describe 'CLI process contract' do
-  let(:executable) { File.expand_path('../bin/paygen', __dir__) }
+  let(:executable) { File.expand_path('../src/bin/paygen', __dir__) }
   let(:source) { File.expand_path('../fixtures/novapay/openapi.yaml', __dir__) }
   def cli(*arguments, input: '')
     Open3.capture3(RbConfig.ruby, executable, *arguments, stdin_data: input)

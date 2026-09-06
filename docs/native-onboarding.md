@@ -7,10 +7,10 @@ does not establish: direction, amount units, settlement states and signing rules
 ## Create and configure a project
 
 ```bash
-bundle exec bin/paygen init provider.yaml --output /tmp/new-provider
-bundle exec bin/paygen configure /tmp/new-provider
-bundle exec bin/paygen configure /tmp/new-provider --answers confirmed-profile.yml
-bundle exec bin/paygen generate /tmp/new-provider
+bundle exec src/bin/paygen init provider.yaml --output /tmp/new-provider
+bundle exec src/bin/paygen configure /tmp/new-provider
+bundle exec src/bin/paygen configure /tmp/new-provider --answers confirmed-profile.yml
+bundle exec src/bin/paygen generate /tmp/new-provider
 ```
 
 The configuration report lists operation candidates, source pointers, parameters
@@ -33,12 +33,12 @@ to be resolved.
 | Raiffeisen | 20 paths with nested callbacks | Single-stage SBP payout without fiscalisation; exact ruble amounts and reconciliation |
 
 ```bash
-bundle exec bin/paygen init fixtures/native-paystack/openapi.yaml \
+bundle exec src/bin/paygen init fixtures/native-paystack/openapi.yaml \
   --profile fixtures/native-paystack/profile.yml --output /tmp/paystack-native
-bundle exec bin/paygen generate /tmp/paystack-native
-bundle exec bin/paygen init fixtures/native-paypal/openapi.json \
+bundle exec src/bin/paygen generate /tmp/paystack-native
+bundle exec src/bin/paygen init fixtures/native-paypal/openapi.json \
   --profile fixtures/native-paypal/profile.yml --output /tmp/paypal-native
-bundle exec bin/paygen generate /tmp/paypal-native
+bundle exec src/bin/paygen generate /tmp/paypal-native
 bundle exec rspec spec/native_packs_spec.rb spec/russian_banks_spec.rb
 ```
 
@@ -191,8 +191,8 @@ T-Bank's certificate signing and confirmation requirements.
 and provenance alongside the service. Export a portable copy with:
 
 ```bash
-bundle exec bin/paygen docs /tmp/new-provider --format html --output /tmp/provider-docs
-bundle exec bin/paygen collection /tmp/new-provider --format bruno --output /tmp/provider-bruno
+bundle exec src/bin/paygen docs /tmp/new-provider --format html --output /tmp/provider-docs
+bundle exec src/bin/paygen collection /tmp/new-provider --format bruno --output /tmp/provider-bruno
 ```
 
 Use `--format md` for Markdown documentation. Export destinations must be new and

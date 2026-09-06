@@ -5,17 +5,17 @@ PAYGEN_SMOKE_DIR=$(mktemp -d)
 trap 'rm -rf "$PAYGEN_SMOKE_DIR"' EXIT
 mkdir -p tmp/fuzz-verification
 PAYGEN_FUZZ_REPORTS=$(mktemp -d tmp/fuzz-verification/run.XXXXXX)
-bundle exec bin/paygen doctor
+bundle exec src/bin/paygen doctor
 for provider in novapay paypal stripe adyen; do
   project="$PAYGEN_SMOKE_DIR/$provider"
-  bundle exec bin/paygen init "fixtures/$provider/openapi.yaml" --output "$project"
-  bundle exec bin/paygen generate "$project"
-  bundle exec bin/paygen generate "$project"
-  bundle exec bin/paygen diff "$project" --check
-  bundle exec bin/paygen architecture-check "$project"
-  bundle exec bin/paygen verify "$project" --seed 42
+  bundle exec src/bin/paygen init "fixtures/$provider/openapi.yaml" --output "$project"
+  bundle exec src/bin/paygen generate "$project"
+  bundle exec src/bin/paygen generate "$project"
+  bundle exec src/bin/paygen diff "$project" --check
+  bundle exec src/bin/paygen architecture-check "$project"
+  bundle exec src/bin/paygen verify "$project" --seed 42
   if [[ "$provider" == novapay ]]; then
-    bundle exec bin/paygen fuzz "$project" --seed 42 --cases 20 --steps 20 --output "$PAYGEN_FUZZ_REPORTS/$provider.json"
+    bundle exec src/bin/paygen fuzz "$project" --seed 42 --cases 20 --steps 20 --output "$PAYGEN_FUZZ_REPORTS/$provider.json"
   fi
 done
 for provider in native-paystack native-paypal raiffeisen_payouts; do
@@ -25,13 +25,13 @@ for provider in native-paystack native-paypal raiffeisen_payouts; do
     native-paypal) source="fixtures/$provider/openapi.json"; profile="fixtures/$provider/profile.yml" ;;
     raiffeisen_payouts) source="fixtures/$provider/upstream/openapi.json"; profile="fixtures/$provider/integration.yml" ;;
   esac
-  bundle exec bin/paygen init "$source" --profile "$profile" --output "$project"
-  bundle exec bin/paygen generate "$project"
-  bundle exec bin/paygen generate "$project"
-  bundle exec bin/paygen diff "$project" --check
-  bundle exec bin/paygen architecture-check "$project"
-  bundle exec bin/paygen verify "$project" --seed 42
+  bundle exec src/bin/paygen init "$source" --profile "$profile" --output "$project"
+  bundle exec src/bin/paygen generate "$project"
+  bundle exec src/bin/paygen generate "$project"
+  bundle exec src/bin/paygen diff "$project" --check
+  bundle exec src/bin/paygen architecture-check "$project"
+  bundle exec src/bin/paygen verify "$project" --seed 42
   if [[ "$provider" == raiffeisen_payouts ]]; then
-    bundle exec bin/paygen fuzz "$project" --seed 42 --cases 20 --steps 20 --output "$PAYGEN_FUZZ_REPORTS/$provider.json"
+    bundle exec src/bin/paygen fuzz "$project" --seed 42 --cases 20 --steps 20 --output "$PAYGEN_FUZZ_REPORTS/$provider.json"
   fi
 done
