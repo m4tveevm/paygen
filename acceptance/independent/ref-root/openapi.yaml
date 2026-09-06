@@ -1,0 +1,20 @@
+openapi: 3.1.0
+info:
+  title: Independent root back-reference fixture
+  version: "1"
+paths:
+  /payouts:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: schemas/payout.yaml
+      responses:
+        "201":
+          description: Created
+components:
+  schemas:
+    MerchantReference:
+      $id: merchant-reference.yaml
+      type: string

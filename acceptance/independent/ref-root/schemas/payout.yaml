@@ -1,0 +1,6 @@
+$id: payout.yaml
+type: object
+required: [reference]
+properties:
+  reference:
+    $ref: ../openapi.yaml#/components/schemas/MerchantReference
