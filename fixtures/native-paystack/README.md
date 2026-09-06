@@ -6,9 +6,9 @@ overlay, reduced replacement specification, provider recipe, or provider branch
 inside Paygen's runtime.
 
 ```sh
-bundle exec bin/paygen init fixtures/native-paystack/openapi.yaml \
+bundle exec src/bin/paygen init fixtures/native-paystack/openapi.yaml \
   --profile fixtures/native-paystack/profile.yml --output /tmp/paystack-native
-bundle exec bin/paygen generate /tmp/paystack-native
+bundle exec src/bin/paygen generate /tmp/paystack-native
 bundle exec rspec spec/native_packs_spec.rb
 ```
 

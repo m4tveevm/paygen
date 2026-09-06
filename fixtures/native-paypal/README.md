@@ -6,9 +6,9 @@ separate from the existing curated PayPal pack: no replacement schema, source
 overlay or prepared recipe is applied to the native document.
 
 ```sh
-bundle exec bin/paygen init fixtures/native-paypal/openapi.json \
+bundle exec src/bin/paygen init fixtures/native-paypal/openapi.json \
   --profile fixtures/native-paypal/profile.yml --output /tmp/paypal-native
-bundle exec bin/paygen generate /tmp/paypal-native
+bundle exec src/bin/paygen generate /tmp/paypal-native
 bundle exec rspec spec/native_packs_spec.rb
 ```
 
