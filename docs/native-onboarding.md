@@ -75,6 +75,66 @@ parameters, including primitive arrays. Cookies, objects, `deepObject`,
 `decimal_number` an exact JSON number in major currency units. Application input
 must be an integer or decimal string; floating-point money is rejected.
 
+## Conditional request mappings
+
+Use declarative rules when several payment methods share one API operation:
+
+```yaml
+request_mapping:
+  recipient.type:
+    from: payout_requisite.type
+    default: sbp
+  recipient.bank_code:
+    from: payout_requisite.sbp.bank_code
+    fallback_from: [payout_requisite.bank_code]
+    when:
+      from: payout_requisite.type
+      equals: sbp
+      default: sbp
+```
+
+The primary non-null value wins; `fallback_from` is ordered and `default` is used
+only when all sources are null or absent. `false` and zero are values, not missing
+data. `when` is a single equality test, not executable code. Inactive mappings
+omit the target field. Request schema validation still runs after mapping. The
+NovaPay profile uses these rules for separate SBP and card branches; an Overlay
+states their conditional required fields without modifying the source snapshot.
+
+`fallback_conflict: reject` refuses different non-null fallback values when the
+primary field is missing. NovaPay uses this for phone selection: if both SBP and
+card details contain different phones, supply the explicit common `phone` or
+remove the irrelevant details. It never silently chooses a conflicting recipient.
+
+## Response correlation
+
+An API-valid response can still belong to another payment. Opt in with explicit
+paths and roles; no mapping is guessed:
+
+```yaml
+response_bindings:
+  merchant_reference:
+    response_path: external_id
+    operation_path: id
+    roles: [create, status, cancel]
+    required: true
+  amount:
+    response_path: amount
+    operation_path: amount
+    roles: [create, status, cancel]
+    required: true
+    response_unit: minor
+```
+
+The other supported keys are `currency` and `provider_id`. Amount bindings must
+declare `response_unit: major` or `minor`; input units and scale come from the
+amount profile. Comparison uses exact decimal arithmetic and rejects Float and
+undeclared rounding. Missing required operation values are rejected before HTTP;
+missing required response evidence or mismatches cannot update lifecycle state.
+Optional evidence (`required: false`) may be absent or null, but a present value
+must match. A mismatched create response is ambiguous and requires reconciliation.
+NovaPay opts in for reference, amount and currency. Providers without these rules
+do not gain a correlation guarantee. These rules apply to responses, not callbacks.
+
 ## Retry policy
 
 The default is reconciliation before another create. Paygen sends an idempotency
@@ -93,7 +153,9 @@ remain blocked and confirmed results stay cached beyond the retention window.
 Choose the retention period from the provider contract. All included profiles
 use conservative reconciliation when no retention period is configured.
 
-Multiple workers and restart recovery require a shared durable state store.
+Multiple workers and restart recovery require a shared durable state store and
+a stable merchant `state_namespace` or `account`. Keep the scope unchanged during
+key rotation; see [state and migration rules](architecture.md).
 
 ## Import corpus
 

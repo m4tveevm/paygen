@@ -59,11 +59,33 @@ hook calls. It does not inspect the adapter's internal replay ledger to decide
 whether a property passed. Wire samples still come from the profile, so native
 contract tests remain a separate check.
 
+## Reproducible showcase and deliberate failure
+
+From a checkout with `bundle install` completed, run:
+
+```bash
+examples/showcase/run tmp/showcase
+```
+
+The output directory must be new. The launcher starts and stops only its own
+loopback processes. It records commands, source identity, artifact hashes and
+assertions for four provider profiles, malformed HTTP requests, profile/Overlay
+adaptation and generated-file ownership. A disposable subprocess deliberately
+breaks reservation retention, obtains a real duplicate-commit failure, shrinks
+it, replays the failure, and replays the same trace against the unchanged runtime.
+The expected mutant failure is a successful test only when the failure and fixed
+control both satisfy the declared checks. No mutation is installed in the product.
+
+This is a bounded demonstration, not a benchmark proving superiority over all
+stateless fuzzers. It does not connect to a user's installation or a PSP sandbox.
+
 ## CI
 
 The Ruby matrix runs unit, contract, lifecycle and standards tests. Provider smoke
 checks also run seeded sequences for NovaPay and Raiffeisen. The integration job
-runs Bruno and repeats provider scenarios inside the Ruby container.
+runs Bruno, the independent regression acceptance, full Ruby tests and the
+showcase inside the Ruby container. `script/acceptance-independent` can also be
+run locally; it writes a fresh report below `tmp/acceptance-independent/`.
 
 CI retains verification logs, fuzz reports and Bruno JSON/JUnit reports, including
 failed runs. A successful retry of CI does not invalidate an earlier failure;

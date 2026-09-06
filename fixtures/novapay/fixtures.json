@@ -12,6 +12,18 @@
       }
     }
   },
+  "card_operation": {
+    "id": "op_nova_card_001",
+    "amount": "1000.00",
+    "currency": "RUB",
+    "payout_requisite": {
+      "type": "card",
+      "card": {
+        "phone": "79001234567",
+        "card_number": "4111111111111111"
+      }
+    }
+  },
   "credentials": {
     "api_key": "fixture-nova-api-key",
     "callback_secret": "fixture-nova-secret"
@@ -19,6 +31,18 @@
   "account": null,
   "clock": 1788602400,
   "responses": {
+    "card_created": {
+      "status": 201,
+      "headers": { "Content-Type": "application/json" },
+      "body": {
+        "id": "np_fixture_card_001",
+        "external_id": "op_nova_card_001",
+        "amount": 100000,
+        "currency": "RUB",
+        "status": "pending",
+        "created_at": "2026-09-05T10:00:00Z"
+      }
+    },
     "created": {
       "status": 201,
       "headers": {

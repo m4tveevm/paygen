@@ -102,6 +102,9 @@ module Paygen
       runtime_source = File.expand_path('runtime', __dir__)
       FileUtils.mkdir_p(File.join(destination, 'lib/paygen'))
       FileUtils.cp_r(runtime_source, File.join(destination, 'lib/paygen/runtime'))
+      %w[mapping_rule.rb response_bindings.rb].each do |name|
+        FileUtils.cp(File.expand_path(name, __dir__), File.join(destination, 'lib/paygen', name))
+      end
       Dir.glob(project.path('extensions/**/*'), File::FNM_DOTMATCH).each do |file|
         relative = Pathname.new(file).relative_path_from(Pathname.new(project.root)).to_s
         verified = project.path(relative)

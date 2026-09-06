@@ -68,12 +68,154 @@ RSpec.describe Paygen::Core::Input do
     end
   end
 
+  it 'keeps the retrieval identity for child-to-root refs through load and project generation' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.yaml')
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'Recipient' => { '$id' => 'https://schemas.example/recipient', 'type' => 'string' },
+        'Wrapper' => { '$ref' => './wrapper.yaml' }
+      } })
+      File.write(source, JSON.generate(original))
+      File.write(File.join(dir, 'wrapper.yaml'), '{"type":"object","properties":{"recipient":{"$ref":"./main.yaml#/components/schemas/Recipient"}}}')
+      loaded = described_class.load(source)
+      expect(described_class.resolve(loaded).dig('components', 'schemas', 'Wrapper', 'properties', 'recipient', 'type')).to eq('string')
+      project = Paygen::Project.init(source, output: File.join(dir, 'integration'))
+      expect(project.effective_document).to eq(loaded)
+    end
+  end
+
+  it 'uses one root document for filename and in-directory symlink aliases' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.yaml')
+      File.symlink(source, File.join(dir, 'alias.yaml'))
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'Value' => { '$id' => 'https://schemas.example/value', 'type' => 'string' },
+        'Alias' => { '$ref' => './alias.yaml#/components/schemas/Value' }
+      } })
+      File.write(source, JSON.generate(original))
+      resolved = described_class.resolve(described_class.read(source), source_path: source)
+      expect(resolved.dig('components', 'schemas', 'Alias', 'type')).to eq('string')
+    end
+  end
+
+  it 'keeps relative root resource IDs portable when a bundled project moves directories' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.yaml')
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'Value' => { '$id' => 'value.yaml', 'type' => 'string' },
+        'Wrapper' => { '$ref' => './wrapper.yaml' }
+      } })
+      File.write(source, JSON.generate(original))
+      File.write(File.join(dir, 'wrapper.yaml'), '{"type":"object","properties":{"value":{"$ref":"./main.yaml#/components/schemas/Value"}}}')
+      project = Paygen::Project.init(source, output: File.join(dir, 'integration'))
+      resolved = described_class.resolve(project.effective_document)
+      expect(resolved.dig('components', 'schemas', 'Wrapper', 'properties', 'value', 'type')).to eq('string')
+      expect(File.read(project.path('source/openapi.json'))).not_to include(dir)
+    end
+  end
+
+  it 'still rejects duplicate IDs in different documents with identical contents' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.yaml')
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'Value' => { '$id' => 'https://schemas.example/value', 'type' => 'string' },
+        'Duplicate' => { '$ref' => './copy.yaml#/components/schemas/Value' }
+      } })
+      [source, File.join(dir, 'copy.yaml')].each { |file| File.write(file, JSON.generate(original)) }
+      expect { described_class.load(source) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('REF_ID_DUPLICATE') }
+    end
+  end
+
+  it 'rebases external relative IDs and references when bundling into a portable project' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.yaml')
+      Dir.mkdir(File.join(dir, 'schemas'))
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'Value' => { '$id' => 'value.yaml', 'type' => 'string' },
+        'Wrapper' => { '$ref' => './schemas/wrapper.yaml' }
+      } })
+      File.write(source, JSON.generate(original))
+      File.write(File.join(dir, 'schemas', 'wrapper.yaml'), '{"$id":"wrapper.yaml","type":"object","properties":{"value":{"$ref":"../main.yaml#/components/schemas/Value"}}}')
+      project = Paygen::Project.init(source, output: File.join(dir, 'integration'))
+      resolved = described_class.resolve(project.effective_document)
+      expect(resolved.dig('components', 'schemas', 'Wrapper', 'properties', 'value', 'type')).to eq('string')
+      expect(File.read(project.path('source/openapi.json'))).not_to include(dir)
+    end
+  end
+
   it 'preserves 3.1 schema ref sibling constraints through conjunction' do
     document['openapi'] = '3.1.0'
     document['components'] = { 'schemas' => { 'Base' => { 'type' => 'integer', 'minimum' => 10 }, 'Restricted' => { '$ref' => '#/components/schemas/Base', 'minimum' => 2 } } }
     schema = described_class.resolve(document).dig('components', 'schemas', 'Restricted')
     expect(JSONSchemer.schema(schema).valid?(5)).to be(false)
     expect(JSONSchemer.schema(schema).valid?(10)).to be(true)
+  end
+
+  it 'materializes one reused external schema resource across load, serialization and project resolution' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.json')
+      File.symlink(File.join(dir, 'shared.json'), File.join(dir, 'alias.json'))
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'First' => { '$ref' => 'shared.json' }, 'Second' => { '$ref' => 'shared.json' },
+        'Alias' => { '$ref' => 'alias.json', 'description' => 'same source resource' }
+      } })
+      File.write(source, JSON.generate(original))
+      File.write(File.join(dir, 'shared.json'), JSON.generate({ '$id' => 'shared.json', 'type' => 'string', 'minLength' => 2 }))
+      project = Paygen::Project.init(source, output: File.join(dir, 'project'))
+      loaded = described_class.load(source)
+      expect(JSON.parse(File.read(project.path('source/openapi.json')))).to eq(loaded)
+      expect(loaded.dig('components', 'schemas', 'Second')).to eq('$ref' => 'paygen-local:///source/shared.json')
+      resolved = described_class.resolve(JSON.parse(JSON.generate(loaded)))
+      expect(resolved.dig('components', 'schemas', 'Second', 'minLength')).to eq(2)
+      expect(JSONSchemer.schema(resolved.dig('components', 'schemas', 'Alias')).valid?('a')).to be(false)
+      expect(described_class.resolve(project.effective_document).dig('components', 'schemas', 'First', 'minLength')).to eq(2)
+    end
+  end
+
+  it 'retains reused nested IDs and scoped anchors in an external resource' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.json')
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'First' => { '$ref' => 'shared.json' }, 'Second' => { '$ref' => 'shared.json' }
+      } })
+      external = { '$id' => 'shared.json', 'type' => 'object', '$defs' => {
+        'Value' => { '$id' => 'value.json', '$anchor' => 'scalar', 'type' => 'string' }
+      }, 'properties' => { 'value' => { '$ref' => 'value.json#scalar' } } }
+      File.write(source, JSON.generate(original))
+      File.write(File.join(dir, 'shared.json'), JSON.generate(external))
+      loaded = described_class.load(source)
+      resolved = described_class.resolve(JSON.parse(JSON.generate(loaded)))
+      expect(resolved.dig('components', 'schemas', 'Second', 'properties', 'value', 'type')).to eq('string')
+      expect { described_class.graph(JSON.parse(JSON.generate(loaded))) }.not_to raise_error
+    end
+  end
+
+  it 'keeps a reused external recursive resource in the import graph but rejects recursive generation' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.json')
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'First' => { '$ref' => 'shared.json' }, 'Second' => { '$ref' => 'shared.json' }
+      } })
+      File.write(source, JSON.generate(original))
+      File.write(File.join(dir, 'shared.json'), JSON.generate({ '$id' => 'shared.json', 'type' => 'object', 'properties' => { 'next' => { '$ref' => '#' } } }))
+      loaded = described_class.load(source)
+      expect { described_class.graph(JSON.parse(JSON.generate(loaded))) }.not_to raise_error
+      expect { described_class.resolve(loaded) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('REF_CYCLE') }
+    end
+  end
+
+  it 'does not merge two distinct external documents declaring the same resource ID' do
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, 'main.json')
+      original = document.merge('openapi' => '3.1.0', 'components' => { 'schemas' => {
+        'First' => { '$ref' => 'one.json' }, 'Second' => { '$ref' => 'two.json' }
+      } })
+      File.write(source, JSON.generate(original))
+      %w[one two].each do |name|
+        File.write(File.join(dir, "#{name}.json"), JSON.generate({ '$id' => 'https://schema.example/shared', 'type' => 'string' }))
+      end
+      expect { described_class.load(source) }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('REF_ID_DUPLICATE') }
+    end
   end
 
   it 'bundles external refs while preserving editable root pointers' do

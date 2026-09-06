@@ -12,7 +12,10 @@ bundle exec bin/paygen doctor
 ```
 
 Node is needed only for building the project manual or running the Bruno CLI.
-Use Node 22.13 or later within Node 22, with npm 11.9.0:
+CI uses Node **22.22.0**, npm **11.9.0**, and the repository's pinned Ruby/Bundler.
+The documentation build needs **both Ruby and Node**: Ruby produces the provider
+downloads. Other Node 22 versions from 22.13 meet the package engine range, but use
+the exact CI versions when comparing publication digests:
 
 ```bash
 npm install --global npm@11.9.0
@@ -66,19 +69,70 @@ For focused commands and the local HTTP flow, see the
 ```bash
 npm run docs:test
 npm run docs:build
+npm run docs:check
 ```
 
+`docs:build` renders the manual, normalizes Diplodoc's random clipboard/TOC IDs,
+and supplies the locked KaTeX CSS/fonts that the CLI bundle omits. It then runs
+the Ruby generator for allowlisted NovaPay downloads and seals
+`publication-manifest.json`. It validates links in the rendered DOM **and the
+hydrated article JSON**, anchors, query-string links, TOC, CSS assets, and the
+`/paygen/` project prefix. CI builds twice and compares the entire manifest.
+
+`docs:check` is read-only: changed bytes, missing/extra files, a wrong provider
+download hash or an invalid prefix fail instead of replacing the manifest.
+The manifest binds the source commit, `html_sha256`, and each published file's
+SHA-256. `artifact_sha256` hashes the sorted lines `SHA256 + two spaces + path`,
+joined by a newline with no trailing newline; the manifest excludes itself.
+This is a content digest, not a signed attestation or a Git commit SHA.
+
 The manual is built into `docs/_build/`. To serve it using the documentation
-container:
+container (requires Docker, network access for locked dependencies, and a clean
+checkout matching the supplied source SHA):
 
 ```bash
-docker build -f Dockerfile.docs -t paygen-docs .
+docker build -f Dockerfile.docs --build-arg PAYGEN_SOURCE_SHA=$(git rev-parse HEAD) \
+  -t paygen-docs .
 docker run --rm -p 127.0.0.1:8080:80 paygen-docs
 ```
 
-Open `http://127.0.0.1:8080/`. To publish the manual, configure the repository's
-Pages source as **GitHub Actions**, then run the **Publish documentation**
-workflow. The deployment job displays the published URL.
+Open `http://127.0.0.1:8080/paygen/`. To test the same prefix without a container,
+copy `docs/_build` to a temporary server root as `paygen/`, serve that root, and
+request `/paygen/`, `/paygen/provider-catalog.html`, a download, and a missing
+path. The missing path must return 404 rather than a redirect to the home page.
+
+Pull requests run the Pages build and artifact gate with read-only permissions;
+they upload a **downloadable build artifact, not a live PR website**. They never
+call Pages configuration or deployment. A maintainer can dispatch **Documentation
+Pages** from the default branch with a full integrated `accepted_sha` and leave
+`publish=false` to obtain an artifact and digest for review.
+
+Before any publication, a repository administrator must configure Pages source
+as **GitHub Actions**, protect the default branch, and configure the `github-pages`
+environment with required reviewers and default-branch-only deployment. Workflow
+YAML does not create those protections. No administrator token is used by the
+build and automatic Pages enablement is disabled.
+
+After explicit approval of the integrated commit and artifact, a maintainer may
+dispatch with the same `accepted_sha`, `publish=true`, and the reviewed
+`accepted_artifact_sha256`. The workflow checks out exactly that SHA, requires it
+to be an ancestor of the default branch and to have a successful full CI push run,
+builds twice, and compares the content digest before requesting environment
+approval. Only the deploy job receives `pages:write` and `id-token:write`.
+Publication runs are serialized; a later moving branch tip is never substituted.
+This manual documents the procedure, not evidence that the site has been deployed.
+
+Rollback uses the same explicit procedure with the full integrated SHA and digest
+of a previously accepted release compatible with this build pipeline. First do a
+build-only dispatch and compare the reviewed digest. If a historical toolchain
+cannot reproduce it, stop and review a corrected release; do not bypass the hash
+gate, rewrite branch history or reuse an unverified archive.
+
+The SHA in a local dirty-tree build identifies the checkout, not uncommitted
+changes; do not publish such a build as an accepted release. In a source archive
+(including Docker's build context without `.git`), `PAYGEN_SOURCE_SHA` is required
+but cannot establish the archive's identity by itself. The protected workflow's
+immutable clean checkout is the publication trust boundary.
 
 The manual documents Paygen itself. Documentation for an individual integration
 is generated with `paygen docs`; it can be viewed locally or published separately.
