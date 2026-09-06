@@ -1,0 +1,10 @@
+tested_sha=92ef59bc2c8eb102c7452136ee4ea8a46887fd52
+accessed_at=2026-09-06
+os=Linux 6.18.35 x86_64 GNU/Linux
+ruby=ruby 3.4.4 (2025-05-14 revision a38531fd3f) +PRISM [x86_64-linux]
+bundler_initial=2.6.7
+bundler_lockfile=4.0.20
+node=v20.20.2
+npm=11.4.2
+network_tests=WebMock disable_net_connect allow_localhost=true
+source_urls_http_status=11/11 HTTP 200 (curl -L --max-time 25)
