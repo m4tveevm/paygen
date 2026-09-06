@@ -48,7 +48,9 @@ RSpec.describe 'Disposable showcase tooling' do
     expect(TCPServer).to receive(:new).with('127.0.0.1', 9293).and_raise(Errno::EADDRINUSE)
     expect(Process).not_to receive(:spawn)
     expect(Process).not_to receive(:kill)
-    expect { runner.send(:with_server, '/unused', 'occupied') {} }.to raise_error(PaygenShowcase::Failure, /no existing process was stopped/)
+    expect do
+      runner.send(:with_server, '/unused', 'occupied') { raise 'an occupied port must not yield' }
+    end.to raise_error(PaygenShowcase::Failure, /no existing process was stopped/)
   end
 
   it 'bounds a child command and reaps only its owned process' do
