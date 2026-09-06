@@ -1,3 +1,5 @@
+Источники: `provider_api.yaml` (organizer-supplied fictional NovaPay original, SHA-256 `415f50ee36fb331dfab49ceed0e8ed3b0ebe16053d7e00dbabd32282f4396551`); `fixtures/novapay/openapi.yaml` (pinned original); this directory is an authored synthetic derivative.
+
 # Ambiguous onboarding fixture
 
 This synthetic exercise derives from the fictional NovaPay assignment contract.

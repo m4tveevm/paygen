@@ -28,6 +28,14 @@ jobs:
           ruby -v
           src/run exec ruby -e 'Dir["src/lib/**/*.rb", "src/spec/**/*.rb", "src/bin/paygen"].each { |f| abort("Syntax failed: #{f}") unless system(RbConfig.ruby, "-c", f) }'
           src/run test
+      - name: Fixture and host contract reports
+        if: matrix.ruby == '4.0.6'
+        run: |
+          mkdir -p tmp/hackathon-checks
+          src/run exec ruby src/script/verify-fixtures.rb > tmp/hackathon-checks/fixtures.json
+          src/run exec ruby src/script/verify-fixtures-native-dialect.rb > tmp/hackathon-checks/fixtures-native-dialect.json
+          src/run exec ruby src/script/coverage-inventory.rb > tmp/hackathon-checks/inventory.json
+          src/run exec ruby src/examples/host_bridge.rb tmp/hackathon-checks/host > tmp/hackathon-checks/host.json
       - name: Installed gem smoke
         run: src/run package-test
       - name: Independent payment acceptance
@@ -43,6 +51,7 @@ jobs:
             coverage/
             tmp/fuzz-verification/
             tmp/acceptance-independent/
+            tmp/hackathon-checks/
           if-no-files-found: warn
   docs:
     runs-on: ubuntu-latest
@@ -113,6 +122,7 @@ jobs:
             tmp/bruno-verification/
             tmp/fuzz-verification/
             tmp/acceptance-independent/
+            tmp/hackathon-checks/
             tmp/container-verification/
             tmp/research-experiments/
   deploy-pages:
