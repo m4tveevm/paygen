@@ -31,6 +31,13 @@ RSpec.describe 'Disposable showcase tooling' do
       runner.send(:record_revision)
       report = JSON.parse(File.read(File.join(directory, 'source-revision.json')))
       expect(report).to include('kind' => 'build_declared', 'verified_git_checkout' => false, 'dirty' => 'clean', 'sha' => 'a' * 40)
+      [nil, '', 'unknown'].each do |missing|
+        allow(ENV).to receive(:[]).with('PAYGEN_SOURCE_SHA').and_return(missing)
+        runner.send(:record_revision)
+        report = JSON.parse(File.read(File.join(directory, 'source-revision.json')))
+        expect(report).to include('kind' => 'unavailable', 'verified_git_checkout' => false, 'sha' => nil)
+        expect(File.read(File.join(directory, 'tested-sha.txt'))).to start_with('UNAVAILABLE:')
+      end
       allow(ENV).to receive(:[]).with('PAYGEN_SOURCE_SHA').and_return('not-a-revision')
       expect { runner.send(:record_revision) }.to raise_error(PaygenShowcase::Failure, /40 hexadecimal/)
     end
