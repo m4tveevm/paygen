@@ -25,6 +25,36 @@ RSpec.describe Paygen::Core::IR do
   end
   def ir = described_class.new(document, profile: profile)
 
+  it 'accepts bounded conditional mapping with explicit default and ordered field fallbacks' do
+    profile['request_mapping']['route'] = {
+      'from' => 'route', 'fallback_from' => ['legacy.route'], 'default' => false,
+      'when' => { 'from' => 'kind', 'equals' => 'transfer', 'default' => 'transfer' }
+    }
+    expect(ir.diagnostics).to be_empty
+    expect(ir.config.dig('request_mapping', 'route')).to eq(profile.dig('request_mapping', 'route'))
+  end
+
+  it 'reports malformed conditional rules before generation instead of silently applying them' do
+    malformed = [
+      { 'from' => 'route', 'when' => 'kind == transfer' },
+      { 'from' => 'route', 'when' => { 'from' => 'kind', 'equals' => ['transfer'] } },
+      { 'from' => 'route', 'when' => { 'from' => 'kind' } },
+      { 'from' => 'route', 'when' => { 'from' => '', 'equals' => 'transfer' } },
+      { 'from' => 'route', 'when' => { 'from' => 'kind', 'equals' => 'transfer', 'eval' => 'true' } },
+      { 'from' => 'route', 'fallback_from' => 'legacy.route' },
+      { 'from' => 'route', 'fallback_from' => [nil] },
+      { 'value' => 'fixed', 'default' => 'ignored' },
+      { 'from' => 'route', 'unsupported_condition' => true }
+    ]
+    malformed.each do |rule|
+      profile['request_mapping']['route'] = rule
+      expect(ir.diagnostics.map { |diagnostic| diagnostic['code'] }).to include('INVALID_MAPPING')
+    end
+    profile['request_mapping'].delete('route')
+    profile['request_mappings'] = { 'cancel' => { 'route' => malformed.first } }
+    expect(ir.diagnostics.map { |diagnostic| diagnostic['code'] }).to include('INVALID_MAPPING')
+  end
+
   it 'infers OAuth2 and the scopes required by selected outgoing operations' do
     expect(ir.profile['auth']).to eq('type' => 'oauth2', 'credential' => 'access_token',
                                     'scopes' => %w[payouts:read payouts:write])

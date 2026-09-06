@@ -10,6 +10,7 @@ require 'timeout'
 require 'stringio'
 require 'time'
 require 'bigdecimal'
+require_relative '../mapping_rule'
 
 module Paygen
   module Runtime
@@ -129,7 +130,8 @@ module Paygen
         sample = sample_schema(config.dig('endpoints', 'create', 'request_schema') || {})
         config.fetch('request_mapping', {}).each do |target, rule|
           next unless rule.is_a?(Hash) && rule['from']
-          next unless get_path(op, rule['from']).nil?
+          next unless MappingRule.valid?(rule) && MappingRule.applies?(rule) { |path| get_path(op, path) }
+          next unless MappingRule.value(rule) { |path| get_path(op, path) }.nil?
 
           value = get_path(sample, target)
           set_path(op, rule['from'], value.nil? ? 'test-value' : value)

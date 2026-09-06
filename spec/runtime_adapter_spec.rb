@@ -82,6 +82,37 @@ RSpec.describe Paygen::Runtime::Adapter do
     expect(adapter.create_request(invalid).dig('error', 'violations')).to include('/recipient: required')
   end
 
+  it 'uses ordered fallbacks and defaults only for nil, preserving false and empty explicit values' do
+    config['request_mapping']['conditional'] = {
+      'from' => 'primary', 'fallback_from' => %w[secondary third], 'default' => 'fallback-default',
+      'when' => { 'from' => 'kind', 'equals' => 'create', 'default' => 'create' }
+    }
+    samples = [
+      [{ 'primary' => false, 'secondary' => 'later' }, false],
+      [{ 'primary' => '', 'secondary' => 'later' }, ''],
+      [{ 'secondary' => 'second', 'third' => 'third' }, 'second'],
+      [{}, 'fallback-default']
+    ]
+    requests = []
+    allow(transport).to receive(:request) do |**request|
+      requests << request
+      response({ 'id' => "p-#{requests.length}", 'status' => 'pending' })
+    end
+    samples.each_with_index do |(attributes, expected), index|
+      result = adapter.create_request(operation.merge(attributes).merge('id' => "conditional-#{index}"))
+      expect(result['success']).to be(true)
+      expect(JSON.parse(requests.last.fetch(:body)).fetch('conditional')).to eq(expected)
+    end
+    expect(adapter.create_request(operation.merge('id' => 'inactive', 'kind' => 'cancel'))['success']).to be(true)
+    expect(JSON.parse(requests.last.fetch(:body))).not_to have_key('conditional')
+  end
+
+  it 'fails closed before HTTP for invalid conditional mapping supplied directly to the runtime' do
+    config['request_mapping']['conditional'] = { 'from' => 'value', 'when' => 'arbitrary expression' }
+    expect(transport).not_to receive(:request)
+    expect(adapter.create_request(operation).dig('error', 'code')).to eq('validation_error')
+  end
+
   it 'rejects float, excess precision, exponent notation, negative and oversized amounts' do
     [1000.01, '1000.001', '1e5', '-2000', '1000000000000000000'].each do |amount|
       expect(adapter.check_conditions(operation.merge('amount' => amount))['success']).to be(false)
