@@ -24,6 +24,18 @@ to build a gem in `src/`; `src/run rake` runs the configured Ruby suite.
 Paygen requires Ruby 3.3 or later. The repository pins Ruby 4.0.6 in
 `src/.ruby-version` and Bundler 4.0.20 in `src/Gemfile.lock`.
 
+`src/run` selects the Gemfile; it does **not** install or select Ruby. Since the
+version file is inside `src/`, select that version explicitly when working from
+the root. For example, with rbenv already installed:
+
+```bash
+rbenv install -s "$(cat src/.ruby-version)"
+export RBENV_VERSION="$(cat src/.ruby-version)"
+ruby -v
+```
+
+With another Ruby manager, select the same version using that manager, then:
+
 ```bash
 gem install bundler -v 4.0.20
 src/run setup
@@ -37,10 +49,17 @@ downloads. Other Node 22 versions from 22.13 meet the package engine range, but 
 the exact CI versions when comparing publication digests:
 
 ```bash
-corepack enable
+mkdir -p "$HOME/.local/bin"
+corepack enable --install-directory "$HOME/.local/bin"
+export PATH="$HOME/.local/bin:$PATH"
 corepack prepare pnpm@10.32.1 --activate
 pnpm --dir docs install --frozen-lockfile --ignore-scripts
 ```
+
+These commands place the Corepack shims in your user-owned directory, so a
+read-only Node installation does not require administrator permissions. Corepack
+must be available with the selected Node installation; `pnpm --version` should
+print `10.32.1`.
 
 Both pnpm dependency trees are locked: the project manual uses `docs/pnpm-lock.yaml`,
 and the optional Bruno runner uses `tools/bruno/pnpm-lock.yaml`. The manual's
@@ -49,6 +68,10 @@ tests cover those module interfaces and rendered output.
 
 ## Checks
 
+Complete the Ruby and Node dependency setup above first. All commands below use
+Bash and start at the repository root. Individual application runs need no Docker.
+
+
 Run the Ruby tests and the seven example profiles locally:
 
 ```bash
@@ -56,8 +79,21 @@ src/run test
 src/run package-test
 src/run smoke
 src/run lint --only Lint,Security
+src/run audit --update
 src/run exec ruby script/architecture-audit.rb
+src/run exec ruby script/acceptance-independent
+src/run exec ruby script/research-experiments
+PAYGEN_DEMO_PORT=0 examples/showcase/run tmp/showcase-local
 ```
+
+`tmp/showcase-local` must be new or empty. The acceptance runner overwrites
+`tmp/acceptance-independent/latest.json`; set `PAYGEN_ACCEPTANCE_REPORT` to a
+new filename when retaining multiple runs. Research experiments create a new
+run directory below `tmp/research-experiments/`.
+
+`src/run audit` explicitly checks `src/Gemfile.lock`; `--update` refreshes the
+advisory database and needs network access. Running `bundler-audit check` at the
+root does not select that lockfile through `BUNDLE_GEMFILE`.
 
 `src/run smoke` initializes each project in a temporary directory, generates it
 twice, checks for drift and verifies its adapter. The suite covers NovaPay,
@@ -118,9 +154,26 @@ docker run --rm -p 127.0.0.1:8080:80 paygen-docs
 ```
 
 Open `http://127.0.0.1:8080/paygen/`. To test the same prefix without a container,
-copy `docs/_build` to a temporary server root as `paygen/`, serve that root, and
-request `/paygen/`, `/paygen/provider-catalog.html`, a download, and a missing
-path. The missing path must return 404 rather than a redirect to the home page.
+use Python 3 in another terminal after the build:
+
+```bash
+PAYGEN_PREVIEW_ROOT=$(mktemp -d)
+cp -R docs/_build "$PAYGEN_PREVIEW_ROOT/paygen"
+python3 -m http.server 8080 --bind 127.0.0.1 --directory "$PAYGEN_PREVIEW_ROOT"
+```
+
+Keep that terminal running. In a second terminal:
+
+```bash
+curl --noproxy '*' --fail http://127.0.0.1:8080/paygen/ -o /dev/null
+curl --noproxy '*' --fail http://127.0.0.1:8080/paygen/provider-catalog.html -o /dev/null
+curl --noproxy '*' --fail http://127.0.0.1:8080/paygen/downloads/novapay/manifest.json
+curl --noproxy '*' --silent --output /dev/null --write-out '%{http_code}\n' \
+  http://127.0.0.1:8080/paygen/does-not-exist
+```
+
+The final request must print `404`. Stop the server with Ctrl-C. Choose another
+free port in both terminals if 8080 is already in use.
 
 Pull requests run the Pages build and artifact gate with read-only permissions;
 they upload a **downloadable build artifact, not a live PR website**. They never
@@ -166,8 +219,9 @@ docker run --rm paygen doctor
 ```
 
 For the CLI demo with Ruby installed locally, follow the [quickstart](demo.md).
-The container's entrypoint is `paygen`; arguments after the image name are passed
-to the CLI.
+The container's entrypoint is `/app/src/run cli`; arguments after the image name
+are passed to Paygen. Use `--entrypoint /app/src/run` before the image name to run
+application tasks, for example `docker run --rm --entrypoint /app/src/run paygen test`.
 
 ## Changing an integration
 

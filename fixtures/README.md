@@ -9,7 +9,7 @@ accounts or live payments.
 
 | Pack | Scope | Status behavior |
 | --- | --- | --- |
-| `novapay` | Supplied fictional SBP API; overlay requires SBP bank code | Completed payout becomes approved |
+| `novapay` | Supplied fictional SBP/card API; conditional recipient mappings and overlay | Completed payout becomes approved |
 | `paypal` | One email recipient per Standard Payouts batch | Resolve the matching item before approval |
 | `stripe` | Bank payout from an existing Connect account | `paid` can later become `failed`; account and mode must match |
 | `adyen` | Transfers v4 to an existing bank transfer instrument | `booked` stays pending and can become `returned` |

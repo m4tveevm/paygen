@@ -1,8 +1,8 @@
 # Independent hard-acceptance corpus
 
-This directory is owned by role 06 and deliberately does not derive its wire
-expectations from generated fixtures or the simulator. Run the finite baseline
-regression slice with:
+These regression checks define wire expectations independently of generated
+fixtures and the simulator. After installing Ruby dependencies, run from the
+repository root:
 
 ```sh
 src/run exec ruby script/acceptance-independent

@@ -71,8 +71,7 @@ reconciliation.
 
 ## Handoff
 
-Role 05 may link this static presenter pack but must not present it as a hosted
-Ruby backend. A later acceptance role can run `examples/showcase/run NEW_DIR`,
-archive that directory, record tool versions and hash the archive. The current
-interface is the CLI/runtime at the tested Git SHA written to `tested-sha.txt`;
-no `RELEASE_CONTRACT` was received.
+This static presenter pack describes a locally executed Ruby backend. Run
+`examples/showcase/run NEW_DIR`, archive that directory, record tool versions and
+hash the archive. `tested-sha.txt` identifies the tested checkout; also retain its
+dirty-state report. GitHub Pages hosts the manual, not this backend.

@@ -13,11 +13,12 @@ case "$PAYGEN_TASK" in
     exec bundle exec rspec --options src/.rspec -I src/spec "$@"
     ;;
   lint) exec bundle exec rubocop --config src/.rubocop.yml "$@" ;;
+  audit) exec bundle exec bundler-audit check src "$@" ;;
   package) cd src; exec bundle exec gem build paygen.gemspec "$@" ;;
   package-test) exec bundle exec ruby src/script/verify-package.rb "$@" ;;
   smoke) exec bash src/script/smoke "$@" ;;
   rake) exec bundle exec rake -f src/Rakefile "$@" ;;
   exec) exec bundle exec "$@" ;;
-  help) printf '%s\n' 'Usage: src/run {setup|cli|test|lint|package|package-test|smoke|rake|exec} [arguments]' ;;
+  help) printf '%s\n' 'Usage: src/run {setup|cli|test|lint|audit|package|package-test|smoke|rake|exec} [arguments]' ;;
   *) printf 'Unknown command: %s\n' "$PAYGEN_TASK" >&2; exit 2 ;;
 esac

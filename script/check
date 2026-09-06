@@ -10,7 +10,7 @@ src/run test
 src/run package-test
 src/run exec ruby script/acceptance-independent
 src/run lint --only Lint,Security
-src/run exec bundler-audit check --update
+src/run audit --update
 src/run smoke
 src/run exec ruby script/architecture-audit.rb
 src/run exec ruby script/research-experiments

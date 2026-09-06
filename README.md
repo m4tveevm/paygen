@@ -10,13 +10,19 @@ confirm settlement, and how retries and callbacks work.
 
 ## Quickstart
 
-Install Ruby 3.3 or later, then run from a fresh checkout:
+Use Bash and Ruby **4.0.6** (the checkout's pinned version); supported Ruby
+versions start at 3.3. Ruby must already be installed and selected in your shell.
+The version file is `src/.ruby-version`: a version manager running at the repository
+root will not automatically discover it. See [toolchain setup](docs/content/development.md#toolchain).
+
+Run from a fresh checkout:
 
 ```bash
 git clone https://github.com/m4tveevm/paygen.git
 cd paygen
 gem install bundler -v 4.0.20
 src/run setup
+src/run cli doctor
 src/run cli init fixtures/novapay/openapi.yaml --output tmp/novapay
 src/run cli generate tmp/novapay
 src/run cli diff tmp/novapay --check
@@ -60,6 +66,11 @@ Bruno CLI and the Paygen manual's site build. Export directories must be new.
 
 ## Configure another API
 
+The following is a template for your own inputs: replace `provider.yaml` with an
+existing OpenAPI file and `profile.yml` with your reviewed YAML/JSON profile.
+Neither filename is bundled. For a copyable example using supplied files, follow
+[native onboarding](docs/content/native-onboarding.md).
+
 ```bash
 src/run cli init provider.yaml --output tmp/provider
 src/run cli configure tmp/provider
@@ -80,6 +91,7 @@ requirements that need additional integration work.
 
 ## Documentation
 
+- [Published Diplodoc manual](https://m4tveevm.github.io/paygen/).
 - [Seven-minute demo](docs/content/demo.md): commands and expected results for a walkthrough.
 - [CLI reference](docs/content/cli.md): configuration, generation and exports.
 - [Native API onboarding](docs/content/native-onboarding.md): profiles and the API corpus.
@@ -103,8 +115,26 @@ failure → shrink → replay → fixed replay. See the
 
 ```bash
 src/run test
+src/run package-test
 src/run smoke
 ```
+
+Build the Diplodoc manual after selecting Node **22.22.0**:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+corepack enable --install-directory "$HOME/.local/bin"
+export PATH="$HOME/.local/bin:$PATH"
+corepack prepare pnpm@10.32.1 --activate
+pnpm --dir docs install --frozen-lockfile --ignore-scripts
+pnpm --dir docs run docs:test
+pnpm --dir docs run docs:build
+```
+
+The full build needs the Ruby dependencies installed above. It writes
+`docs/_build/`, including the generated provider downloads and integrity manifest.
+The [development guide](docs/content/development.md#documentation) explains local
+preview under `/paygen/` and publication after successful `main` CI.
 
 See the [development guide](docs/content/development.md) for the complete checks,
 documentation build and containers.
@@ -128,11 +158,11 @@ own layout.
 | `fixtures/` | Provider snapshots, profiles, licenses and provenance |
 | `src/spec/`, `acceptance/` | Unit/contract tests and independent acceptance corpus |
 | `examples/` | Runnable showcases and presenter guides |
-| `script/`, `tools/` | Verification/build tools, Bruno and the docs container |
+| `script/`, `tools/bruno/` | Cross-project verification and the optional Bruno CLI package |
 | `research/` | Research reports and historical integration evidence |
 
 Ruby manifests, tool versions, tests and build configuration live in `src/`.
-`src/run` provides `setup`, `cli`, `test`, `lint`, `package`, `package-test`,
+`src/run` provides `setup`, `cli`, `test`, `lint`, `audit`, `package`, `package-test`,
 `smoke`, `rake` and `exec`; it always resolves paths from the repository root.
 The docs package and `pnpm-lock.yaml` live in `docs/`; its manual sources are in
 `docs/content/` and build helpers in `docs/scripts/`. Bruno has its own pinned

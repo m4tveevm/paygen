@@ -14,7 +14,9 @@ machine and use synthetic payment data.
 
 ## Prepare before the walkthrough
 
-Install Ruby 3.3 or later and curl. From the repository root:
+Install Bash, curl and Ruby (the checkout pins 4.0.6; Ruby 3.3 and later are
+supported). Select Ruby using [toolchain setup](development.md#toolchain), then
+run from the repository root:
 
 ```bash
 gem install bundler -v 4.0.20

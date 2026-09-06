@@ -7,7 +7,11 @@ contacts a real provider. Ruby, Bash and Git are required; curl is not required.
 
 ## Prepare (network may be needed)
 
+Run in Bash from the repository root. Select the pinned Ruby 4.0.6 using
+[the toolchain instructions](../../docs/content/development.md#toolchain).
+
 ```bash
+gem install bundler -v 4.0.20
 src/run setup
 ```
 

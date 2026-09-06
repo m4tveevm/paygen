@@ -12,7 +12,7 @@
 - `jsonpath-cts.json`: complete 703-case JSONPath compliance suite from
   https://github.com/jsonpath-standard/jsonpath-compliance-test-suite
   at revision `b9d7153`, file `cts.json`. It uses BSD-2-Clause;
-  see `JSONPATH-LICENSE.txt`. `spec/overlay_spec.rb` executes every case,
+  see `JSONPATH-LICENSE.txt`. the checkout test `src/spec/overlay_spec.rb` executes every case,
   comparing values and normalized locations, including allowed order variants.
 
 Schemas are vendored so validation does not depend on network access or a
