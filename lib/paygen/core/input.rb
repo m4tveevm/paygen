@@ -323,6 +323,7 @@ module Paygen
           @resources = {}
           @scopes = {}.compare_by_identity
           @anchors = {}
+          @emitted_resources = {}
           @index_nodes = 0
           @schema_resources = document['openapi'].to_s.start_with?('3.1.')
           @root_uri = if @root_path
@@ -370,6 +371,13 @@ module Paygen
           Input.fail_security('REF_LIMIT', 'Resolved document exceeds resource limits') if @nodes > MAX_NODES || depth > MAX_DEPTH
           case value
           when Hash
+            if @preserve_internal && @schema_resources && schema_context && !map_container && value.key?('$id') &&
+               @resources[scope]&.fetch(:value).equal?(value)
+              # Materialize each source resource once. Repeated retrievals are
+              # references to that same resource, not new declarations of its ID.
+              return { '$ref' => portable_scope(scope) } if @emitted_resources[scope].equal?(value)
+              @emitted_resources[scope] = value
+            end
             if !map_container && value.key?('$dynamicRef')
               if @graph && location == '<root>' && schema_context
                 validate_ref(value['$dynamicRef'])
@@ -410,6 +418,12 @@ module Paygen
           validate_ref(ref)
           target_scope, fragment = reference_scope(ref, scope)
           target_location = @resources.fetch(target_scope).fetch(:location)
+          if @preserve_internal && @schema_resources && schema_context && target_location != '<root>' &&
+             @emitted_resources[target_scope].equal?(@resources.fetch(target_scope).fetch(:value))
+            reference_target(target_scope, fragment)
+            retained = portable_scope(target_scope) + (fragment ? '#' + fragment : '')
+            return { '$ref' => retained }.merge(visit(value.reject { |key, _| key == '$ref' }, location, stack, depth + 1, schema_context, false, scope))
+          end
           if @preserve_internal && target_location == '<root>'
             reference_target(target_scope, fragment) if @graph
             target = reference_target(target_scope, fragment)
