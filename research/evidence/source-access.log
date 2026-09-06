@@ -1,0 +1,12 @@
+Source availability check, 2026-09-06 UTC (HTTP status only)
+200 https://spec.openapis.org/oas/v3.0.3.html
+200 https://spec.openapis.org/oas/v3.1.1.html
+200 https://json-schema.org/draft/2020-12
+200 https://spec.openapis.org/overlay/v1.1.0.html
+200 https://www.rfc-editor.org/rfc/rfc9535
+200 https://spec.openapis.org/arazzo/v1.1.0.html
+200 https://www.cs.tufts.edu/~nr/cs257/archive/john-hughes/quick.pdf
+200 https://github.com/Qqwy/ruby-prop_check
+200 https://docs.stripe.com/api/idempotent_requests
+200 https://docs.stripe.com/webhooks
+200 https://www.pcisecuritystandards.org/faqs/1086/
