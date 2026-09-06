@@ -30,7 +30,7 @@ Use two terminals in the repository root. The output directories below must be
 new. For another run, keep the generated project and skip `init` and exports,
 or use new directory names. Restarting the demo clears its in-memory operations.
 
-## 1. Show the input and configuration — one minute
+## 1. Show the input and configuration (one minute)
 
 ```bash
 src/run cli init fixtures/novapay/openapi.yaml --output tmp/presentation
@@ -44,7 +44,7 @@ Open `tmp/presentation/integration.yml`. The bundled profile maps
 For an unfamiliar API, the same report lists unresolved questions. A method name
 alone cannot establish whether money was sent or whether a retry is safe.
 
-## 2. Generate and verify — one minute
+## 2. Generate and verify (one minute)
 
 ```bash
 src/run cli generate tmp/presentation
@@ -61,7 +61,7 @@ rate limiting, repeated requests, unknown statuses and invalid callback signatur
 Open `tmp/presentation/generated/novapay_service.rb` and `INTEGRATION.md` to show
 the adapter and its matching integration guide. Both come from the same profile.
 
-## 3. Export deliverables and start the application — one minute
+## 3. Export deliverables and start the application (one minute)
 
 ```bash
 src/run cli docs tmp/presentation --format html --output tmp/presentation-docs
@@ -75,7 +75,7 @@ the effective OpenAPI and fixtures, so the guide can travel with the adapter.
 Leave the server running in the first terminal. Wait for
 `Paygen adapter demo listening on http://127.0.0.1:9293` before continuing.
 
-## 4. Create, repeat and settle a payout — two minutes
+## 4. Create, repeat and settle a payout (two minutes)
 
 In the second terminal:
 
@@ -106,7 +106,7 @@ The demo receives an application operation, invokes the generated adapter, and
 passes the adapter's provider request to the simulator. `/evidence` shows which
 provider operations were actually created.
 
-## 5. Show a rejected request — one minute
+## 5. Show a rejected request (one minute)
 
 ```bash
 curl --noproxy '*' -sS http://127.0.0.1:9293/checks/invalid-auth \
@@ -160,5 +160,5 @@ status reconciliation before another payout can be submitted. The
 signing and workflow requirements in T-Bank and Tochka APIs.
 
 The walkthrough demonstrates a generated integration against its configured
-contract. A real deployment additionally needs backend hooks, durable operation
+contract. A real deployment also needs backend hooks, durable operation
 state and bank sandbox verification; see [supported scope](scope.md).

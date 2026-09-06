@@ -1,10 +1,10 @@
 # CLI reference
 
-Complete [toolchain setup](development.md#toolchain), then run commands in Bash
-from the repository root as `src/run cli COMMAND`.
-The examples below use the bundled NovaPay contract and a new `tmp/cli-provider`
-project. Run the sections in order; choose new paths when repeating exports.
-Use `src/run cli COMMAND --help` for command-specific options.
+After [setting up the toolchain](development.md#toolchain), run CLI commands in
+Bash from the repository root with `src/run cli COMMAND`. The examples use the
+bundled NovaPay contract and create a project at `tmp/cli-provider`. Follow the
+sections in order, and choose a new path each time you repeat an export. Run
+`src/run cli COMMAND --help` to see the options for a command.
 
 ## Create and configure
 
