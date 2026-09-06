@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'spec_helper'
 require 'rack/mock'
 require 'paygen/runtime/demo'
@@ -33,6 +34,18 @@ RSpec.describe Paygen::Runtime::Demo do
     expect(@app.simulator.evidence['created_count']).to eq(1)
     result = JSON.parse(@client.get('/operations/demo-operation').body)
     expect(result['success']).to be(true)
+  end
+
+  it 'serves a same-origin panel and identifies the generated service by digest' do
+    page = @client.get('/')
+    expect(page.status).to eq(200)
+    expect(page['content-security-policy']).to include("connect-src 'self'")
+    expect(page.body).to include('Generated adapter evidence')
+    expect(@client.get('/demo.js').status).to eq(200)
+    expect(@client.get('/demo.css').status).to eq(200)
+    artifacts = JSON.parse(@client.get('/artifacts').body)
+    expect(artifacts).to include('generated_service' => 'novapay_service.rb', 'offline' => true)
+    expect(artifacts.fetch('generated_service_sha256')).to match(/\A[0-9a-f]{64}\z/)
   end
 
   it 'rejects bad signatures and persists a verified callback once across duplicate delivery' do
