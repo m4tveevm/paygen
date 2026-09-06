@@ -351,7 +351,13 @@ module Paygen
         def call(project:, scenario: 'success', seed: '0', port: '9292', **)
           require 'puma'
           require_relative 'runtime/simulator'
-          config = Project.new(project).ir.config
+          ir = Project.new(project).ir
+          blockers = ir.diagnostics.select { |item| item['severity'] == 'blocker' }
+          unless blockers.empty?
+            raise Error.new('Resolve semantic blockers before starting the simulator', code: 'SEMANTIC_BLOCKERS', exit_code: 4,
+                            details: { 'diagnostics' => blockers })
+          end
+          config = ir.config
           app = Runtime::Simulator.new(config: config, scenario: scenario, seed: Integer(seed), strict_auth: true)
           server = Puma::Server.new(app)
           server.add_tcp_listener('127.0.0.1', Integer(port))

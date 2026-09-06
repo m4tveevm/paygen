@@ -27,7 +27,7 @@ module Paygen
           'questions' => QUESTIONS.map do |key, question|
             origins = @ir.provenance.select { |path, _| path == key || path.start_with?(key + '.') }.values.map { |fact| fact['origin'] }.uniq
             { 'path' => key, 'question' => question, 'configured' => @ir.profile.key?(key),
-              'origins' => origins, 'review_required' => !origins.empty? && origins.all? { |origin| origin == 'inference' } }
+              'origins' => origins, 'review_required' => @ir.diagnostics.any? { |item| item['severity'] == 'blocker' && (item['path'] == key || item['path'].start_with?(key + '.')) } }
           end,
           'selected_parameters' => @ir.config.fetch('endpoints').transform_values { |op| op.fetch('parameters', []) },
           'diagnostics' => @ir.diagnostics,

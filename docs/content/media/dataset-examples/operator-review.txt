@@ -1,0 +1,64 @@
+## 1. Similar names do not prove payment meaning
+
+$ src/run cli init fixtures/onboarding/ambiguous/openapi.json --output "$PAYGEN_EXAMPLES_DIR/unknown"
+src/run cli configure "$PAYGEN_EXAMPLES_DIR/unknown" > "$PAYGEN_EXAMPLES_DIR/unknown-review.json"
+
+Captured output / selected JSON fields:
+{
+  "ready": false,
+  "create_candidates": [
+    "createPayout",
+    "createPayoutPreview",
+    "cancelPayout",
+    "payoutWebhook"
+  ],
+  "operator_review_paths": [
+    "operations.status",
+    "operations.cancel",
+    "operations.balance",
+    "auth.type",
+    "auth.in",
+    "auth.name",
+    "auth.credential"
+  ]
+}
+
+## 2. Generation refuses unresolved semantics
+
+$ src/run cli generate "$PAYGEN_EXAMPLES_DIR/unknown"
+
+Captured output / selected JSON fields:
+{
+  "error": {
+    "code": "SEMANTIC_BLOCKERS"
+  },
+  "exit_code": 4
+}
+
+## 3. Partial answers do not approve other fields
+
+$ src/run cli configure "$PAYGEN_EXAMPLES_DIR/unknown" --answers fixtures/onboarding/ambiguous/partial-answers.yml > "$PAYGEN_EXAMPLES_DIR/partial-review.json"
+
+Captured output / selected JSON fields:
+{
+  "ready": false
+}
+
+## 4. Explicit contract decisions unlock generation
+
+$ src/run cli configure "$PAYGEN_EXAMPLES_DIR/unknown" --answers fixtures/onboarding/ambiguous/answers.yml > "$PAYGEN_EXAMPLES_DIR/resolved-review.json"
+cp fixtures/onboarding/ambiguous/overlay.yaml "$PAYGEN_EXAMPLES_DIR/unknown/overlays/010-reviewed.yaml"
+src/run cli generate "$PAYGEN_EXAMPLES_DIR/unknown"
+src/run cli verify "$PAYGEN_EXAMPLES_DIR/unknown" --seed 42 > "$PAYGEN_EXAMPLES_DIR/resolved-verify.json"
+src/run cli docs "$PAYGEN_EXAMPLES_DIR/unknown" --format html --output "$PAYGEN_EXAMPLES_DIR/resolved-guide"
+
+Captured output / selected JSON fields:
+resolved-review.json (excerpt):
+{
+  "ready": true
+}
+resolved-verify.json (excerpt):
+{
+  "success": true,
+  "failed": 0
+}

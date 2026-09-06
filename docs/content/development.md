@@ -1,5 +1,8 @@
 # Development
 
+For executable success and operator-review examples, adapter export, and the
+`demo`/`serve` distinction, see [Run the datasets yourself](dataset-walkthrough.md).
+
 ## Repository layout
 
 Run the commands below from the repository root. Runtime implementation, schemas
