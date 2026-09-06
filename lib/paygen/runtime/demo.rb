@@ -46,6 +46,7 @@ module Paygen
           return asset(path) if method == 'GET' && %w[/demo.css /demo.js].include?(path)
           return respond(200, { 'service' => 'paygen-adapter-demo', 'provider' => @config['provider'], 'offline' => true }) if method == 'GET' && path == '/health'
           return respond(200, artifact_summary) if method == 'GET' && path == '/artifacts'
+          return respond(200, simulator.sample_operation(id: 'synthetic-demo-operation')) if method == 'GET' && path == '/sample'
           return respond(200, simulator.evidence.merge('backend_events' => @backend_events)) if method == 'GET' && path == '/evidence'
           if method == 'POST'
             return respond(415, { 'error' => 'Use application/json' }) unless env.fetch('CONTENT_TYPE', '').split(';').first == 'application/json'
@@ -87,6 +88,7 @@ module Paygen
           'provider' => @config.fetch('provider'),
           'mode' => @config.fetch('mode', 'sandbox'),
           'roles' => @config.fetch('endpoints').keys.sort,
+          'callback_verification' => @config.dig('callback', 'signature', 'algorithm'),
           'offline' => true
         }
       end
