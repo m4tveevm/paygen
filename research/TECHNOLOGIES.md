@@ -2,7 +2,7 @@
 
 | Технология/механизм | Этап и задача | Почему подходит | Цена/ограничение | Минимальная альтернатива |
 |---|---|---|---|---|
-| Ruby 3.x | CLI, core, generator, runtime | Соответствует host/кейсу; единая модель объектов | Dynamic typing требует runtime validation | Узкий Ruby script без IR |
+| Ruby 3.3+ / 4.x | CLI, core, generator, runtime | Соответствует host/кейсу; единая модель объектов | Dynamic typing требует runtime validation; evidence привязан к версии | Узкий Ruby script без IR |
 | Psych/JSON stdlib protections | Input | Safe parse и отсутствие code execution | Нужны limits глубины/размера отдельно | JSON-only input |
 | JSONSchemer 2.5 | OAS/JSON Schema, response schemas | Draft/OpenAPI modes, detailed errors | Schema validity не равна semantics | Ручные required/type checks |
 | Janeway JSONPath 1.1 | Overlay/workflows | RFC 9535 selector engine и CTS | Complexity/time limits обязательны | Ограниченный JSON Pointer patch |
