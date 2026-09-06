@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+require_relative '../mapping_rule'
 module Paygen
   module Core
     # Provider-neutral, JSON-shaped representation of the effective contract.
@@ -23,7 +24,7 @@ module Paygen
         end
         inferred = infer([vendor, recipe, profile, overrides])
         @profile = [vendor, recipe, profile, overrides].reduce(inferred) { |memo, layer| Paygen.deep_merge(memo, layer) }
-        %w[operations request_mapping status_mapping amount response idempotency auth callback errors parameter_mapping].each do |key|
+        %w[operations request_mapping request_mappings status_mapping amount response idempotency auth callback errors parameter_mapping].each do |key|
           next unless @profile.key?(key)
           unless @profile[key].is_a?(Hash)
             raise Error.new("#{key} must be an object", code: 'INVALID_PROFILE', exit_code: 3)
@@ -257,8 +258,19 @@ module Paygen
           diagnostic('INVALID_AMOUNT_UNIT', 'input_unit must be major or minor', 'amount.input_unit')
         end
         profile.fetch('request_mapping', {}).each do |target, rule|
-          unless rule.is_a?(Hash) && (rule.key?('from') ^ rule.key?('value')) && (!rule.key?('from') || rule['from'].is_a?(String))
-            diagnostic('INVALID_MAPPING', 'Each mapping declares exactly one source field or literal value', "request_mapping.#{target}")
+          unless MappingRule.valid?(rule)
+            diagnostic('INVALID_MAPPING', 'Mapping must use one source/literal and valid fallback/default/equality options', "request_mapping.#{target}")
+          end
+        end
+        profile.fetch('request_mappings', {}).each do |role, mappings|
+          if !mappings.is_a?(Hash)
+            diagnostic('INVALID_MAPPING', 'Role mappings must be an object', "request_mappings.#{role}")
+            next
+          end
+          mappings.each do |target, rule|
+            unless MappingRule.valid?(rule)
+              diagnostic('INVALID_MAPPING', 'Mapping must use one source/literal and valid fallback/default/equality options', "request_mappings.#{role}.#{target}")
+            end
           end
         end
         if operation_map['callback']
