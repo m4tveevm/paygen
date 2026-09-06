@@ -31,11 +31,14 @@ docker run --rm paygen-verification doctor
 docker run --rm --entrypoint bash paygen-verification script/smoke
 mkdir -p tmp/container-verification
 PAYGEN_CONTAINER_REPORTS=$(mktemp -d "$PWD/tmp/container-verification/run.XXXXXX")
+# Producers use the host runner identity so private 0700 project directories
+# remain readable by artifact upload without weakening their permissions.
+PAYGEN_REPORT_OWNER="$(id -u):$(id -g)"
 docker run --rm --entrypoint bundle paygen-verification exec rspec | tee "$PAYGEN_CONTAINER_REPORTS/rspec.log"
-docker run --rm --mount "type=bind,src=$PAYGEN_CONTAINER_REPORTS,dst=/evidence" \
+docker run --rm --user "$PAYGEN_REPORT_OWNER" --mount "type=bind,src=$PAYGEN_CONTAINER_REPORTS,dst=/evidence" \
   -e PAYGEN_ACCEPTANCE_REPORT=/evidence/independent.json \
   --entrypoint bundle paygen-verification exec ruby script/acceptance-independent
-docker run --rm --mount "type=bind,src=$PAYGEN_CONTAINER_REPORTS,dst=/evidence" \
+docker run --rm --user "$PAYGEN_REPORT_OWNER" --mount "type=bind,src=$PAYGEN_CONTAINER_REPORTS,dst=/evidence" \
   --entrypoint bash paygen-verification examples/showcase/run /evidence/showcase
 docker build --build-arg "PAYGEN_SOURCE_SHA=$PAYGEN_SOURCE_SHA" -f Dockerfile.docs -t paygen-docs-verification .
 PAYGEN_DOCS_CONTAINER=$(docker run -d -p 127.0.0.1::80 paygen-docs-verification)
