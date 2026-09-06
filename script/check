@@ -7,6 +7,7 @@ command -v npm >/dev/null
 command -v docker >/dev/null
 bundle check
 bundle exec rspec
+bundle exec ruby script/acceptance-independent
 bundle exec rubocop --only Lint,Security
 bundle exec bundler-audit check --update
 script/smoke
@@ -24,6 +25,9 @@ bundle exec ruby script/verify-bruno.rb --cli tools/bruno/node_modules/@usebruno
 docker build -t paygen-verification .
 docker run --rm paygen-verification doctor
 docker run --rm --entrypoint bash paygen-verification script/smoke
+docker run --rm --entrypoint bundle paygen-verification exec rspec
+docker run --rm --entrypoint bundle paygen-verification exec ruby script/acceptance-independent
+docker run --rm --entrypoint bash paygen-verification examples/showcase/run
 docker build -f Dockerfile.docs -t paygen-docs-verification .
 PAYGEN_DOCS_CONTAINER=$(docker run -d -p 127.0.0.1::80 paygen-docs-verification)
 cleanup_docs() {
@@ -36,4 +40,4 @@ trap cleanup_docs EXIT
 PAYGEN_DOCS_PORT=$(docker port "$PAYGEN_DOCS_CONTAINER" 80/tcp | sed 's/.*://')
 PAYGEN_DOCS_PAGE=$(curl --retry 5 --retry-all-errors --retry-delay 1 --retry-max-time 20 --connect-timeout 2 --max-time 5 --fail --silent --show-error "http://127.0.0.1:$PAYGEN_DOCS_PORT/")
 [[ "$PAYGEN_DOCS_PAGE" == *Paygen* ]]
-ruby -rjson -e 'puts JSON.pretty_generate(status: "PASS", ruby: RUBY_VERSION, checks: %w[rspec lint dependency_audit seven_provider_smoke architecture diplodoc bruno ruby_oci docs_oci])'
+ruby -rjson -e 'puts JSON.pretty_generate(status: "PASS", ruby: RUBY_VERSION, checks: %w[rspec independent_acceptance lint dependency_audit seven_provider_smoke architecture diplodoc bruno ruby_oci_full_suite demo_oci docs_oci])'

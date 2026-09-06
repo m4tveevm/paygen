@@ -11,7 +11,7 @@ require_relative '../lib/paygen/runtime/adapter'
 require_relative '../spec/support/provider_harness'
 
 ROOT = File.expand_path('..', __dir__)
-REPORT = File.join(ROOT, 'acceptance/independent/reports/latest.json')
+REPORT = File.expand_path(ENV.fetch('PAYGEN_ACCEPTANCE_REPORT', 'tmp/acceptance-independent/latest.json'), ROOT)
 
 # Finite, independent acceptance probes for the five baseline regressions.
 # rubocop:disable-next Metrics, Layout/LineLength, Style/MultilineBlockChain
@@ -27,17 +27,18 @@ class IndependentAcceptance
                 setup: 'independent fixture and injected transport; no provider network',
                 command: 'bundle exec ruby script/acceptance-independent', location: '.',
                 expected: expected, observed: observed, exit_code: passed ? 0 : 1,
-                test_artifact: 'acceptance/independent/reports/latest.json', verdict: passed ? 'PASS' : 'FAIL' }
+                test_artifact: REPORT.delete_prefix(ROOT + '/'), verdict: passed ? 'PASS' : 'FAIL' }
   rescue StandardError => e
     @cases << { id: id, source_requirement: source, severity: severity,
                 setup: 'independent fixture and injected transport; no provider network',
                 command: 'bundle exec ruby script/acceptance-independent', location: '.',
                 expected: expected, observed: { exception: e.class.name, message: e.message }, exit_code: 1,
-                test_artifact: 'acceptance/independent/reports/latest.json', verdict: 'FAIL' }
+                test_artifact: REPORT.delete_prefix(ROOT + '/'), verdict: 'FAIL' }
   end
 
   def run
     tenant_isolation
+    scoped_tenants_and_rotation
     workflow_preflight
     progress_events
     decimal_cache
@@ -91,7 +92,7 @@ class IndependentAcceptance
 
   def tenant_isolation
     check(id: 'Q3-TENANT-NIL-001', source: '[PROJECT POLICY] Q3 tenant isolation', severity: 'P1',
-          expected: 'second unscoped integration is rejected before HTTP and never receives the first integration result') do
+          expected: 'both unscoped shared-store integrations are rejected before HTTP; no foreign cached result is returned') do
       store = Paygen::Runtime::MemoryStateStore.new
       requests = []
       klass = adapter_class(base_config)
@@ -99,9 +100,25 @@ class IndependentAcceptance
                         transport: transport(requests)).create_request(operation)
       second = klass.new(credentials: { api_key: 'credential-b' }, state_store: store,
                          transport: transport(requests)).create_request(operation)
-      safe_second = second.except('data')
-      { passed: first['success'] == true && second.dig('error', 'code') == 'integration_identity_required' && requests.length == 1,
-        outbound_requests: requests.length, second_result: safe_second }
+      rejected = [first, second].all? { |result| result['success'] == false && result.dig('error', 'code') == 'state_namespace_required' }
+      { passed: rejected && requests.empty?, outbound_requests: requests.length,
+        first_result: first.except('data'), second_result: second.except('data') }
+    end
+  end
+
+  def scoped_tenants_and_rotation
+    check(id: 'Q3-TENANT-SCOPED-002', source: '[PROJECT POLICY] Q3 tenant isolation and credential rotation', severity: 'P1',
+          expected: 'two scoped integrations create distinct results; rotating a credential within one scope reuses only its own operation') do
+      store = Paygen::Runtime::MemoryStateStore.new
+      requests = []
+      klass = adapter_class(base_config)
+      results = [%w[tenant-a old-key provider-a], %w[tenant-b another-key provider-b], %w[tenant-a rotated-key provider-a]].map do |account, key, id|
+        klass.new(account: account, credentials: { api_key: key }, state_store: store,
+                  transport: transport(requests, { 'id' => id, 'status' => 'pending' })).create_request(operation)
+      end
+      ids = results.map { |result| result['provider_id'] }
+      { passed: results.all? { |result| result['success'] } && ids == %w[provider-a provider-b provider-a] && requests.size == 2,
+        returned_provider_ids: ids, outbound_requests: requests.size }
     end
   end
 
@@ -192,7 +209,7 @@ class IndependentAcceptance
     check(id: 'Q1-ROOT-BACKREF-001', source: '[PROJECT POLICY] Q1 local references', severity: 'P2',
           expected: 'actual root filename back-reference resolves without REF_ID_DUPLICATE') do
       path = File.join(ROOT, 'acceptance/independent/ref-root/openapi.yaml')
-      resolved = Paygen::Core::Input.resolve(Paygen::Core::Input.read(path), base_dir: File.dirname(path))
+      resolved = Paygen::Core::Input.resolve(Paygen::Core::Input.load(path))
       schema = resolved.dig('paths', '/payouts', 'post', 'requestBody', 'content', 'application/json', 'schema')
       { passed: schema.dig('properties', 'reference', 'type') == 'string',
         resolved_type: schema.dig('properties', 'reference', 'type') }
@@ -210,7 +227,7 @@ class IndependentAcceptance
       verdict: all_pass ? 'LOCAL_REGRESSION_SLICE_PASS' : 'LOCAL_RELEASE_NOT_READY',
       base_sha: '92ef59bc2c8eb102c7452136ee4ea8a46887fd52', tested_sha: sha.strip,
       branch: branch.strip, dirty_state: status.empty? ? 'clean' : 'dirty',
-      interface_version: 'baseline-92ef59b', dependencies_received: [],
+      interface_version: 'integration-2026-09-06', dependencies_received: ['PR #5', 'PR #6', 'PR #7', 'PR #8'],
       environment: { ruby: RUBY_DESCRIPTION, os_architecture: RUBY_PLATFORM, network_mode: 'no provider network; injected transports only' },
       totals: { cases: @cases.length, executed: @cases.length, passed: @cases.count { |item| item[:verdict] == 'PASS' },
                 failed: @cases.count { |item| item[:verdict] == 'FAIL' }, skipped: 0, blocked: 0 },
