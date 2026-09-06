@@ -7,43 +7,65 @@ require 'open3'
 require 'tmpdir'
 require_relative '../lib/paygen'
 
-output = File.expand_path(ARGV.fetch(0, 'docs/_build'))
-raise 'Documentation output does not exist; render it first' unless File.directory?(output)
+module DocsProviderAssets
+  FILES = %w[INTEGRATION.md fixtures.json config.json diagnostics.json provenance.json].freeze
+  ROOT = File.expand_path('..', __dir__)
 
-downloads = File.join(output, 'downloads', 'novapay')
-raise 'Refusing a symbolic-link documentation output' if File.symlink?(output) || File.symlink?(downloads)
+  def self.source_sha
+    supplied = ENV['PAYGEN_SOURCE_SHA']
+    if File.exist?(File.join(ROOT, '.git'))
+      revision, status = Open3.capture2('git', 'rev-parse', 'HEAD', chdir: ROOT)
+      raise 'Cannot determine source revision' unless status.success?
 
-FileUtils.rm_rf(downloads)
-FileUtils.mkdir_p(downloads)
+      revision = revision.strip
+      raise 'PAYGEN_SOURCE_SHA does not match checkout' if supplied && supplied != revision
+    end
+    revision = supplied || revision
+    raise 'PAYGEN_SOURCE_SHA must be a full commit SHA (required in a source archive)' unless revision&.match?(/\A[0-9a-f]{40}\z/)
 
-Dir.mktmpdir('paygen-docs-provider-') do |directory|
-  project = Paygen::Project.init(File.expand_path('../fixtures/novapay/openapi.yaml', __dir__),
-                                 output: File.join(directory, 'novapay'))
-  Paygen::Generator.new(project).generate
-  %w[INTEGRATION.md fixtures.json config.json diagnostics.json provenance.json].each do |name|
-    FileUtils.cp(project.path("generated/#{name}"), File.join(downloads, name))
+    revision
+  end
+
+  def self.build(output)
+    revision = source_sha
+    output = File.expand_path(output)
+    raise 'Render documentation first; output must be a real directory' unless File.directory?(output) && !File.symlink?(output)
+
+    downloads_root = File.join(output, 'downloads')
+    raise 'Refusing a symbolic-link downloads directory' if File.symlink?(downloads_root)
+
+    downloads = File.join(downloads_root, 'novapay')
+    version_file = File.join(output, 'version.json')
+    [downloads, version_file].each do |target|
+      raise 'Provider publication output already exists; run a clean docs build' if File.exist?(target) || File.symlink?(target)
+    end
+    source = File.join(ROOT, 'fixtures/novapay/openapi.yaml')
+    profile = File.join(ROOT, 'fixtures/novapay/integration.yml')
+    Dir.mktmpdir('paygen-docs-provider-') do |directory|
+      project = Paygen::Project.init(source, output: File.join(directory, 'novapay'), profile: profile)
+      Paygen::Generator.new(project).generate
+      # Copy only known generated outputs, never the project, environment or state.
+      FileUtils.mkdir_p(downloads)
+      FILES.each { |name| FileUtils.cp(project.path("generated/#{name}"), File.join(downloads, name)) }
+      manifest = {
+        'schema_version' => 2,
+        'source_code_sha' => revision,
+        'generator_version' => Paygen::VERSION,
+        'provider' => 'novapay',
+        'source_path' => 'fixtures/novapay/openapi.yaml',
+        'profile_path' => 'fixtures/novapay/integration.yml',
+        'source_sha256' => Digest::SHA256.file(source).hexdigest,
+        'profile_sha256' => Digest::SHA256.file(profile).hexdigest,
+        # Includes the effective profile, selected recipe, ordered overlays and workflows.
+        'generated_input_sha256' => project.lock.fetch('inputs'),
+        'files' => FILES.to_h { |name| [name, Digest::SHA256.file(File.join(downloads, name)).hexdigest] }
+      }
+      File.write(File.join(downloads, 'manifest.json'), "#{JSON.pretty_generate(manifest)}\n", mode: 'wx')
+      version = manifest.slice('schema_version', 'source_code_sha', 'generator_version')
+      File.write(version_file, "#{JSON.pretty_generate(version)}\n", mode: 'wx')
+      manifest
+    end
   end
 end
 
-source_sha = ENV.fetch('PAYGEN_SOURCE_SHA', nil)
-if source_sha.to_s.empty?
-  source_sha, status = Open3.capture2('git', 'rev-parse', 'HEAD', chdir: File.expand_path('..', __dir__))
-  raise 'Cannot determine source revision' unless status.success?
-
-  source_sha = source_sha.strip
-end
-raise 'PAYGEN_SOURCE_SHA must be a full commit SHA' unless source_sha.match?(/\A[0-9a-f]{40}\z/)
-
-files = Dir[File.join(downloads, '*')].select { |path| File.file?(path) }.sort
-manifest = {
-  'schema_version' => 1,
-  'source_code_sha' => source_sha,
-  'generator_version' => Paygen::VERSION,
-  'provider' => 'novapay',
-  'profile_sha256' => Digest::SHA256.file(File.expand_path('../fixtures/novapay/integration.yml', __dir__)).hexdigest,
-  'source_sha256' => Digest::SHA256.file(File.expand_path('../fixtures/novapay/openapi.yaml', __dir__)).hexdigest,
-  'files' => files.to_h { |path| [File.basename(path), Digest::SHA256.file(path).hexdigest] }
-}
-File.write(File.join(downloads, 'manifest.json'), "#{JSON.pretty_generate(manifest)}\n")
-version = manifest.slice('schema_version', 'source_code_sha', 'generator_version')
-File.write(File.join(output, 'version.json'), "#{JSON.pretty_generate(version)}\n")
+DocsProviderAssets.build(ARGV.fetch(0, 'docs/_build')) if $PROGRAM_NAME == __FILE__

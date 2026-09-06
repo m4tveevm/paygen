@@ -5,75 +5,132 @@ on:
     paths:
       - 'docs/**'
       - 'fixtures/novapay/**'
+      - 'recipes/**'
       - 'lib/**'
       - 'script/docs*'
       - 'script/diplodoc-*'
       - 'package.json'
       - 'package-lock.json'
       - 'Gemfile.lock'
+      - 'Gemfile'
+      - 'paygen.gemspec'
+      - '.ruby-version'
       - 'Dockerfile.docs'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
     inputs:
       accepted_sha:
-        description: Full, reviewed commit SHA to build and deploy
+        description: Full, integrated commit SHA to build (not a branch name)
         required: true
+        type: string
+      publish:
+        description: Deploy the accepted artifact (requires protected environment approval)
+        required: true
+        default: false
+        type: boolean
+      accepted_artifact_sha256:
+        description: Reviewed publication-manifest artifact_sha256; required only for publish
+        required: false
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: pages-${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
+  group: pages-${{ github.event_name == 'workflow_dispatch' && 'publication' || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pages: read
     steps:
       - name: Validate accepted identity
         if: github.event_name == 'workflow_dispatch'
         env:
           ACCEPTED_SHA: ${{ inputs.accepted_sha }}
-        run: test "${#ACCEPTED_SHA}" -eq 40 && [[ "$ACCEPTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ACCEPTED_DIGEST: ${{ inputs.accepted_artifact_sha256 }}
+          PUBLISH: ${{ inputs.publish }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          [[ "$ACCEPTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+          if [ "$PUBLISH" = true ]; then [[ "$ACCEPTED_DIGEST" =~ ^[0-9a-f]{64}$ ]]; fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - name: Assert immutable checkout
         env:
           EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Require an integrated revision and successful full CI before publication
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXPECTED_SHA: ${{ inputs.accepted_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PUBLISH: ${{ inputs.publish }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git merge-base --is-ancestor "$EXPECTED_SHA" "refs/remotes/origin/$DEFAULT_BRANCH"
+          if [ "$PUBLISH" = true ]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$EXPECTED_SHA&status=success&per_page=100" \
+              --jq '[.workflow_runs[] | select(.event == "push" and .conclusion == "success")] | length > 0' | grep -qx true
+          fi
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.22.0'
           cache: npm
-      - uses: ruby/setup-ruby@d5126b9b3579e429dd52e51e68624dda2e05be25 # v1.267.0
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1, Ruby 4.0.6 support
         with:
           ruby-version: '.ruby-version'
           bundler-cache: true
       - run: npm install --global npm@11.9.0
       - run: npm ci --ignore-scripts --engine-strict
+      - run: npm audit
       - run: npm run docs:test
       - run: npm run docs:build
         env:
           PAYGEN_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.accepted_sha || github.event.pull_request.head.sha }}
+      - name: Rebuild and compare every published byte
+        run: |
+          cp docs/_build/publication-manifest.json "$RUNNER_TEMP/accepted-docs-manifest.json"
+          npm run docs:build
+          cmp "$RUNNER_TEMP/accepted-docs-manifest.json" docs/_build/publication-manifest.json
+      - name: Verify accepted artifact digest without modifying it
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          PAYGEN_SOURCE_SHA: ${{ inputs.accepted_sha }}
+          PAYGEN_ACCEPTED_ARTIFACT_SHA256: ${{ inputs.accepted_artifact_sha256 }}
+        run: npm run docs:check
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
-        if: github.event_name == 'workflow_dispatch'
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
-        if: github.event_name == 'workflow_dispatch'
+        id: pages
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        with:
+          enablement: false
+      - name: Require the reviewed project Pages prefix
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          ACTUAL_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: test "$ACTUAL_BASE_PATH/" = /paygen/
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
         with:
           path: docs/_build
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || !inputs.publish
         with:
-          name: docs-preview-${{ github.event.pull_request.head.sha }}
+          name: docs-preview-${{ github.event.pull_request.head.sha || inputs.accepted_sha }}
           path: docs/_build
           if-no-files-found: error
           retention-days: 7
 
   deploy:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
     needs: build
     permissions:
       pages: write
