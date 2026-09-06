@@ -186,6 +186,9 @@ first request. Unavailable sources, unsupported criteria and invalid dependencie
 fail during this preflight. Forward step dependencies run in stable dependency
 order; cyclic or unscheduled prerequisites are rejected.
 
+Cross-workflow output references require an explicit workflow `dependsOn`.
+References in descriptions are documentation, not executable dependencies.
+
 A lost response or ambiguous server error after a write stops execution with
 `ARAZZO_RECONCILIATION_REQUIRED`. Retry and goto actions cannot repeat that write,
 including through a nested workflow. Bounded read retries and explicit 401/429

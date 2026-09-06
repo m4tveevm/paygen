@@ -52,6 +52,13 @@ RSpec.describe Paygen::Core::Workflow do
     end
   end
 
+  it 'does not execute or validate references mentioned only in descriptive prose' do
+    create_step['description'] = 'This documents $steps.missing.outputs.id; it is not an executable expression.'
+    expect(engine.validate!).to be(engine)
+    expect(engine.run('payout', inputs: { 'amount' => 1_500_000 })['success']).to be(true)
+    expect(transport).to have_received(:request).twice
+  end
+
   it 'rejects duplicate IDs and malformed constructs on import' do
     document['workflows'][0]['steps'] << create_step.merge('operationId' => 'getPayout')
     expect { engine.validate! }.to raise_error(Paygen::Error) { |error| expect(error.code).to eq('ARAZZO_DUPLICATE') }

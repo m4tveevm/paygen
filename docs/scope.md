@@ -2,9 +2,9 @@
 
 Paygen generates a Ruby payout integration from an OpenAPI document and an
 explicit payment profile. The prototype covers parsing, service generation,
-integration documentation and local verification. NovaPay demonstrates the SBP
-branch of the supplied case; its card branch is not implemented by the included
-profile. Additional profiles exercise different API shapes and payment semantics.
+integration documentation and local verification. NovaPay implements explicit
+SBP and card recipient mappings with conditional schema validation. Additional
+profiles exercise different API shapes and payment semantics.
 
 ## Case requirements
 
@@ -56,6 +56,12 @@ integration. Ambiguous payment semantics require a profile. Bank sandbox
 acceptance and live settlement are separate from the local test suite.
 [Russian bank examples](ru-bank-examples.md) and
 [provider configuration](native-onboarding.md) describe the exact supported flows.
+
+HTTPS import does not yet preserve retrieval identity for absolute self-references
+through the complete import, serialization and project-regeneration pipeline.
+Use an equivalent reviewed contract with local fragment references for that case;
+arbitrary external network references remain denied. This limitation is not
+silently reported as a successful complete integration.
 
 ## Demonstration and checks
 
