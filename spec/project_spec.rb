@@ -26,7 +26,8 @@ RSpec.describe 'Project generation lifecycle' do
   it 'retains internal refs until overlays correct their shared schema' do
     pinned = Paygen::Core::Input.read(project.path('source/openapi.json'))
     expect(pinned.dig('paths', '/payouts', 'post', 'requestBody', 'content', 'application/json', 'schema')).to have_key('$ref')
-    expect(project.ir.config.dig('endpoints', 'create', 'request_schema', 'properties', 'recipient', 'required')).to include('bank_code')
+    recipient = project.ir.config.dig('endpoints', 'create', 'request_schema', 'properties', 'recipient')
+    expect(recipient.fetch('oneOf').map { |branch| branch.fetch('required') }).to eq([['bank_code'], ['card_number']])
   end
 
   it 'refuses to overwrite generated manual edits and preserves them' do

@@ -12,6 +12,18 @@
       }
     }
   },
+  "card_operation": {
+    "id": "op_nova_card_001",
+    "amount": "1000.00",
+    "currency": "RUB",
+    "payout_requisite": {
+      "type": "card",
+      "card": {
+        "phone": "79001234567",
+        "card_number": "4111111111111111"
+      }
+    }
+  },
   "credentials": {
     "api_key": "fixture-nova-api-key",
     "callback_secret": "fixture-nova-secret"
