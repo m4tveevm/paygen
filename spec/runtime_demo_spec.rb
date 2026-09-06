@@ -84,6 +84,29 @@ RSpec.describe Paygen::Runtime::Demo do
     expect(post('/operations', '[]').status).to eq(400)
   end
 
+  it 'supplies a synthetic operation for the loaded provider instead of a NovaPay-only browser body' do
+    sample = @client.get('/sample')
+    expect(sample.status).to eq(200)
+    operation = JSON.parse(sample.body)
+    expect(operation.fetch('id')).to eq('synthetic-demo-operation')
+    expect(post('/operations', operation).status).to eq(200)
+    expect(@client.get('/').body).to include('operation-json')
+    expect(@client.get('/demo.js').body).not_to include("amount:'1500.00'")
+  end
+
+  it 'makes the unverified PayPal boundary explicit and returns a usable provider-specific sample' do
+    Dir.mktmpdir do |directory|
+      project = Paygen::Project.init(File.expand_path('../fixtures/paypal/openapi.yaml', __dir__), output: File.join(directory, 'project'))
+      files = Paygen::Generator.new(project).render
+      app = described_class.new(source: files.fetch('paypal_service.rb'), config: JSON.parse(files.fetch('config.json')))
+      client = Rack::MockRequest.new(app)
+      expect(JSON.parse(client.get('/artifacts').body)['callback_verification']).to eq('provider_verification')
+      operation = JSON.parse(client.get('/sample').body)
+      response = client.post('/operations', 'CONTENT_TYPE' => 'application/json', input: JSON.generate(operation))
+      expect(response.status).to eq(200), response.body
+    end
+  end
+
   it 'reconciles a bank timeout by the merchant ID without sending another create' do
     Dir.mktmpdir do |directory|
       project = Paygen::Project.init(File.expand_path('../fixtures/raiffeisen_payouts/upstream/openapi.json', __dir__), output: File.join(directory, 'project'))
