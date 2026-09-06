@@ -1,37 +1,63 @@
-# Воспроизводимые эксперименты
+# Reproducible experiments
 
-Исследовательская программа не является списком обязательных release gates. `NOT_RUN` у необязательного сравнительного исследования не блокирует прототип; наличие скрипта или CI job не означает выполненный PASS. Каждый результат относится только к записанным SHA, dirty state и окружению. Нельзя переносить его на новый merge SHA без повторного запуска.
+The research program is separate from mandatory release gates. `NOT_RUN` for an
+optional comparative study does not block the prototype. A script or CI job is
+not evidence of an executed PASS. Every result applies only to its recorded SHA,
+dirty state and environment; a new merge SHA requires another run.
 
-## Исполняемый пакет E02–E05
+## Executable E02–E05 suite
 
 ```bash
 src/run exec ruby script/research-experiments
 ```
 
-Скрипт создаёт новый каталог `tmp/research-experiments/run-<UTC>-<pid>/`: `report.json`, `artifact-sha256.json`, stdout/stderr команд, проекты и native RSpec JSON. Можно передать явный **новый** каталог под `tmp/research-experiments/`; старое evidence не перезаписывается. Сохраняются SHA исходников и `src/Gemfile.lock`, hash исполняемого скрипта, Ruby/platform/Bundler, network/cache scope, seed, команды, exit codes и generated hashes. Значения окружения и реальные credentials не выгружаются. E05 использует checked-in синтетические HTTP oracles с WebMock, а не сеть провайдеров.
+The script creates `tmp/research-experiments/run-<UTC>-<pid>/` containing
+`report.json`, `artifact-sha256.json`, command stdout/stderr, projects and native
+RSpec JSON. An explicit **new** directory below `tmp/research-experiments/` may
+be supplied; previous evidence is not overwritten. It records source and
+`src/Gemfile.lock` hashes, the executed script hash, Ruby/platform/Bundler,
+network/cache scope, seed, commands, exit codes and generated hashes. Environment
+values and real credentials are not exported. E05 uses checked-in synthetic
+HTTP expectations with WebMock, without contacting providers.
 
-| ID | Проверка / oracle | Наблюдаемое свидетельство и граница |
-|---|---|---|
-| E01 | Полный RSpec: count/seed/coverage/exit | Исторический PASS: 1119/0, seed 1016 на `92ef59b…`, raw log `evidence/rspec-baseline.log`. Поздний 1141/0, seed 42570 на `09013a6…` сообщён интегратором без сохранённого raw log; это не финальный прогон. |
-| E02 | Два независимых project dirs, один source/profile/version → одинаковый набор и SHA generated files | PASS пакета E02–E05 на `954d1d1…`; см. реестр ниже. Это не только повторная запись в тот же каталог. |
-| E03 | Эквивалентные YAML/JSON → равные parsed IR/config/effective document/fixtures | PASS того же пакета. Provenance bytes, source identity, lock bytes и `config.source_hash` не входят в семантический oracle. |
-| E04 | Generated edit → `GENERATED_DRIFT`, байты сохранены; profile change → regeneration, extension сохранён | PASS того же пакета. Extension не исполняется; контроль подтверждает изменение generated artifacts. |
-| E05 | Native PayPal/Paystack + profiles → unchanged native source, generated adapters, independent HTTP examples | PASS того же пакета; `git diff HEAD -- lib` и hashes подтверждают отсутствие core edits. Selected create/status, не весь native API. |
-| E06 | Matched-budget stateless/stateful mutation comparison | **NOT_RUN — необязательное будущее исследование**, не release gate. Причинное превосходство stateful fuzzing не установлено. |
-| E07 | Реальная mutation → failure, shrink, replay; unchanged adapter → PASS того же trace | **OBSERVED, узкий slice:** showcase на clean `75e0331…`, seed 4242, `duplicate_payout`, trace 20 → 2, mutant replay FAIL, fixed replay PASS. Не весь mutation corpus. |
-| E08 | Cold empty-cache setup и warm CLI timings, ≥5 repeats отдельно | **NOT_RUN — необязательное будущее исследование**, не release gate. Измеренное ускорение разработки и cold-start latency не заявлены. |
-| E09 | Invalid amount/recipient/schema/signature → zero external calls / zero provider mutation | **PARTIAL OBSERVED:** showcase содержит отрицательные wire/callback controls, но не полную матрицу всех invalid cases. |
-| E10 | Независимые regression probes A1–A5 с controls | **OBSERVED:** `script/acceptance-independent`, 6/6, clean `b878e17…`. Post-fix probes, не заново выполненное red/green сравнение исторических checkout. |
-| E11 | Docs tests/build и проверки статических assets | Реализованы команды/gates; итоговый PASS требует свежих логов интегратора. Этот research-пакет Node/Docker/Pages не запускал. |
+| ID | Check or oracle | Observed evidence and scope |
+| --- | --- | --- |
+| E01 | Full RSpec count, seed, coverage and exit status | Historical PASS: 1119/0, seed 1016 at `92ef59b…`, raw log `evidence/rspec-baseline.log`. The integrator reported a later 1141/0, seed 42570 at `09013a6…` without a retained raw log; this is not the final run. |
+| E02 | Two independent project directories with the same source/profile/version produce identical generated files and hashes | PASS in E02–E05 at `954d1d1…`; see the record below. This checks independent generation, not just writing twice to one directory. |
+| E03 | Equivalent YAML/JSON produce equal parsed IR, configuration, effective document and fixtures | PASS in the same run. Provenance bytes, source identity, lock bytes and `config.source_hash` are excluded from this semantic comparison. |
+| E04 | Manual generated edits cause `GENERATED_DRIFT` without overwriting bytes; profile changes regenerate while preserving extensions | PASS in the same run. The extension is not executed; the control confirms changed generated artifacts. |
+| E05 | Native PayPal/Paystack plus profiles preserve native sources and generate adapters checked against independent HTTP examples | PASS in the same run. Historical `git diff HEAD -- lib` and hashes showed no core edits; the current path is `src/lib/`. Covers selected create/status flows, not the entire APIs. |
+| E06 | Matched-budget stateless/stateful mutation comparison | **NOT_RUN — optional future study**, not a release gate. No causal superiority of stateful fuzzing has been established. |
+| E07 | Actual mutation → failure, shrink and replay; unchanged adapter passes the same trace | **OBSERVED, narrow slice:** showcase on clean `75e0331…`, seed 4242, `duplicate_payout`, trace 20 → 2 actions, mutant replay FAIL, fixed replay PASS. Not the full mutation corpus. |
+| E08 | Separate cold empty-cache setup and warm CLI timings, at least five repetitions | **NOT_RUN — optional future study**, not a release gate. No measured development speedup or cold-start latency is claimed. |
+| E09 | Invalid amount, recipient, schema or signature causes zero external calls or provider mutations | **PARTIAL OBSERVED:** showcase includes negative wire and callback controls, not a complete invalid-input matrix. |
+| E10 | Independent regression probes A1–A5 with controls | **OBSERVED:** `script/acceptance-independent`, 6/6 on clean `b878e17…`. Post-fix probes, not a new red/green comparison of historical checkouts. |
+| E11 | Documentation tests, build and static-asset validation | Commands and gates exist; a final PASS requires fresh integration logs. This research run did not execute Node, Docker or Pages. |
 
-Полные SHA, окружения и hashes ранних integration artifacts перечислены в [реестре наблюдений](evidence/INTEGRATION_OBSERVATIONS.md). Последующий release report добавляет финальный SHA и свежие логи, а не переписывает историю. 703 JSONPath CTS примера в RSpec не являются платёжными сценариями.
+Full SHAs, environments and early integration-artifact hashes are in the
+[observation record](evidence/INTEGRATION_OBSERVATIONS.md). A later release report
+adds its final SHA and fresh logs without rewriting history. The 703 JSONPath
+compliance examples in RSpec are not payment scenarios.
 
-## Предлагаемый, ещё не выполненный протокол E06
+## Proposed E06 protocol, not yet executed
 
-Перед будущим сравнением следует зафиксировать corpus, actions, общий action budget, seeds и правило подсчёта kills. Кандидаты: пропуск account scope; пропуск workflow dependency; callback dedupe только по mapped status; decimal type drift; неверная root-ref identity; unknown→approved; подпись reserialized body; unsafe create retry; отключённая response validation. Это **кандидаты будущего протокола**, не уже выполненные mutations.
+Before comparison, pin the corpus, actions, total action budget, seeds and
+mutation-kill counting rule. Candidate mutations include omitted account scope,
+omitted workflow dependencies, callback deduplication by mapped status alone,
+decimal type drift, incorrect root-reference identity, unknown status mapped to
+approval, signing reserialized bodies, unsafe create retries and disabled response
+validation. These are candidates for a future protocol, not executed mutations.
 
-Fixed examples запускаются отдельно. Stateful и stateless получают одинаковый бюджет. Метрика — уникальные killed mutations и воспроизводимые invariant violations, не число assertions. E07 подтверждает механизм на одной внесённой мутации, но не отвечает на сравнительный RQ4.
+Run fixed examples separately. Give stateful and stateless runs the same budget.
+Count unique killed mutations and reproducible invariant violations, not
+assertions. E07 validates the mechanism on one injected mutation; it does not
+answer comparative research question RQ4.
 
-## Release acceptance отдельно от исследования
+## Release acceptance is separate from research
 
-Практическое подтверждение интегрированной версии: полный RSpec, независимые regression probes, showcase/replay, docs gates и требуемые проектом smoke/контейнерные checks. Итоговые статусы собирает release report. Provider sandbox, приватный BaseService, durable storage и PCI assessment не подменяются локальным PASS и не входят в доказательство этих экспериментов.
+Acceptance evidence for an integrated version comprises the full RSpec suite,
+independent regression probes, showcase/replay, documentation gates and required
+smoke/container checks. The release report collects final statuses. Local PASS
+does not replace provider sandbox verification, a private BaseService harness,
+durable storage validation or PCI assessment; these experiments do not establish
+those properties.

@@ -1,138 +1,317 @@
-# Paygen: от машинно-читаемого контракта к проверяемому Ruby-адаптеру
+# Paygen: from a machine-readable contract to a verifiable Ruby adapter
 
-**Статус исследования:** обновлено при интеграции 6 сентября 2026 года. Исторический baseline `92ef59bc2c8eb102c7452136ee4ea8a46887fd52` сохранён отдельно от новых E02–E05, независимой acceptance и mutation/replay. Каждый результат привязан к своему SHA и evidence; итоговый release report должен подтвердить финальную собранную версию. Необязательные E06/E08 остаются NOT_RUN и не блокируют приёмку прототипа.
+**Research status:** updated during integration on 6 September 2026. Historical
+baseline `92ef59bc2c8eb102c7452136ee4ea8a46887fd52` is retained separately from
+E02–E05, independent acceptance and mutation/replay evidence. Each result belongs
+to its recorded SHA and evidence. A release report must verify the final assembled
+version. Optional E06/E08 remain NOT_RUN and do not block prototype acceptance.
 
-## Резюме для команды
+## Team summary
 
-Paygen решает не задачу «автоматически написать платёжную платформу», а более узкую и проверяемую задачу: превратить OpenAPI-контракт и явно заданные предметные решения в согласованный комплект Ruby-сервиса, `INTEGRATION.md`, `fixtures.json` и служебных артефактов, после чего исполнить адаптер против локального HTTP-симулятора и проверить его фиксированными и последовательностными сценариями. [CASE] Интерфейс целевого сервиса включает `check_conditions`, `create_request`, `fetch_status` и `process_callback`; основной код должен оставаться Ruby, а ML внутри продукта запрещён. [Q&A] Логический `request_method` не является HTTP-глаголом, production `BaseService` не предоставляется, а подпись NovaPay вычисляется по точным байтам тела.
+Paygen addresses a bounded task: turn an OpenAPI contract and explicit domain
+decisions into a consistent Ruby service, `INTEGRATION.md`, `fixtures.json` and
+supporting artifacts, then execute the adapter against a local HTTP simulator
+with fixed and sequence-based checks. [CASE] The target service interface includes
+`check_conditions`, `create_request`, `fetch_status` and `process_callback`;
+the implementation must remain Ruby, without ML in the product. [Q&A] Logical
+`request_method` is not an HTTP verb, a production `BaseService` is not supplied,
+and NovaPay signatures use the exact body bytes.
 
-Главный инженерный вывод — OpenAPI достаточно для структуры HTTP-обмена, но недостаточно для безопасного восстановления всей платёжной семантики. Единицы суммы, отображение статусов, условная обязательность реквизитов, область идемпотентности, подпись callback и политика после неопределённого сетевого исхода должны приходить из проверяемого semantic profile/recipe либо оставаться диагностированным пробелом. [PROJECT POLICY] Неизвестное состояние не считается успехом; major→minor преобразуется без `Float`; отсутствие доказательств подписи нельзя компенсировать permissive fallback.
+OpenAPI supplies HTTP structure but cannot safely establish all payment semantics.
+Amount units, status mappings, conditional recipient requirements, idempotency
+scope, callback signatures and ambiguous-outcome policies need a reviewed profile
+or recipe. Missing decisions must remain visible diagnostics. [PROJECT POLICY]
+Unknown states are not successes, major-to-minor conversion avoids `Float`, and
+missing signature evidence cannot be replaced by permissive fallback behavior.
 
-Реализован конвейер Input → Overlay → IR/profile/provenance → Generator → Adapter/Simulator/Verifier/StateFuzzer. Исторический полный RSpec-прогон дал 1119 примеров без отказов при seed 1016, coverage 89,46% строк и 74,76% ветвей. Новые отдельные evidence подтверждают regression slice 6/6, showcase 150 checks и пакет E02–E05; это разные наборы на разных SHA, их нельзя складывать в единый test count. В RSpec 703 примера относятся к JSONPath CTS, а не платёжным сценариям. Локальные результаты не подтверждают совместимость с закрытым backend, реальный provider sandbox, settlement, PCI DSS compliance или exactly-once между процессами.
+The pipeline is Input → Overlay → IR/profile/provenance → Generator →
+Adapter/Simulator/Verifier/StateFuzzer. The historical full RSpec run produced
+1119 examples without failures at seed 1016, with 89.46% line and 74.76% branch
+coverage. Separate later evidence covers acceptance 6/6, showcase 150 checks and
+E02–E05. These are different sets at different SHAs, not one combined test count.
+Of the RSpec examples, 703 belong to JSONPath compliance. Local results do not
+establish private-backend compatibility, provider sandbox acceptance, settlement,
+PCI DSS compliance or cross-process exactly-once behavior.
 
-Для защиты полезно формулировать вклад как **управляемую трассу решений**: исходная спецификация сохраняется, поправки отделены Overlay, выигравший источник каждого semantic fact отражён в provenance, а один effective contract порождает код, документацию и fixtures. Это уменьшает случайное расхождение артефактов, но не устраняет common-mode ошибку: неверный profile может одинаково исказить генератор, симулятор и документацию. Поэтому независимые wire vectors, отрицательные мутации и проверка реального sandbox остаются обязательными следующими ступенями.
+The contribution is a reviewable record of decisions: preserved source,
+separate Overlay corrections, provenance for winning semantic facts, and one
+effective contract producing code, docs and fixtures. This reduces accidental
+artifact drift but retains the risk of a shared semantic mistake. Independent
+wire examples, negative controls and real sandbox checks remain necessary.
 
-## 1. Постановка задачи
+## 1. Problem statement
 
-Интеграция платёжного провайдера соединяет два неодинаковых контракта. С одной стороны находится HTTP API провайдера: paths, методы, параметры, схемы, security schemes и ответы. С другой — интерфейс host-приложения, жизненный цикл операции, словарь статусов и требования к callback. [CASE] Для NovaPay нужны создание выплаты, получение статуса, отмена, входящий webhook и баланс; авторизация использует `X-API-Key`, валюта — RUB, минимальная сумма создания — 100000 копеек. Получатель имеет ветви `sbp` и `card`: телефон обязателен, для SBP требуется `bank_code`, для карты — `card_number`. Статусы `pending`/`processing` отображаются в `in_progress`, `completed` — в `approved`, `failed`/`cancelled` — в `rejected`.
+A payment integration joins the provider's HTTP contract—paths, methods,
+parameters, schemas, security and responses—to a host application's operation
+lifecycle, statuses and callback interface. [CASE] NovaPay requires payout creation,
+status, cancellation, an incoming webhook and balance. Authentication uses
+`X-API-Key`; currency is RUB and the minimum creation amount is 100000 kopecks.
+Recipients have `sbp` and `card` branches: phone is required, with `bank_code` for
+SBP and `card_number` for cards. `pending`/`processing` map to `in_progress`,
+`completed` to `approved`, and `failed`/`cancelled` to `rejected`.
 
-Результат хакатона — понятный CLI и три основных generated artifact. [CASE] Приведённая оценка ручной интеграции «2–5 дней» является исходной оценкой кейса, а не измеренным Paygen сокращением времени. [Q&A] CLI достаточен для оценки интерфейса; web-интерфейс факультативен. [CASE] Экспертные checkpoint-приоритеты суммируются в 100, тогда как перечисленные максимумы технического жюри арифметически дают 103 при заявленном итоге 100. Это расхождение сохранено, а не превращено в собственный scoring engine.
+The hackathon deliverable is an understandable CLI and three primary generated
+artifacts. [CASE] The quoted manual-integration estimate of 2–5 days belongs to
+the case description; it is not a measured Paygen time saving. [Q&A] A CLI is
+sufficient for interface assessment; a web interface is optional. [CASE] Expert
+checkpoint priorities total 100, while the listed technical-jury maxima total 103
+despite a stated total of 100. This discrepancy is retained, not converted into
+a new scoring system.
 
-Граница результата принципиальна. Generated Ruby-класс и локальный reference harness не равны production-интеграции. Неизвестны конкретные исключения, транзакционные гарантии и форма закрытого `Provider::BaseService`; организаторы не обязаны предоставить harness. Явный совместимый hook `process_callback(payload, raw_body:, headers:)` нужен для проверки подписи по исходным байтам, но [PROJECT POLICY] его адаптацию к host следует согласовать. Старую сигнатуру нельзя поддерживать ценой отключения аутентичности.
+A generated class and reference harness are not a production integration. The
+private `Provider::BaseService` exception behavior, transactions and interface
+are unknown, and organizers need not provide a harness. The explicit
+`process_callback(payload, raw_body:, headers:)` hook permits exact-byte signature
+verification. [PROJECT POLICY] Host adaptation must be agreed separately;
+compatibility must not be achieved by disabling authenticity checks.
 
-## 2. Предметная область и источники неопределённости
+## 2. Domain and uncertainty
 
-**Payment** — перевод стоимости от плательщика, **payout** — выплата получателю, **provider** — внешняя система, а **adapter** переводит доменную команду host в wire request и wire response/event обратно в доменный результат. Эти определения не делают разные API взаимозаменяемыми: payout может быть синхронно принят, но ещё не исполнен и не рассчитан. HTTP 2xx способен означать принятие команды, а не settlement. Позднее возможны отказ, отмена или reversal; поэтому `approved` нельзя выводить из одного успешного транспорта без статусного правила.
+A payment transfers value from a payer; a payout sends funds to a recipient.
+A provider is an external system; an adapter translates host commands to wire
+requests and provider responses/events back to domain results. These definitions
+do not make APIs interchangeable. A payout can be accepted but not executed or
+settled: HTTP 2xx may acknowledge a command only. Later rejection, cancellation or
+reversal is possible. Approval therefore requires an explicit status rule.
 
-Деньги требуют пары «значение + валюта + единица». Число `1000` неоднозначно без `RUB` и признака major/minor. Десятичный ввод нельзя пропускать через binary `Float`: умножение и неявное округление способны изменить минимальную единицу. В Paygen для точных преобразований применяется `BigDecimal`, а scale задаётся семантически. Политика должна определить допустимое число десятичных знаков и поведение при нецелом minor result; безопасный default — явный отказ, а не скрытое округление.
+Money needs a value, currency and unit. `1000` is ambiguous without currency and
+major/minor units. Binary `Float` and implicit rounding can change the smallest
+unit. Paygen uses `BigDecimal` for exact conversion and explicit scale policy.
+Permitted precision and nonintegral minor-unit results must be handled explicitly;
+the conservative default is rejection instead of hidden rounding.
 
-Idempotency тоже не является одним заголовком. Нужны scope ключа (credential/account/operation/action), TTL, правила сравнения повторного payload и durable storage. Timeout после отправки особенно опасен: провайдер мог commit-нуть выплату, хотя клиент не получил ответ. Без reconciliation повтор может удвоить выплату, а без durable coordination in-memory store не даёт cross-process exactly-once. Корректная политика — fail closed, повтор по тому же ключу только при доказанной повторяемости, затем status/reconciliation.
+Idempotency involves key scope (credential/account/operation/action), retention,
+payload comparison and durable storage. A timeout after sending is ambiguous:
+the provider may have committed the payout. A repeat without reconciliation can
+create another payment. In-memory storage cannot coordinate independent workers.
+Repeating an ambiguous create requires a documented provider guarantee; otherwise
+status lookup and reconciliation are necessary.
 
-Webhook — недоверенный ввод. Проверка должна использовать exact raw body, нужные headers и secret, сравнивать MAC в constant-time режиме, а затем учитывать replay window, provider event ID и порядок. Дедупликация только по нормализованному статусу ошибочна: два подписанных события `pending` и `processing` оба дают `in_progress`, но могут нести разные metadata и последовательность. Синхронный callback-ответ также не доказывает, что событие устойчиво записано.
+Webhooks are untrusted input. Verification uses exact raw body bytes, the required
+headers and secret, constant-time MAC comparison, then replay-window, event-ID
+and ordering rules. Deduplicating by normalized status alone is insufficient:
+`pending` and `processing` both map to `in_progress` but may carry distinct
+metadata. A callback response does not itself prove durable event persistence.
 
-Ошибки делятся по крайней мере на validation, authentication, rate limit, provider business rejection, transient transport и ambiguous outcome. Они требуют различных retry/reconciliation решений. Неизвестный provider status должен быть ошибкой/диагностикой, а не success. Schema validation отбрасывает неверную форму, но не доказывает бизнес-смысл поля, полномочия credential или фактическое проведение денег.
+Validation, authentication, rate limiting, business rejection, transient transport
+errors and ambiguous outcomes require different retry policies. Unknown statuses
+cannot default to success. Schema checks validate shape, not field meaning,
+credential authority or actual money movement.
 
-## 3. Граница автоматизации
+## 3. Automation boundary
 
-Рабочая модель имеет три слоя. Первый — **syntax/structure**: безопасно прочитать YAML/JSON, определить версию OpenAPI, разрешить локальные `$ref`, проверить schema и извлечь operations, parameters, media types и security declarations. OpenAPI описывает интерфейс, но текстовые `description` и примеры не становятся исполняемыми инструкциями. Внешний `$ref` — отдельный сетевой capability и потенциальный SSRF; uploaded `servers` не дают разрешения обращаться в сеть.
+The first layer is syntax and structure: safe YAML/JSON parsing, OpenAPI version
+detection, local reference resolution, schema validation and extraction of
+operations, parameters, media types and security declarations. Descriptions and
+examples are data, not executable instructions. Remote references require an
+explicit network capability; uploaded server URLs do not authorize network calls.
 
-Второй слой — **semantic profile**. Он связывает provider fields с `amount`, `currency`, operation ID и recipient, задаёт amount unit/scale, status mapping, `required_if`, callback signature и логические actions. [Q&A] Общие overrides `amount_unit`, `required_if`, `signature_encoding` разрешены; provider-specific hardcode в ядре — нет. Explicit profile лучше эвристики: решение видно в diff, имеет provenance и может быть отвергнуто. LLM runtime не применяется: кроме требования кейса, вероятностный вывод критического правила неудобен для повторяемой проверки.
+The semantic profile binds provider fields to amount, currency, operation identity
+and recipient; defines units, scale, status mapping, `required_if`, signatures and
+logical actions. [Q&A] General overrides such as `amount_unit`, `required_if` and
+`signature_encoding` are allowed; provider-specific core hardcoding is not.
+Explicit decisions are reviewable, traceable and rejectable. There is no runtime
+LLM: beyond the case requirement, probabilistic critical-policy inference would
+undermine repeatable verification.
 
-Третий слой — **runtime policy**: transport timeout, retry allowlist, state key, clock, verification и reconciliation. Его нельзя вывести только из OpenAPI. При неполном описании Paygen должен сообщить warning/TODO либо unsupported, а не подставить правдоподобную догадку. Поддержка OpenAPI 3.0/3.1, локальных refs, Overlay 1.1 и ограниченного Arazzo — конечный перечень возможностей, не обещание «любого OpenAPI/PDF».
+Runtime policy is the third layer: transport timeouts, retry allowlists, state
+keys, clocks, verification and reconciliation. OpenAPI alone cannot determine it.
+Incomplete input should produce diagnostics or an unsupported result, not a
+plausible guess. OpenAPI 3.0/3.1, local references, Overlay 1.1 and limited Arazzo
+support form a finite capability set, not a promise to accept any OpenAPI or PDF.
 
-## 4. Архитектура и доверительные границы
+## 4. Architecture and trust boundaries
 
 ```mermaid
-flowchart LR
-  S[OpenAPI YAML/JSON\nнедоверенный input] --> I[Input: parse, limits, validation, local refs]
-  O[Overlay 1.1] --> E[effective contract]
-  I --> E
-  P[recipe/profile\nявные semantic decisions] --> IR[IR + diagnostics + provenance]
-  E --> IR
-  IR --> G[единый Generator]
+flowchart TD
+  S[OpenAPI source] --> I[Input validation]
+  I --> E[Effective contract]
+  O[Overlay corrections] --> E
+  E --> IR[IR and provenance]
+  P[Reviewed profile and recipe] --> IR
+  IR --> G[Generator]
   G --> R[Ruby service]
-  G --> D[INTEGRATION.md]
-  G --> F[fixtures.json]
+  G --> D[Guide and fixtures]
   R --> A[Adapter runtime]
-  A --> T[внедрённый HTTP transport]
-  A --> V[Verifier / StateFuzzer]
-  F --> V
-  X[независимые wire vectors] -. внешний oracle .-> V
+  A --> T[Injected HTTP transport]
+  A --> V[Verifier and StateFuzzer]
+  D --> V
+  X[Independent wire examples] -.-> V
 ```
 
-`Core::Input` ограничивает размер/глубину, использует safe YAML/JSON parsing и контролируемое разрешение ссылок. Это дешевле полноценного браузера remote refs и сознательно исключает скрытую сеть. JSONSchemer подходит для OpenAPI/schema validation, но validator не заменяет semantic binding. Для OpenAPI 3.0 и 3.1 важны различия schema dialect; нельзя механически приписать 3.0 весь JSON Schema 2020-12.
+`Core::Input` bounds size and depth, safely parses YAML/JSON and controls reference
+resolution. This deliberately excludes implicit remote retrieval. JSONSchemer
+validates OpenAPI and schemas but does not supply semantic bindings. OpenAPI 3.0
+and 3.1 use different schema dialects; 3.0 must not inherit the entire JSON Schema
+2020-12 feature set by assumption.
 
-Overlay сохраняет исходник неизменным и записывает упорядоченные исправления отдельно. Janeway исполняет RFC 9535 JSONPath, поэтому selector не поддерживается кустарным подмножеством. Цена — необходимость валидировать Overlay, ограничивать complexity и диагностировать target без совпадений. Минимальная альтернатива — отредактировать копию OpenAPI, но тогда теряется различие между upstream fact и командным решением, сложнее обновлять snapshot.
+Overlay preserves source and records ordered changes. Janeway provides RFC 9535
+JSONPath rather than an ad hoc selector subset. Overlay validation, complexity
+limits and unmatched-target diagnostics remain necessary. Editing a source copy
+would be simpler, but would obscure upstream facts versus team decisions and
+complicate snapshot updates.
 
-IR объединяет inference, vendor extensions, recipe и integration profile с provenance победившего значения. Его следует понимать как нормализованное представление на Ruby Hash, а не объявлять immutable typed IR. Один Generator использует effective configuration для Ruby, guide и fixtures, снижая вероятность независимого ручного drift. Но общая генерация создаёт common-mode риск. Hash manifest обнаруживает изменения generated files; user-owned `extensions/` сохраняются и не исполняются во время генерации. Альтернатива — три шаблонных pipeline, однако тогда изменение mapping приходится синхронизировать вручную.
+IR combines inference, vendor extensions, recipes and profiles with provenance
+for winning values. It is a normalized Ruby Hash representation, not an immutable
+typed IR. One generator uses the effective configuration for Ruby, guides and
+fixtures. A hash manifest detects generated edits; user-owned `extensions/` are
+preserved and never executed during generation. Three independent template
+pipelines would require manual synchronization and still carry semantic risks.
 
-Runtime Adapter отделяет transport, clock и state store. Эти seams позволяют без внешнего платежа наблюдать request bytes, моделировать timeout и управлять временем callback. `OpenSSL` реализует HMAC, `BigDecimal` — точные суммы. Simulator — локальный provider, а Demo — приложение, действительно вызывающее generated adapter и simulator; прямой mock response не является таким доказательством. Puma/Rack обеспечивают локальный HTTP boundary. Reference `BaseService` полезен для воспроизводимости, но не доказывает неизвестный production interface.
+The adapter separates transport, clock and state storage so checks can observe
+request bytes, inject timeouts and control callback time without real payments.
+OpenSSL provides HMAC and BigDecimal provides exact amounts. Simulator models a
+provider; Demo actually invokes the generated adapter and simulator. Rack/Puma
+provides the loopback HTTP boundary. A direct mock response is not equivalent
+execution evidence, and the reference BaseService does not establish compatibility
+with an unknown production interface.
 
-Verifier сочетает schema/semantic assertions и отрицательные сценарии. `StateFuzzer` генерирует ограниченные последовательности действий, проверяет модель состояния, сокращает найденную трассу и поддерживает replay. Это собственный генератор/shrinker; PropCheck используется отдельно в отдельных RSpec properties и не является реализацией product fuzzer. Shrinking возвращает более короткий найденный контрпример, не гарантированно глобально минимальный.
+Verifier combines schema and semantic assertions with negative scenarios.
+StateFuzzer generates bounded action sequences, checks state invariants, shrinks
+failures and replays them. Its generator and shrinker are custom; PropCheck powers
+separate RSpec properties. A shrunk counterexample is shorter, not necessarily
+globally minimal.
 
 ```mermaid
 stateDiagram-v2
   [*] --> unknown
-  unknown --> in_progress: create принят
-  in_progress --> in_progress: pending/processing event
+  unknown --> in_progress: create accepted
+  in_progress --> in_progress: pending or processing event
   in_progress --> approved: completed
-  in_progress --> rejected: failed/cancelled
+  in_progress --> rejected: failed or cancelled
   unknown --> uncertain: timeout after send
-  uncertain --> in_progress: status/reconciliation
-  uncertain --> approved: confirmed completed
+  uncertain --> in_progress: status or reconciliation
+  uncertain --> approved: confirmed completion
   uncertain --> rejected: confirmed failure
 ```
 
-### 4.1. Отвергнутые упрощения
+### 4.1. Rejected simplifications
 
-Ручная генерация одного Ruby-класса из шаблона была бы быстрее для NovaPay, но закрепила бы mapping в коде и не дала бы общего доказательства согласованности документации и fixtures. Универсальный OpenAPI SDK generator, напротив, хорошо решает типизированный HTTP client, однако сам по себе не выбирает доменную грань между `processing` и `approved`, scope ключа идемпотентности или способ передачи exact callback bytes в host. Поэтому Paygen не конкурирует с каждым SDK по числу поддержанных языков: он добавляет контролируемый semantic и verification слой для данного Ruby-контракта.
+A single provider-specific Ruby template would be faster for NovaPay but would
+embed mappings in code and provide no general artifact-consistency mechanism.
+An OpenAPI SDK generator handles typed HTTP clients but does not select payment
+status semantics, idempotency scope or the host's raw-callback interface. Paygen
+adds a controlled semantic and verification layer for this Ruby contract rather
+than competing on the number of supported output languages.
 
-Второе отвергнутое упрощение — извлекать критические правила из prose по ключевым словам. Оно удобно на демонстрации, но нестабильно при отрицаниях, локализации и неоднозначности. Description сохраняется как свидетельство для человека; автоматическое решение принимается лишь там, где действует явное, документированное правило. Неизвестное остаётся diagnostic. Общий overrides mechanism предпочтительнее NovaPay-ветки в parser, потому что новый provider добавляет данные, а не условие в core.
+Extracting critical policy from prose keywords was also rejected. Negation,
+localization and ambiguity make it unreliable. Descriptions remain evidence, not
+policy. Allowing unsigned callbacks or retries after every timeout would make a
+demo easier but violate the payment-safety requirements.
 
-Наконец, одних фиксированных happy-path fixtures недостаточно: они редко представляют timeout-after-commit, повтор callback или перестановку событий. Но бесконечный random fuzz также непрактичен. Bounded state exploration с seed, бюджетом, shrink и replay даёт воспроизводимый компромисс. Его выводы намеренно ограничены моделью reducer и набором actions; deterministic examples остаются независимой основой, а не заменяются fuzzing.
+## 5. Research questions and protocol
 
-## 5. Исследовательские вопросы и методика
+| ID | Question and operational definition | Experiment | Metric | Limitation |
+| --- | --- | --- | --- | --- |
+| RQ1 | Which facts are structural and which require a profile? Extraction means the same IR fact without provider hardcoding. | Remove semantic bindings in focused/native OpenAPI 3.0/3.1 inputs and compare diagnostics. | Inference versus profile origins; blockers and warnings. | Finite corpus, not every API. |
+| RQ2 | Does one contract reduce divergence among three artifacts? | Generate pinned source/profile/version twice; change a mapping and independently inspect code/docs/fixtures. | Byte equality, inconsistent assertions and drift outcomes. | Consistency can reproduce the same mistake. |
+| RQ3 | Can a different provider be onboarded without a core patch? | Native PayPal/Paystack snapshots and profiles; `git diff -- src/lib/`. | Executable profiles, core diff and unsupported diagnostics. | Not arbitrary-provider support or production readiness. |
+| RQ4 | Which defects does state testing additionally detect? | Predetermined mutation set, fixed examples, matched-budget stateless control and stateful sequences using equal budgets/seeds. | Unique mutation kills, trace reduction and replay rate. | Few seeds are not exhaustive; causal claims need a matched control. |
+| RQ5 | Which errors are rejected before side effects? | Invalid schema/amount/recipient/signature with instrumented transport/store. | Invalid cases with zero transport calls and provider mutations. | Does not measure real provider validation. |
 
-| ID | Вопрос и operational definition | Метод и dataset | Метрика | Ограничение |
-|---|---|---|---|---|
-| RQ1 | Что извлекается структурно, а что требует profile? «Извлекается» означает одинаковый IR fact без provider hardcode. | OpenAPI 3.0/3.1 focused и native corpus; удалить semantic bindings и сравнить diagnostics. | Доля/перечень facts с origin inference против profile; blocker/warning. | Конечный corpus, не все API. |
-| RQ2 | Уменьшает ли общий contract расхождение трёх артефактов? | Дважды сгенерировать один pinned input/profile/version; изменить mapping и проверить code/docs/fixtures независимыми assertions. | Byte equality, число inconsistent assertions, drift outcome. | Согласованность может одинаково воспроизвести ошибку. |
-| RQ3 | Возможен ли отличающийся provider без core patch? | Onboarding native PayPal/Paystack на фиксированных snapshots и profiles; `git diff -- src/lib/`. | Executable profiles, core diff, unsupported diagnostics. | Не доказывает произвольный provider и production readiness. |
-| RQ4 | Какие дефекты добавляет state testing? | Заранее зафиксированный mutation set; fixed examples, matched-budget stateless control и stateful sequences с одинаковым action budget/seeds. | Уникальные mutation kills; trace length до/после shrink; replay rate. | Несколько seeds не покрывают все состояния; без matched control причинность ограничена. |
-| RQ5 | Какие ошибки отвергаются до side effect? | Invalid schema/amount/recipient/signature и instrumented transport/store. | Число invalid cases с нулём transport calls и mock mutations. | Не измеряет provider-side validation. |
+Pin datasets by filename, SHA-256, license/provenance and tested commit. Distinguish
+focused NovaPay, Stripe, Adyen and PayPal contracts, Raiffeisen's full-contract
+profile, native PayPal/Paystack imports, and review-only T-Bank/Tochka. Independent
+wire expectations must not be generated from the same fixtures. Fix the faulty
+corpus and mutation set before running, including unfavorable cases. Measure cold
+empty-cache setup separately from warm startup; one timing is not general evidence.
 
-Dataset фиксируется именем файла, SHA-256, license/provenance и tested commit. Focused профили NovaPay, Stripe, Adyen, PayPal и Raiffeisen не следует смешивать с native imports PayPal/Paystack или review-only T-Bank/Tochka. Independent wire examples должны быть написаны независимо от generated fixtures; иначе oracle повторит ту же ошибку. Выбор faulty corpus и mutation set фиксируется до запуска, включая невыгодные мутации. Для timings отдельно измеряются cold setup (пустой dependency/cache layer) и warm start; единичное время не обобщается.
+## 6. Observations and evidence levels
 
-## 6. Наблюдаемые результаты и уровни evidence
+The historical full RSpec baseline at `92ef59b…` used Linux x86_64, Ruby 3.4.4,
+seed 1016 and WebMock with localhost enabled. It recorded **1119 examples,
+0 failures**, 96.69 seconds inside RSpec, line coverage 4098/4581 = 89.46%, and
+branch coverage 1884/2520 = 74.76%. Raw log and exit code are in
+`research/evidence/`. **703 examples are JSONPath compliance cases**. The integrator
+reported an intermediate 1141/0, seed 42570 at `09013a6…` without a retained raw
+log; that is REPORTED, not archived final-version evidence.
 
-Исторический baseline — полный `src/run test` на `92ef59b…`, Linux x86_64, Ruby 3.4.4, seed 1016, WebMock с разрешённым localhost. Результат: **1119 examples, 0 failures**, 96,69 s внутри RSpec; line coverage 4098/4581 = 89,46%, branch coverage 1884/2520 = 74,76%. Raw log и exit code находятся в `research/evidence/`. Из 1119 примеров **703 — JSONPath CTS**, не платёжные сценарии. Интегратор сообщил промежуточный прогон 1141/0, seed 42570 на `09013a6…`; raw log не сохранён, поэтому это REPORTED, а не архивированный результат финальной версии.
+Historical availability checks returned HTTP 200 for 11 primary URLs. This proves
+access at that time, not every associated claim. Code and lockfiles establish
+actual use of Ruby, JSONSchemer, Janeway, BigDecimal/OpenSSL,
+RSpec/WebMock/PropCheck, Rack/Puma and Diplodoc. Seven executable profiles and
+native imports describe different classifications; reviews and corpus entries
+must not be counted as completed integrations.
 
-Проверка доступности 11 первичных URL через `curl -L` дала HTTP 200 для каждого; это подтверждает доступ в момент проверки, но не содержание каждого claim. Код и lockfile подтверждают фактическое применение Ruby, JSONSchemer, Janeway, BigDecimal/OpenSSL, RSpec/WebMock/PropCheck, Rack/Puma и Diplodoc toolchain. Семь исполняемых профилей baseline и два native imports — разные категории; T-Bank/Tochka/corpus не считаются готовыми интеграциями.
+`script/research-experiments` executes E02–E05: two independently generated
+directories; semantic comparisons for equivalent YAML/JSON; generated-drift
+refusal and extension preservation; native PayPal/Paystack generation and
+independent HTTP examples without core changes. Provenance bytes are not compared
+as business semantics. SHAs, commands, environment, input/output hashes and logs
+are saved under `tmp/research-experiments/`.
 
-Пакет `script/research-experiments` действительно выполняет E02–E05: сравнивает два независимых каталога генерации; проверяет semantic IR/config/fixtures для эквивалентных YAML и JSON; подтверждает отказ при ручном generated drift и сохранение extensions; импортирует native PayPal/Paystack и запускает independent HTTP examples без изменения core. Provenance bytes не сравниваются как бизнес-семантика. SHA, команды, окружение, входные/выходные hashes и логи сохраняются под `tmp/research-experiments/`.
+On clean `b878e17…`, independent acceptance executed **6/6 probes** covering five
+baseline defects: tenant scope and rotation, workflow output preflight, distinct
+progress callbacks, decimal type preservation and root back-references. This is
+post-fix evidence for those cases, not a new historical red/green comparison.
+A subsequent merge needs another acceptance run.
 
-На clean `b878e17…` независимая acceptance исполнила **6/6 probes** для пяти baseline-дефектов: tenant scope и rotation, workflow output preflight, различимые progress callbacks, decimal type preservation и root back-reference. Это post-fix evidence этих случаев, не новый red/green прогон каждого исторического дефекта. Последующий merge требует повторения acceptance.
+Showcase on clean `75e0331…` executed **150 PASS checks**, counting commands and
+assertions. E07 supplies a real negative control: a disposable subprocess with a
+broken create reservation produced two provider commits. At seed 4242,
+StateFuzzer saved a 20-action trace and shrank it to 2. Mutant replay again found
+`duplicate_payout`; the unchanged adapter passed the same persisted trace and
+profile hash. This demonstrates generation, shrinking and replay for one mutation,
+not sensitivity across a full mutation corpus.
 
-Showcase на clean `75e0331…` исполнил **150 PASS checks**, включая команды и assertions. E07 имеет фактический отрицательный контроль: disposable subprocess с намеренно сломанной create reservation получил два provider commits; StateFuzzer при seed 4242 сохранил trace из 20 actions и сократил до 2. Replay mutant снова выявил `duplicate_payout`; обычный неизменённый adapter прошёл тот же persisted trace с тем же profile hash. Это demonstration generation/shrink/replay на одной мутации, не измерение чувствительности на полном mutation corpus.
+The result matrix and early integration hashes are in [EXPERIMENTS.md](EXPERIMENTS.md)
+and the [observation record](evidence/INTEGRATION_OBSERVATIONS.md). E06
+(matched-budget comparison) and E08 (cold/warm timings) remain **NOT_RUN, optional
+future studies**. Superiority, measured development speedup and completion of the
+whole research program are not established. Documentation and container PASS
+require actual logs for the release under review, not merely workflow files.
 
-Матрица результатов и hashes ранних integration artifacts находятся в `EXPERIMENTS.md` и `evidence/INTEGRATION_OBSERVATIONS.md`. E06 (matched-budget stateful/stateless comparison) и E08 (cold/warm timings) остаются **NOT_RUN, optional future study**. Нельзя заявлять доказанное превосходство stateful fuzzing, ускорение разработки или завершение всей программы. Docs gates и container commands существуют, но PASS сборки/OCI должен подтверждаться отдельным фактическим логом финального release, а не наличием workflow файла.
+## 7. Validity and security limits
 
-## 7. Угрозы валидности и безопасность
+**Internal validity.** Generator, simulator, docs and fixtures share a profile.
+Agreement among them is not independent verification. Independent wire examples
+reduce risk but can still share a misreading of provider documentation. Sandbox
+checks and confirmation by the API owner remain external steps.
 
-**Внутренняя валидность.** Generator, simulator, docs и generated fixtures питаются общим profile. Их взаимное согласие не является независимым подтверждением. Independent wire vectors уменьшают риск, но тоже могут основываться на той же неверно прочитанной документации. Provider sandbox и согласование с владельцем API остаются внешними проверками.
+**External validity.** The corpus is small and curated. Several distinct contracts
+demonstrate portability for those cases, not universality. Full OpenAPI, Overlay
+and Arazzo feature coverage is not implied. Private BaseService behavior, real
+credential scopes, sandbox outcomes, settlement and reversal remain unverified.
 
-**Внешняя валидность.** Corpus curated и мал. Поддержка нескольких различающихся specs показывает переносимость в этих случаях, но не универсальность. Полные dialect/features OpenAPI, Overlay и Arazzo не реализуются автоматически. Private `BaseService`, реальные credential scopes, sandbox, settlement и reversal не проверены.
+**Construct validity.** Additional defects found by stateful testing might reflect
+a larger budget. A matched-budget stateless control is needed. Coverage measures
+executed code, not all business states. Successful loopback HTTP verifies the
+transport path, not a funds transfer.
 
-**Конструктивная валидность.** Большее число найденных ошибок после добавления stateful tests может быть следствием большего бюджета тестов. Нужен matched-budget stateless control. Coverage показывает исполненные строки/ветви, но не полноту бизнес-состояний. Успех локального HTTP запроса доказывает transport path, не перевод денег.
+**Reproducibility.** Record seeds and total action budgets; one seed does not
+cover all states. Call traces reduced, not minimal. Timings depend on CPU,
+filesystem, gem/pnpm caches and network. Results for a merge require execution
+at that merge SHA.
 
-**Воспроизводимость.** Seed и общий action budget обязательны; один seed не означает все состояния. Shrunk trace называется сокращённым, не минимальным. Timings зависят от CPU, filesystem, gem/pnpm cache и сети. Любой результат после merge должен быть повторён на merge SHA.
+**Threat model.** Specifications, profiles, overlays and Arazzo documents are
+untrusted data. Parsers need limits and timeouts; references and server declarations
+must not silently authorize network access. YAML does not execute Ruby. Extensions
+are trusted application code explicitly loaded by the host. Secrets, real PAN/CVV
+and callback bodies must not enter documentation or logs. Only labeled synthetic
+cards are acceptable test data. Replay retains fixture identity/version/hash,
+not irreversibly masked input. Verify HMAC before trusting the payload; unknown
+signature encodings block callback verification.
 
-**Threat model.** Spec/profile/Overlay/Arazzo считаются недоверенными данными. Парсеры имеют limits/timeouts; внешние refs и `servers` не должны инициировать сеть без отдельного разрешения. YAML не выполняет Ruby; extensions — доверенный user-owned код и загружаются host явно. Secrets, raw PAN/CVV и callback bodies не должны попадать в документацию или логи. Допустимы только помеченные синтетические cards; replay хранит fixture ID+version/hash, а не необратимо маскированный вход. HMAC проверяется до доверия payload; неизвестная signature encoding блокирует callback.
+Encryption or masking alone does not remove PCI DSS scope, which depends on
+actual architecture and applicable requirements. This prototype does not claim
+PCI compliance. Cross-process exactly-once claims require durable coordination,
+a crash model and a transaction contract; default in-memory storage is insufficient.
 
-Шифрование или masking сами по себе не выводят систему из PCI DSS scope: он зависит от реальной архитектуры и применимых требований. Этот prototype не заявляет PCI compliance. In-memory store не даёт cross-process exactly-once; для такого утверждения нужны durable coordination, crash model и transaction contract.
+## 8. Conclusions and bounded roadmap
 
-## 8. Заключение и конечный roadmap
+Paygen demonstrates a practical integration pipeline: machine-readable structure,
+reviewed domain profiles, separate upstream corrections, traceable provenance,
+consistent generated artifacts and observable transport/state/clock boundaries.
+Verification and bounded state fuzzing exercise positive and negative paths.
+The contribution beyond SDK generation is the explicit payment bindings,
+raw-callback interface, state policies and matching documentation/fixtures for
+the target Ruby contract.
 
-Paygen демонстрирует практический компромисс между ручной интеграцией и небезопасной полной автоматизацией. Машинно-читаемый контракт задаёт структуру; profile фиксирует предметные решения; Overlay отделяет upstream от поправок; provenance объясняет происхождение; общий generator синхронизирует артефакты; transport/state/clock seams делают локальное поведение наблюдаемым; verifier и bounded state fuzz проверяют позитивные и негативные траектории. Эта архитектура предпочтительнее обычного SDK generation для поставленной задачи не потому, что SDK generators «не умеют платежи», а потому, что здесь дополнительно проверены semantic bindings, callback raw bytes, state policies и согласованная документация/fixtures.
-
-Практический workflow: pin source и hash → inspect diagnostics → применить reviewable Overlay → заполнить semantic profile без догадок → generate → проверить drift → исполнить adapter через loopback simulator → прогнать independent vectors, faults и replay → вручную согласовать backend hooks → проверить provider sandbox → только затем проектировать production storage, observability и compliance. Для сдачи интегрированной версии нужны свежие release evidence на её SHA: suite, независимые regression probes, showcase/replay и docs/smoke gates. Их достаточность определяет release acceptance, а не необязательная исследовательская программа. E06/E08 разумно оставить будущей работой; production storage, private backend, sandbox и compliance требуют самостоятельной проверки вне локального прототипа.
+The workflow is: pin source and hash; inspect diagnostics; apply reviewable
+corrections; complete the profile; generate and check drift; execute through the
+loopback simulator; run independent vectors, faults and replay; agree backend
+hooks; verify the provider sandbox; then design production storage, observability
+and compliance. Prototype handoff requires fresh suite, acceptance, showcase/replay
+and docs/smoke evidence at the assembled SHA. Optional E06/E08 can remain future
+work. Private backend, durable storage, sandbox and compliance each need separate
+verification beyond the local prototype.
